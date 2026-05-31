@@ -772,6 +772,169 @@ pub fn add_module_to_graph(
     )
 }
 
+pub fn remove_module_from_graph(
+    project: &mut StudioProject,
+    graph_id: &str,
+    module_reference_id: &str,
+    base_dir: Option<&Path>,
+) -> StudioEditReport {
+    let original_revision = project.revision;
+    let requested_host_profile = graph_target_host_profile(project, graph_id);
+
+    if !is_dotted_id(graph_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::RemoveModule,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_graph_id".to_string()),
+            "Graph id is not a dotted id".to_string(),
+            graph_id,
+            module_reference_id,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    if !is_dotted_id(module_reference_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::RemoveModule,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_reference_id".to_string()),
+            "Module reference id is not a dotted id".to_string(),
+            graph_id,
+            module_reference_id,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    let mut candidate = project.clone();
+    let mut changed_fields = Vec::new();
+    {
+        let Some(graph) = candidate
+            .graphs
+            .iter_mut()
+            .find(|graph| graph.graph_id == graph_id)
+        else {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::RemoveModule,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.graph_missing".to_string()),
+                "Graph was not found in the project".to_string(),
+                graph_id,
+                module_reference_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        };
+
+        let module_node_ids = graph
+            .nodes
+            .iter()
+            .filter(|node| {
+                node.kind == StudioNodeKind::Module && node.reference_id == module_reference_id
+            })
+            .map(|node| node.node_id.clone())
+            .collect::<BTreeSet<_>>();
+
+        for node_id in &module_node_ids {
+            changed_fields.push(format!("graphs.{graph_id}.nodes.{node_id}"));
+        }
+        graph
+            .nodes
+            .retain(|node| !module_node_ids.contains(&node.node_id));
+
+        let incident_edge_ids = graph
+            .edges
+            .iter()
+            .filter(|edge| {
+                module_node_ids.contains(&edge.source_node_id)
+                    || module_node_ids.contains(&edge.target_node_id)
+            })
+            .map(|edge| edge.edge_id.clone())
+            .collect::<Vec<_>>();
+        for edge_id in &incident_edge_ids {
+            changed_fields.push(format!("graphs.{graph_id}.edges.{edge_id}"));
+        }
+        graph
+            .edges
+            .retain(|edge| !incident_edge_ids.contains(&edge.edge_id));
+    }
+
+    if !changed_fields.is_empty() {
+        let Some(next_revision) = candidate.revision.checked_add(1) else {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::RemoveModule,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.revision_overflow".to_string()),
+                "Project revision cannot be incremented".to_string(),
+                graph_id,
+                module_reference_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        };
+        candidate.revision = next_revision;
+    }
+
+    let validation = validate_project_with_base(&candidate, base_dir);
+    if validation.status == StudioValidationStatus::Pass {
+        *project = candidate;
+        let resulting_revision = project.revision;
+        let message = if changed_fields.is_empty() {
+            "Graph already omits the requested module"
+        } else {
+            "Graph module and incident edges were removed"
+        };
+        return edit_report(
+            project,
+            original_revision,
+            resulting_revision,
+            StudioEditOperation::RemoveModule,
+            StudioEditStatus::Applied,
+            None,
+            message.to_string(),
+            graph_id,
+            module_reference_id,
+            &requested_host_profile,
+            changed_fields,
+            validation,
+        );
+    }
+
+    let issue_code = first_failed_issue_code(&validation)
+        .unwrap_or_else(|| "studio.issue.edit_rejected".to_string());
+    edit_report(
+        project,
+        original_revision,
+        original_revision,
+        StudioEditOperation::RemoveModule,
+        StudioEditStatus::Rejected,
+        Some(issue_code),
+        "Edited project candidate failed validation; source project was left unchanged".to_string(),
+        graph_id,
+        module_reference_id,
+        &requested_host_profile,
+        Vec::new(),
+        validation,
+    )
+}
+
 pub fn shell_descriptor_for_graph(
     project: &StudioProject,
     base_dir: Option<&Path>,
@@ -4057,6 +4220,96 @@ mod tests {
             .nodes
             .iter()
             .any(|node| node.reference_id == "module.missing"));
+    }
+
+    #[test]
+    fn remove_module_from_graph_removes_module_and_incident_edges() {
+        let root = temp_root("remove-module");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_shell_project_with_relative_references();
+
+        let report = remove_module_from_graph(
+            &mut project,
+            "studio.graph.test",
+            "module.synthetic_provider",
+            Some(&root),
+        );
+
+        assert_eq!(report.operation, StudioEditOperation::RemoveModule);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.requested_reference_id, "module.synthetic_provider");
+        assert_eq!(report.requested_host_profile, "host_run.profile.desktop");
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 2);
+        assert_eq!(project.revision, 2);
+        assert!(!project.graphs[0]
+            .nodes
+            .iter()
+            .any(|node| node.reference_id == "module.synthetic_provider"));
+        assert!(!project.graphs[0].edges.iter().any(|edge| {
+            edge.source_node_id == "node.module.synthetic_provider"
+                || edge.target_node_id == "node.module.synthetic_provider"
+        }));
+        assert_eq!(report.validation.status, StudioValidationStatus::Pass);
+        assert!(report
+            .changed_fields
+            .iter()
+            .any(|field| field.ends_with("nodes.node.module.synthetic_provider")));
+        assert!(report
+            .changed_fields
+            .iter()
+            .any(|field| field.ends_with("edges.edge.package_module")));
+        assert!(report
+            .changed_fields
+            .iter()
+            .any(|field| field.ends_with("edges.edge.shell_command")));
+    }
+
+    #[test]
+    fn remove_module_from_graph_is_idempotent_when_module_is_absent() {
+        let root = temp_root("remove-module-idempotent");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+
+        let report = remove_module_from_graph(
+            &mut project,
+            "studio.graph.test",
+            "module.synthetic_provider",
+            Some(&root),
+        );
+
+        assert_eq!(report.operation, StudioEditOperation::RemoveModule);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 1);
+        assert!(report.changed_fields.is_empty());
+        assert_eq!(project.revision, 1);
+    }
+
+    #[test]
+    fn remove_module_from_graph_rejects_missing_graph_without_mutating() {
+        let root = temp_root("remove-module-missing-graph");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_shell_project_with_relative_references();
+
+        let report = remove_module_from_graph(
+            &mut project,
+            "studio.graph.missing",
+            "module.synthetic_provider",
+            Some(&root),
+        );
+
+        assert_eq!(report.operation, StudioEditOperation::RemoveModule);
+        assert_eq!(report.status, StudioEditStatus::Rejected);
+        assert_eq!(
+            report.issue_code.as_deref(),
+            Some("studio.issue.graph_missing")
+        );
+        assert_eq!(project.revision, 1);
+        assert!(project.graphs[0]
+            .nodes
+            .iter()
+            .any(|node| node.reference_id == "module.synthetic_provider"));
     }
 
     #[test]

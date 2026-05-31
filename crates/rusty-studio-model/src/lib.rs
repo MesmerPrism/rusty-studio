@@ -125,6 +125,7 @@ pub struct StudioEditReport {
 pub enum StudioEditOperation {
     RetargetHost,
     AddModule,
+    RemoveModule,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
