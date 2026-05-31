@@ -11,6 +11,8 @@ Current scope:
 - resolve a selected host profile;
 - produce an export-plan skeleton;
 - expose deterministic CLI commands for agents and future GUI parity;
+- expose catalog package/module and host-profile palette rows through the
+  shared view model;
 - render the resolved synthetic project in a Makepad desktop authoring surface;
 - navigate between desktop and headset graph targets without mutating project
   state;

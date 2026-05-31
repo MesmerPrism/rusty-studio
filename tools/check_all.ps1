@@ -99,6 +99,46 @@ try {
         "--project",
         "examples\synthetic-studio-project.json"
     )
+    $ViewModelOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop"
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio view model palette check failed with exit code $LASTEXITCODE"
+    }
+    $ViewModelText = $ViewModelOutput -join [Environment]::NewLine
+    $ViewModel = $ViewModelText | ConvertFrom-Json
+    if ($ViewModel.'$schema' -ne "rusty.studio.view_model.v1") {
+        throw "view model schema mismatch"
+    }
+    if ($ViewModel.catalog_package_count -lt 4) {
+        throw "view model should expose at least four catalog packages"
+    }
+    if ($ViewModel.host_profile_count -ne 3) {
+        throw "view model should expose desktop, phone, and headset profiles"
+    }
+    $SyntheticPackage = $ViewModel.catalog_packages | Where-Object { $_.package_id -eq "package.synthetic_wave" } | Select-Object -First 1
+    if ($null -eq $SyntheticPackage) {
+        throw "view model missing synthetic wave package palette row"
+    }
+    if (-not $SyntheticPackage.in_selected_graph) {
+        throw "view model should mark synthetic wave package as selected"
+    }
+    $SyntheticModules = @($SyntheticPackage.module_ids)
+    if ($SyntheticModules -notcontains "module.synthetic_wave_provider") {
+        throw "view model missing synthetic wave provider module export"
+    }
+    $DesktopProfile = $ViewModel.host_profiles | Where-Object { $_.profile_id -eq "host_run.profile.desktop" } | Select-Object -First 1
+    if ($null -eq $DesktopProfile) {
+        throw "view model missing desktop host profile row"
+    }
+    if (-not $DesktopProfile.targets_selected_graph) {
+        throw "view model should mark desktop host profile as selected target"
+    }
+    $HeadsetProfile = $ViewModel.host_profiles | Where-Object { $_.profile_id -eq "host_run.profile.headset" } | Select-Object -First 1
+    if ($null -eq $HeadsetProfile) {
+        throw "view model missing headset host profile row"
+    }
+    if ($HeadsetProfile.targets_selected_graph) {
+        throw "view model should not mark headset profile as desktop target"
+    }
     Invoke-Checked "studio view model selected graph" "cargo" @(
         "run",
         "-p",

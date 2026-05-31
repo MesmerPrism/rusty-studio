@@ -430,7 +430,34 @@ pub struct StudioViewModel {
     pub selected_graph_index: Option<usize>,
     pub selected_graph_id: Option<String>,
     pub selection_issue_code: Option<String>,
+    pub catalog_package_count: usize,
+    pub catalog_module_count: usize,
+    pub host_profile_count: usize,
+    pub catalog_packages: Vec<StudioCatalogPackageView>,
+    pub host_profiles: Vec<StudioHostProfileView>,
     pub graphs: Vec<StudioGraphView>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioCatalogPackageView {
+    pub package_id: String,
+    pub manifest_path: String,
+    pub module_count: usize,
+    pub module_ids: Vec<String>,
+    pub in_selected_graph: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioHostProfileView {
+    pub profile_id: String,
+    pub host_profile: Option<String>,
+    pub app_id: Option<String>,
+    pub install_route: Option<String>,
+    pub launch_route: Option<String>,
+    pub command_bridge: Option<String>,
+    pub evidence_pull_route: Option<String>,
+    pub required_permissions: Vec<String>,
+    pub targets_selected_graph: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

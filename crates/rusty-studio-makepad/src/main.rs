@@ -128,6 +128,13 @@ script_mod! {
         Row{FieldLabel{text: "counts"} graph_counts := SmallValue{text: ""}}
     }
 
+    let PalettePanel = Panel{
+        SectionTitle{text: "Reference Palette"}
+        Row{FieldLabel{text: "packages"} catalog_packages := SmallValue{text: ""}}
+        Rule{}
+        Row{FieldLabel{text: "profiles"} host_profiles := SmallValue{text: ""}}
+    }
+
     let EditPanel = Panel{
         SectionTitle{text: "Edit Report"}
         ButtonRow{
@@ -207,6 +214,7 @@ script_mod! {
 
                         ProjectPanel{}
                         GraphPanel{}
+                        PalettePanel{}
                         EditPanel{}
                         CanvasPanel{}
                         InspectorPanel{}
@@ -268,6 +276,12 @@ impl App {
         self.ui
             .label(cx, ids!(validation_status))
             .set_text(cx, &validation_line(&model));
+        self.ui
+            .label(cx, ids!(catalog_packages))
+            .set_text(cx, &catalog_package_lines(&model));
+        self.ui
+            .label(cx, ids!(host_profiles))
+            .set_text(cx, &host_profile_lines(&model));
 
         if let Some(issue_code) = &model.selection_issue_code {
             self.sync_no_graph(cx);
@@ -633,6 +647,8 @@ impl App {
         self.ui
             .label(cx, ids!(validation_status))
             .set_text(cx, error);
+        self.ui.label(cx, ids!(catalog_packages)).set_text(cx, "");
+        self.ui.label(cx, ids!(host_profiles)).set_text(cx, "");
         self.sync_no_graph(cx);
         self.last_edit_report = None;
         self.last_edit_save_issue.clear();
@@ -941,6 +957,64 @@ fn validation_line(model: &StudioViewModel) -> String {
     )
 }
 
+fn catalog_package_lines(model: &StudioViewModel) -> String {
+    if model.catalog_packages.is_empty() {
+        return "none".to_string();
+    }
+    model
+        .catalog_packages
+        .iter()
+        .map(|package| {
+            let state = if package.in_selected_graph {
+                "selected"
+            } else {
+                "available"
+            };
+            let modules = if package.module_ids.is_empty() {
+                "no module exports".to_string()
+            } else {
+                package.module_ids.join(", ")
+            };
+            format!(
+                "{} [{}; {} module(s)]\n  {}\n  manifest: {}",
+                package.package_id, state, package.module_count, modules, package.manifest_path
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn host_profile_lines(model: &StudioViewModel) -> String {
+    if model.host_profiles.is_empty() {
+        return "none".to_string();
+    }
+    model
+        .host_profiles
+        .iter()
+        .map(|profile| {
+            let state = if profile.targets_selected_graph {
+                "target"
+            } else {
+                "available"
+            };
+            let host = profile.host_profile.as_deref().unwrap_or("unknown host");
+            let install = profile
+                .install_route
+                .as_deref()
+                .unwrap_or("install route missing");
+            let launch = profile
+                .launch_route
+                .as_deref()
+                .unwrap_or("launch route missing");
+            format!(
+                "{} [{}]\n  host: {}; routes: {} / {}",
+                profile.profile_id, state, host, install, launch
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn edit_status_line(report: &StudioEditReport, save_issue: &str) -> String {
     let status = match report.status {
         StudioEditStatus::Applied => "applied",
@@ -1160,6 +1234,25 @@ mod tests {
             refreshed_model.graphs[0].target_host_profile,
             "host_run.profile.headset"
         );
+    }
+
+    #[test]
+    fn palette_lines_render_catalog_and_host_profiles() {
+        let root = temp_root("palette-lines");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+
+        let package_lines = catalog_package_lines(&model);
+        assert!(package_lines.contains("package.synthetic [selected; 1 module(s)]"));
+        assert!(package_lines.contains("module.synthetic_provider"));
+        assert!(package_lines.contains("packages/synthetic/manifests/package.manifold.json"));
+
+        let profile_lines = host_profile_lines(&model);
+        assert!(profile_lines.contains("host_run.profile.desktop [target]"));
+        assert!(profile_lines.contains("host: host.desktop"));
+        assert!(profile_lines.contains("host_run.profile.headset [available]"));
     }
 
     #[test]

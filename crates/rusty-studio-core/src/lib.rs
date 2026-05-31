@@ -1,8 +1,8 @@
 use rusty_studio_model::{
     StudioBindingKind, StudioEdge, StudioEdgeKind, StudioEditOperation, StudioEditReport,
-    StudioEditStatus, StudioExportBundle, StudioExportPlan, StudioGraph, StudioNode,
-    StudioNodeKind, StudioProject, StudioResolvedGraph, StudioResolvedProject, StudioShellArtifact,
-    StudioShellArtifactManifest, StudioShellArtifactManifestValidationReport,
+    StudioEditStatus, StudioExportBundle, StudioExportPlan, StudioGraph, StudioHostProfileView,
+    StudioNode, StudioNodeKind, StudioProject, StudioResolvedGraph, StudioResolvedProject,
+    StudioShellArtifact, StudioShellArtifactManifest, StudioShellArtifactManifestValidationReport,
     StudioShellArtifactRejection, StudioShellArtifactReport, StudioShellArtifactStatus,
     StudioShellBinding, StudioShellDescriptor, StudioShellDescriptorReport,
     StudioShellDescriptorStatus, StudioShellDescriptorValidationReport, StudioShellHostProfile,
@@ -18,7 +18,9 @@ use rusty_studio_model::{
     SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
     SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
-use rusty_studio_model::{StudioEdgeView, StudioGraphView, StudioNodeView};
+use rusty_studio_model::{
+    StudioCatalogPackageView, StudioEdgeView, StudioGraphView, StudioNodeView,
+};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -291,6 +293,14 @@ pub fn view_model_for_graph(
     let selected_graph_id = selected_graph_index
         .and_then(|index| graphs.get(index))
         .map(|graph| graph.graph_id.clone());
+    let selected_graph = selected_graph_index.and_then(|index| project.graphs.get(index));
+    let reference_index = reference_index_for_project(project, base_dir);
+    let catalog_packages = catalog_package_views(reference_index.as_ref(), selected_graph);
+    let host_profiles = host_profile_views(reference_index.as_ref(), selected_graph);
+    let catalog_module_count = catalog_packages
+        .iter()
+        .map(|package| package.module_count)
+        .sum();
     let selection_issue_code = match (requested_graph_id, selected_graph_index) {
         (Some(_), None) => Some("studio.issue.graph_selection_missing".to_string()),
         _ => None,
@@ -308,6 +318,11 @@ pub fn view_model_for_graph(
         selected_graph_index,
         selected_graph_id,
         selection_issue_code,
+        catalog_package_count: catalog_packages.len(),
+        catalog_module_count,
+        host_profile_count: host_profiles.len(),
+        catalog_packages,
+        host_profiles,
         graphs,
     }
 }
@@ -2064,6 +2079,7 @@ struct ReferenceIndex {
     package_ids: BTreeSet<String>,
     module_ids: BTreeSet<String>,
     package_modules: BTreeMap<String, BTreeSet<String>>,
+    package_manifest_paths: BTreeMap<String, String>,
     host_profiles: BTreeMap<String, HostProfileReference>,
 }
 
@@ -2085,6 +2101,76 @@ fn reference_index_for_project(
 ) -> Option<ReferenceIndex> {
     let mut checks = Vec::new();
     validate_project_references(project, base_dir, &mut checks)
+}
+
+fn catalog_package_views(
+    reference_index: Option<&ReferenceIndex>,
+    selected_graph: Option<&StudioGraph>,
+) -> Vec<StudioCatalogPackageView> {
+    let Some(reference_index) = reference_index else {
+        return Vec::new();
+    };
+    let selected_packages = selected_node_reference_ids(selected_graph, StudioNodeKind::Package);
+    reference_index
+        .package_ids
+        .iter()
+        .map(|package_id| {
+            let module_ids = reference_index
+                .package_modules
+                .get(package_id)
+                .map(|module_ids| module_ids.iter().cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            StudioCatalogPackageView {
+                package_id: package_id.clone(),
+                manifest_path: reference_index
+                    .package_manifest_paths
+                    .get(package_id)
+                    .cloned()
+                    .unwrap_or_default(),
+                module_count: module_ids.len(),
+                module_ids,
+                in_selected_graph: selected_packages.contains(package_id),
+            }
+        })
+        .collect()
+}
+
+fn host_profile_views(
+    reference_index: Option<&ReferenceIndex>,
+    selected_graph: Option<&StudioGraph>,
+) -> Vec<StudioHostProfileView> {
+    let Some(reference_index) = reference_index else {
+        return Vec::new();
+    };
+    reference_index
+        .host_profiles
+        .values()
+        .map(|reference| StudioHostProfileView {
+            profile_id: reference.profile_id.clone(),
+            host_profile: reference.host_profile.clone(),
+            app_id: reference.app_id.clone(),
+            install_route: reference.install_route.clone(),
+            launch_route: reference.launch_route.clone(),
+            command_bridge: reference.command_bridge.clone(),
+            evidence_pull_route: reference.evidence_pull_route.clone(),
+            required_permissions: reference.required_permissions.clone(),
+            targets_selected_graph: selected_graph.is_some_and(|graph| {
+                graph.target_host_profile.as_str() == reference.profile_id.as_str()
+            }),
+        })
+        .collect()
+}
+
+fn selected_node_reference_ids(
+    selected_graph: Option<&StudioGraph>,
+    kind: StudioNodeKind,
+) -> BTreeSet<String> {
+    selected_graph
+        .into_iter()
+        .flat_map(|graph| graph.nodes.iter())
+        .filter(|node| node.kind == kind)
+        .map(|node| node.reference_id.clone())
+        .collect()
 }
 
 fn shell_host_profile(
@@ -3123,6 +3209,9 @@ fn collect_catalog_references(
         );
         if is_dotted_id(package_id) {
             references.package_ids.insert(package_id.to_string());
+            references
+                .package_manifest_paths
+                .insert(package_id.to_string(), manifest_path.to_string());
         }
         let manifest = resolve_catalog_manifest_path(catalog_path, manifest_path);
         push_check(
@@ -5018,6 +5107,50 @@ mod tests {
             model.graphs[0].edge_rows[0].kind,
             "shell_targets_host_profile"
         );
+    }
+
+    #[test]
+    fn view_model_includes_reference_palette_for_ui() {
+        let root = temp_root("view-model-palette");
+        write_reference_fixture_tree(&root);
+        let project = valid_project_with_relative_references();
+
+        let model = view_model(&project, Some(&root));
+
+        assert_eq!(model.catalog_package_count, 1);
+        assert_eq!(model.catalog_module_count, 1);
+        assert_eq!(model.host_profile_count, 2);
+        assert_eq!(model.catalog_packages.len(), 1);
+        assert_eq!(model.catalog_packages[0].package_id, "package.synthetic");
+        assert_eq!(
+            model.catalog_packages[0].manifest_path,
+            "packages/synthetic/manifests/package.manifold.json"
+        );
+        assert_eq!(
+            model.catalog_packages[0].module_ids,
+            vec!["module.synthetic_provider".to_string()]
+        );
+        assert!(model.catalog_packages[0].in_selected_graph);
+
+        let desktop = model
+            .host_profiles
+            .iter()
+            .find(|profile| profile.profile_id == "host_run.profile.desktop")
+            .expect("desktop profile");
+        assert_eq!(desktop.host_profile.as_deref(), Some("host.desktop"));
+        assert_eq!(
+            desktop.install_route.as_deref(),
+            Some("install.local_process")
+        );
+        assert!(desktop.targets_selected_graph);
+
+        let headset = model
+            .host_profiles
+            .iter()
+            .find(|profile| profile.profile_id == "host_run.profile.headset")
+            .expect("headset profile");
+        assert_eq!(headset.host_profile.as_deref(), Some("host.quest"));
+        assert!(!headset.targets_selected_graph);
     }
 
     #[test]
