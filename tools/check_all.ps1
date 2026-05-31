@@ -19,6 +19,7 @@ $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Push-Location $RepoRoot
 try {
     $EditOutput = Join-Path $RepoRoot "target\studio-edit-retarget-headset.json"
+    $DiagnosticProjectOutput = Join-Path $RepoRoot "target\studio-view-model-diagnostic-invalid-project.json"
     $AddModuleOutput = Join-Path $RepoRoot "target\studio-edit-add-module.json"
     $AddPaletteModuleOutput = Join-Path $RepoRoot "target\studio-edit-add-palette-module.json"
     $RemoveModuleOutput = Join-Path $RepoRoot "target\studio-edit-remove-module.json"
@@ -28,7 +29,7 @@ try {
     $ShellArtifactsDir = Join-Path $RepoRoot "target\studio-shells"
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $AddModuleOutput, $AddPaletteModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -109,6 +110,9 @@ try {
     if ($ViewModel.'$schema' -ne "rusty.studio.view_model.v1") {
         throw "view model schema mismatch"
     }
+    if ($ViewModel.validation_issues.Count -ne 0) {
+        throw "valid view model should not expose validation issues"
+    }
     if ($ViewModel.catalog_package_count -lt 4) {
         throw "view model should expose at least four catalog packages"
     }
@@ -139,6 +143,35 @@ try {
     }
     if ($HeadsetProfile.targets_selected_graph) {
         throw "view model should not mark headset profile as desktop target"
+    }
+    $DiagnosticProject = Get-Content -Raw -Path "examples\synthetic-studio-project.json" | ConvertFrom-Json
+    $DiagnosticProject.graphs[0].nodes[0].reference_id = "package.missing"
+    [System.IO.File]::WriteAllText(
+        $DiagnosticProjectOutput,
+        ($DiagnosticProject | ConvertTo-Json -Depth 100),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $DiagnosticViewOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project $DiagnosticProjectOutput --graph "studio.graph.synthetic_wave_desktop"
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio diagnostic view model failed with exit code $LASTEXITCODE"
+    }
+    $DiagnosticViewText = $DiagnosticViewOutput -join [Environment]::NewLine
+    $DiagnosticView = $DiagnosticViewText | ConvertFrom-Json
+    if ($DiagnosticView.validation_status -ne "fail") {
+        throw "diagnostic view model should fail validation"
+    }
+    if ($DiagnosticView.validation_issues.Count -lt 1) {
+        throw "diagnostic view model should expose failed validation issues"
+    }
+    $PackageReferenceIssue = $DiagnosticView.validation_issues | Where-Object { $_.issue_code -eq "studio.issue.package_reference_missing" } | Select-Object -First 1
+    if ($null -eq $PackageReferenceIssue) {
+        throw "diagnostic view model missing package reference issue"
+    }
+    if ($PackageReferenceIssue.check_id -ne "studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs") {
+        throw "diagnostic view model package issue check id mismatch"
+    }
+    if ($PackageReferenceIssue.evidence -notlike "*package references missing from catalog*") {
+        throw "diagnostic view model package issue evidence mismatch"
     }
     Invoke-Checked "studio view model selected graph" "cargo" @(
         "run",

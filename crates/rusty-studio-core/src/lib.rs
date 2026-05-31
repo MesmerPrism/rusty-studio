@@ -10,10 +10,10 @@ use rusty_studio_model::{
     StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
     StudioShellTemplateIndexValidationReport, StudioShellTemplateManifest,
     StudioShellTemplateReport, StudioShellTemplateStatus, StudioValidationCheck,
-    StudioValidationReport, StudioValidationStatus, StudioViewModel, EDIT_REPORT_SCHEMA,
-    EXPORT_PLAN_SCHEMA, PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA, SHELL_ARTIFACT_MANIFEST_SCHEMA,
-    SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
-    SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
+    StudioValidationIssueView, StudioValidationReport, StudioValidationStatus, StudioViewModel,
+    EDIT_REPORT_SCHEMA, EXPORT_PLAN_SCHEMA, PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA,
+    SHELL_ARTIFACT_MANIFEST_SCHEMA, SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA,
+    SHELL_ARTIFACT_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
     SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
     SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
     SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
@@ -290,6 +290,7 @@ pub fn view_model_for_graph(
         .filter(|check| check.status == StudioValidationStatus::Pass)
         .count();
     let validation_fail_count = validation.checks.len() - validation_pass_count;
+    let validation_issues = validation_issue_views(&validation);
     let graphs = project.graphs.iter().map(graph_view).collect::<Vec<_>>();
     let selected_graph_index = selected_graph_index(&graphs, requested_graph_id);
     let selected_graph_id = selected_graph_index
@@ -315,6 +316,7 @@ pub fn view_model_for_graph(
         validation_status: validation.status,
         validation_pass_count,
         validation_fail_count,
+        validation_issues,
         graph_count: project.graphs.len(),
         requested_graph_id: requested_graph_id.map(str::to_string),
         selected_graph_index,
@@ -3761,6 +3763,19 @@ fn graph_view(graph: &StudioGraph) -> StudioGraphView {
     }
 }
 
+fn validation_issue_views(report: &StudioValidationReport) -> Vec<StudioValidationIssueView> {
+    report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .map(|check| StudioValidationIssueView {
+            check_id: check.check_id.clone(),
+            issue_code: check.issue_code.clone(),
+            evidence: check.evidence.clone(),
+        })
+        .collect()
+}
+
 fn selected_graph_index(
     graphs: &[StudioGraphView],
     requested_graph_id: Option<&str>,
@@ -5280,6 +5295,7 @@ mod tests {
         assert_eq!(model.schema_id, VIEW_MODEL_SCHEMA);
         assert_eq!(model.validation_status, StudioValidationStatus::Pass);
         assert_eq!(model.validation_fail_count, 0);
+        assert!(model.validation_issues.is_empty());
         assert_eq!(model.graph_count, 1);
         assert_eq!(model.graphs[0].node_rows[0].kind, "package");
         assert_eq!(
@@ -5330,6 +5346,26 @@ mod tests {
             .expect("headset profile");
         assert_eq!(headset.host_profile.as_deref(), Some("host.quest"));
         assert!(!headset.targets_selected_graph);
+    }
+
+    #[test]
+    fn view_model_includes_failed_validation_diagnostics() {
+        let root = temp_root("view-model-validation-diagnostics");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+        project.graphs[0].nodes[0].reference_id = "package.missing".to_string();
+
+        let model = view_model(&project, Some(&root));
+
+        assert_eq!(model.validation_status, StudioValidationStatus::Fail);
+        assert!(model.validation_fail_count > 0);
+        assert!(model.validation_issues.iter().any(|issue| {
+            issue.issue_code.as_deref() == Some("studio.issue.package_reference_missing")
+                && issue.check_id == "studio.check.graph.studio.graph.test.package_refs"
+                && issue
+                    .evidence
+                    .contains("package references missing from catalog")
+        }));
     }
 
     #[test]

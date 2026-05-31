@@ -115,6 +115,11 @@ script_mod! {
         Row{FieldLabel{text: "validation"} validation_status := FieldValue{text: ""}}
     }
 
+    let DiagnosticsPanel = Panel{
+        SectionTitle{text: "Validation Diagnostics"}
+        Row{FieldLabel{text: "issues"} validation_issues := SmallValue{text: ""}}
+    }
+
     let GraphPanel = Panel{
         SectionTitle{text: "Graph"}
         ButtonRow{
@@ -214,6 +219,7 @@ script_mod! {
                         spacing: 12.0
 
                         ProjectPanel{}
+                        DiagnosticsPanel{}
                         GraphPanel{}
                         PalettePanel{}
                         EditPanel{}
@@ -277,6 +283,9 @@ impl App {
         self.ui
             .label(cx, ids!(validation_status))
             .set_text(cx, &validation_line(&model));
+        self.ui
+            .label(cx, ids!(validation_issues))
+            .set_text(cx, &validation_issue_lines(&model));
         self.ui
             .label(cx, ids!(catalog_packages))
             .set_text(cx, &catalog_package_lines(&model));
@@ -636,6 +645,7 @@ impl App {
         self.ui
             .label(cx, ids!(validation_status))
             .set_text(cx, error);
+        self.ui.label(cx, ids!(validation_issues)).set_text(cx, "");
         self.ui.label(cx, ids!(catalog_packages)).set_text(cx, "");
         self.ui.label(cx, ids!(host_profiles)).set_text(cx, "");
         self.sync_no_graph(cx);
@@ -961,6 +971,21 @@ fn validation_line(model: &StudioViewModel) -> String {
     )
 }
 
+fn validation_issue_lines(model: &StudioViewModel) -> String {
+    if model.validation_issues.is_empty() {
+        return "none".to_string();
+    }
+    model
+        .validation_issues
+        .iter()
+        .map(|issue| {
+            let issue_code = issue.issue_code.as_deref().unwrap_or("unknown_issue");
+            format!("{} [{}]\n  {}", issue.check_id, issue_code, issue.evidence)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn catalog_package_lines(model: &StudioViewModel) -> String {
     if model.catalog_packages.is_empty() {
         return "none".to_string();
@@ -1257,6 +1282,22 @@ mod tests {
         assert!(profile_lines.contains("host_run.profile.desktop [target]"));
         assert!(profile_lines.contains("host: host.desktop"));
         assert!(profile_lines.contains("host_run.profile.headset [available]"));
+    }
+
+    #[test]
+    fn validation_issue_lines_render_failed_checks() {
+        let root = temp_root("validation-issue-lines");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        let mut project = editable_project();
+        project.graphs[0].nodes[0].reference_id = "package.missing".to_string();
+        save_project(&project_path, &project).expect("save invalid project");
+        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+
+        let issue_lines = validation_issue_lines(&model);
+        assert!(issue_lines.contains("studio.check.graph.studio.graph.makepad_edit.package_refs"));
+        assert!(issue_lines.contains("studio.issue.package_reference_missing"));
+        assert!(issue_lines.contains("package references missing from catalog"));
     }
 
     #[test]
