@@ -20,6 +20,8 @@ Current scope:
   path with catalog-backed validation and revision bumps;
 - remove module graph links through the same shared mutation path with
   incident-edge cleanup and validation before commit;
+- add and remove typed graph bindings through a shared core/CLI/Makepad
+  mutation path with endpoint-kind checks and revision bumps;
 - export and validate a schema-only shell descriptor for a selected graph;
 - export a schema-only shell artifact manifest for desktop, phone, and Quest
   operator shell descriptors;
@@ -49,6 +51,8 @@ cargo run -p rusty-studio-cli -- view-model --project examples\synthetic-studio-
 cargo run -p rusty-studio-cli -- retarget-host --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --host-profile host_run.profile.headset --output target\studio-edit-retarget-headset.json
 cargo run -p rusty-studio-cli -- add-module --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --package package.biosignal_sensor --module module.biosignal_sensor.provider --label "Biosignal Provider" --output target\studio-edit-add-module.json
 cargo run -p rusty-studio-cli -- remove-module --project target\studio-edit-add-module.json --graph studio.graph.synthetic_wave_desktop --module module.biosignal_sensor.provider --output target\studio-edit-remove-module.json
+cargo run -p rusty-studio-cli -- add-binding --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --kind command --source-node node.shell.operator --target-node node.module.synthetic_wave_provider --output target\studio-edit-add-binding.json
+cargo run -p rusty-studio-cli -- remove-binding --project target\studio-edit-add-binding.json --graph studio.graph.synthetic_wave_desktop --kind command --source-node node.shell.operator --target-node node.module.synthetic_wave_provider --output target\studio-edit-remove-binding.json
 cargo run -p rusty-studio-cli -- shell-descriptor --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --output target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-cli -- validate-shell-descriptor --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-cli -- shell-artifacts --project examples\synthetic-studio-project.json --output-dir target\studio-shells

@@ -2,11 +2,12 @@ pub use makepad_widgets;
 
 use makepad_widgets::*;
 use rusty_studio_core::{
-    add_module_to_graph, load_project, remove_module_from_graph, retarget_graph_host_profile,
-    save_project, view_model_for_graph,
+    add_binding_to_graph, add_module_to_graph, load_project, remove_binding_from_graph,
+    remove_module_from_graph, retarget_graph_host_profile, save_project, view_model_for_graph,
 };
 use rusty_studio_model::{
-    StudioEditReport, StudioEditStatus, StudioGraphView, StudioValidationStatus, StudioViewModel,
+    StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView, StudioValidationStatus,
+    StudioViewModel,
 };
 use std::path::{Path, PathBuf};
 
@@ -15,6 +16,8 @@ app_main!(App);
 const DEFAULT_ADD_PACKAGE_REF: &str = "package.biosignal_sensor";
 const DEFAULT_ADD_MODULE_REF: &str = "module.biosignal_sensor.provider";
 const DEFAULT_ADD_MODULE_LABEL: &str = "Biosignal Provider";
+const DEFAULT_COMMAND_SOURCE_NODE: &str = "node.shell.operator";
+const DEFAULT_COMMAND_TARGET_NODE: &str = "node.module.synthetic_wave_provider";
 
 script_mod! {
     use mod.prelude.widgets.*
@@ -130,8 +133,12 @@ script_mod! {
         ButtonRow{
             target_desktop_button := ActionButton{text: "Target Desktop"}
             target_headset_button := ActionButton{text: "Target Headset"}
+        }
+        ButtonRow{
             add_biosignal_module_button := ActionButton{text: "Add Biosignal"}
             remove_biosignal_module_button := ActionButton{text: "Remove Biosignal"}
+            add_command_binding_button := ActionButton{text: "Add Command"}
+            remove_command_binding_button := ActionButton{text: "Remove Command"}
         }
         Row{FieldLabel{text: "status"} edit_status := FieldValue{text: "no edits requested"}}
         Row{FieldLabel{text: "message"} edit_message := SmallValue{text: ""}}
@@ -454,6 +461,102 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn add_binding_to_selected_graph(
+        &mut self,
+        cx: &mut Cx,
+        binding_kind: StudioBindingKind,
+        source_node_id: &str,
+        target_node_id: &str,
+    ) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_edit_report = None;
+            self.last_edit_save_issue = "No project source is loaded".to_string();
+            self.sync_edit_report(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        let Some(model) = self.model.clone() else {
+            self.last_edit_report = None;
+            self.last_edit_save_issue = "No view model is loaded".to_string();
+            self.sync_edit_report(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match add_binding_to_project_source(
+            &source,
+            &model,
+            self.selected_graph_index,
+            binding_kind,
+            source_node_id,
+            target_node_id,
+        ) {
+            Ok((report, refreshed_model)) => {
+                self.last_edit_report = Some(report);
+                self.last_edit_save_issue.clear();
+                if let Some(refreshed_model) = refreshed_model {
+                    self.selected_graph_index = refreshed_model
+                        .selected_graph_index
+                        .unwrap_or(self.selected_graph_index);
+                    self.model = Some(refreshed_model);
+                }
+            }
+            Err(error) => {
+                self.last_edit_report = None;
+                self.last_edit_save_issue = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn remove_binding_from_selected_graph(
+        &mut self,
+        cx: &mut Cx,
+        binding_kind: StudioBindingKind,
+        source_node_id: &str,
+        target_node_id: &str,
+    ) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_edit_report = None;
+            self.last_edit_save_issue = "No project source is loaded".to_string();
+            self.sync_edit_report(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        let Some(model) = self.model.clone() else {
+            self.last_edit_report = None;
+            self.last_edit_save_issue = "No view model is loaded".to_string();
+            self.sync_edit_report(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match remove_binding_from_project_source(
+            &source,
+            &model,
+            self.selected_graph_index,
+            binding_kind,
+            source_node_id,
+            target_node_id,
+        ) {
+            Ok((report, refreshed_model)) => {
+                self.last_edit_report = Some(report);
+                self.last_edit_save_issue.clear();
+                if let Some(refreshed_model) = refreshed_model {
+                    self.selected_graph_index = refreshed_model
+                        .selected_graph_index
+                        .unwrap_or(self.selected_graph_index);
+                    self.model = Some(refreshed_model);
+                }
+            }
+            Err(error) => {
+                self.last_edit_report = None;
+                self.last_edit_save_issue = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn sync_edit_report(&mut self, cx: &mut Cx) {
         if let Some(report) = self.last_edit_report.clone() {
             let save_issue = self.last_edit_save_issue.clone();
@@ -586,6 +689,30 @@ impl MatchEvent for App {
         {
             self.remove_module_from_selected_graph(cx, DEFAULT_ADD_MODULE_REF);
         }
+        if self
+            .ui
+            .button(cx, ids!(add_command_binding_button))
+            .clicked(actions)
+        {
+            self.add_binding_to_selected_graph(
+                cx,
+                StudioBindingKind::Command,
+                DEFAULT_COMMAND_SOURCE_NODE,
+                DEFAULT_COMMAND_TARGET_NODE,
+            );
+        }
+        if self
+            .ui
+            .button(cx, ids!(remove_command_binding_button))
+            .clicked(actions)
+        {
+            self.remove_binding_from_selected_graph(
+                cx,
+                StudioBindingKind::Command,
+                DEFAULT_COMMAND_SOURCE_NODE,
+                DEFAULT_COMMAND_TARGET_NODE,
+            );
+        }
     }
 }
 
@@ -691,6 +818,64 @@ fn remove_module_from_project_source(
         &mut project,
         &graph_id,
         module_reference_id,
+        project_path.parent(),
+    );
+    if report.status != StudioEditStatus::Applied {
+        return Ok((report, None));
+    }
+    save_project(project_path, &project)
+        .map_err(|error| format!("Project save failed: {error}"))?;
+    let refreshed_model = view_model_for_graph(&project, project_path.parent(), Some(&graph_id));
+    Ok((report, Some(refreshed_model)))
+}
+
+fn add_binding_to_project_source(
+    project_path: &Path,
+    model: &StudioViewModel,
+    selected_graph_index: usize,
+    binding_kind: StudioBindingKind,
+    source_node_id: &str,
+    target_node_id: &str,
+) -> Result<(StudioEditReport, Option<StudioViewModel>), String> {
+    let graph_id = selected_graph_id_for_model(model, selected_graph_index)
+        .ok_or_else(|| "No graph is selected".to_string())?;
+    let mut project =
+        load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
+    let report = add_binding_to_graph(
+        &mut project,
+        &graph_id,
+        binding_kind,
+        source_node_id,
+        target_node_id,
+        project_path.parent(),
+    );
+    if report.status != StudioEditStatus::Applied {
+        return Ok((report, None));
+    }
+    save_project(project_path, &project)
+        .map_err(|error| format!("Project save failed: {error}"))?;
+    let refreshed_model = view_model_for_graph(&project, project_path.parent(), Some(&graph_id));
+    Ok((report, Some(refreshed_model)))
+}
+
+fn remove_binding_from_project_source(
+    project_path: &Path,
+    model: &StudioViewModel,
+    selected_graph_index: usize,
+    binding_kind: StudioBindingKind,
+    source_node_id: &str,
+    target_node_id: &str,
+) -> Result<(StudioEditReport, Option<StudioViewModel>), String> {
+    let graph_id = selected_graph_id_for_model(model, selected_graph_index)
+        .ok_or_else(|| "No graph is selected".to_string())?;
+    let mut project =
+        load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
+    let report = remove_binding_from_graph(
+        &mut project,
+        &graph_id,
+        binding_kind,
+        source_node_id,
+        target_node_id,
         project_path.parent(),
     );
     if report.status != StudioEditStatus::Applied {
@@ -1058,5 +1243,105 @@ mod tests {
         }));
         assert_eq!(refreshed_model.revision, 2);
         assert_eq!(refreshed_model.graphs[0].module_count, 0);
+    }
+
+    #[test]
+    fn add_binding_to_project_source_saves_and_refreshes_view_model() {
+        let root = temp_root("add-binding-source");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        let mut project = editable_project();
+        project.graphs[0].nodes.push(StudioNode {
+            node_id: "node.module.synthetic_provider".to_string(),
+            kind: StudioNodeKind::Module,
+            reference_id: "module.synthetic_provider".to_string(),
+            label: "Synthetic Provider".to_string(),
+        });
+        project.graphs[0].edges.push(StudioEdge {
+            edge_id: "edge.package_module".to_string(),
+            kind: StudioEdgeKind::PackageProvidesModule,
+            source_node_id: "node.package.synthetic".to_string(),
+            target_node_id: "node.module.synthetic_provider".to_string(),
+        });
+        save_project(&project_path, &project).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+
+        let (report, refreshed_model) = add_binding_to_project_source(
+            &project_path,
+            &model,
+            0,
+            StudioBindingKind::Command,
+            "node.shell.operator",
+            "node.module.synthetic_provider",
+        )
+        .expect("add binding to project source");
+        let refreshed_model = refreshed_model.expect("refreshed model after applied edit");
+        let saved_project = load_project(&project_path).expect("load saved edited project");
+
+        assert_eq!(report.operation, StudioEditOperation::AddBinding);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 2);
+        assert_eq!(saved_project.revision, 2);
+        assert!(saved_project.graphs[0].edges.iter().any(|edge| {
+            edge.kind == StudioEdgeKind::CommandBinding
+                && edge.source_node_id == "node.shell.operator"
+                && edge.target_node_id == "node.module.synthetic_provider"
+        }));
+        assert_eq!(refreshed_model.revision, 2);
+        assert_eq!(refreshed_model.graphs[0].edge_count, 3);
+    }
+
+    #[test]
+    fn remove_binding_from_project_source_saves_and_refreshes_view_model() {
+        let root = temp_root("remove-binding-source");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        let mut project = editable_project();
+        project.graphs[0].nodes.push(StudioNode {
+            node_id: "node.module.synthetic_provider".to_string(),
+            kind: StudioNodeKind::Module,
+            reference_id: "module.synthetic_provider".to_string(),
+            label: "Synthetic Provider".to_string(),
+        });
+        project.graphs[0].edges.push(StudioEdge {
+            edge_id: "edge.package_module".to_string(),
+            kind: StudioEdgeKind::PackageProvidesModule,
+            source_node_id: "node.package.synthetic".to_string(),
+            target_node_id: "node.module.synthetic_provider".to_string(),
+        });
+        project.graphs[0].edges.push(StudioEdge {
+            edge_id: "edge.shell_command".to_string(),
+            kind: StudioEdgeKind::CommandBinding,
+            source_node_id: "node.shell.operator".to_string(),
+            target_node_id: "node.module.synthetic_provider".to_string(),
+        });
+        save_project(&project_path, &project).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+
+        let (report, refreshed_model) = remove_binding_from_project_source(
+            &project_path,
+            &model,
+            0,
+            StudioBindingKind::Command,
+            "node.shell.operator",
+            "node.module.synthetic_provider",
+        )
+        .expect("remove binding from project source");
+        let refreshed_model = refreshed_model.expect("refreshed model after applied edit");
+        let saved_project = load_project(&project_path).expect("load saved edited project");
+
+        assert_eq!(report.operation, StudioEditOperation::RemoveBinding);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 2);
+        assert_eq!(saved_project.revision, 2);
+        assert!(!saved_project.graphs[0].edges.iter().any(|edge| {
+            edge.kind == StudioEdgeKind::CommandBinding
+                && edge.source_node_id == "node.shell.operator"
+                && edge.target_node_id == "node.module.synthetic_provider"
+        }));
+        assert_eq!(refreshed_model.revision, 2);
+        assert_eq!(refreshed_model.graphs[0].edge_count, 2);
     }
 }

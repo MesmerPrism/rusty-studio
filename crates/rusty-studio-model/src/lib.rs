@@ -77,6 +77,13 @@ pub enum StudioEdgeKind {
     ShellTargetsHostProfile,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioBindingKind {
+    Stream,
+    Command,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StudioValidationReport {
     #[serde(rename = "$schema")]
@@ -126,6 +133,8 @@ pub enum StudioEditOperation {
     RetargetHost,
     AddModule,
     RemoveModule,
+    AddBinding,
+    RemoveBinding,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

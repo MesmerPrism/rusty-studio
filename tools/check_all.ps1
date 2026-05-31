@@ -21,11 +21,13 @@ try {
     $EditOutput = Join-Path $RepoRoot "target\studio-edit-retarget-headset.json"
     $AddModuleOutput = Join-Path $RepoRoot "target\studio-edit-add-module.json"
     $RemoveModuleOutput = Join-Path $RepoRoot "target\studio-edit-remove-module.json"
+    $AddBindingOutput = Join-Path $RepoRoot "target\studio-edit-add-binding.json"
+    $RemoveBindingOutput = Join-Path $RepoRoot "target\studio-edit-remove-binding.json"
     $ShellOutput = Join-Path $RepoRoot "target\studio-shell-descriptor-desktop.json"
     $ShellArtifactsDir = Join-Path $RepoRoot "target\studio-shells"
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $AddModuleOutput, $RemoveModuleOutput, $ShellOutput)) {
+    foreach ($GeneratedOutput in @($EditOutput, $AddModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -232,6 +234,85 @@ try {
     $DanglingRemovedEdge = $RemovedGraph.edges | Where-Object { $_.source_node_id -eq $AddedModule.node_id -or $_.target_node_id -eq $AddedModule.node_id } | Select-Object -First 1
     if ($null -ne $DanglingRemovedEdge) {
         throw "remove module output still contains an edge incident to the removed module"
+    }
+    $AddBindingReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-binding --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --kind "command" --source-node "node.shell.operator" --target-node "node.module.synthetic_wave_provider" --output $AddBindingOutput
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio add binding failed with exit code $LASTEXITCODE"
+    }
+    $AddBindingReportText = $AddBindingReportOutput -join [Environment]::NewLine
+    $AddBindingReport = $AddBindingReportText | ConvertFrom-Json
+    if ($AddBindingReport.'$schema' -ne "rusty.studio.edit_report.v1") {
+        throw "add binding edit report schema mismatch"
+    }
+    if ($AddBindingReport.operation -ne "add_binding") {
+        throw "add binding edit report operation mismatch"
+    }
+    if ($AddBindingReport.status -ne "applied") {
+        throw "add binding edit report did not apply"
+    }
+    $ExpectedBindingId = "edge.command_binding.node.shell.operator.node.module.synthetic_wave_provider"
+    if ($AddBindingReport.requested_reference_id -ne $ExpectedBindingId) {
+        throw "add binding edit report requested reference mismatch"
+    }
+    Invoke-Checked "studio validate add-binding output" "cargo" @(
+        "run",
+        "-p",
+        "rusty-studio-cli",
+        "--",
+        "validate",
+        "--project",
+        $AddBindingOutput
+    )
+    $AddBindingProject = Get-Content -Raw -Path $AddBindingOutput | ConvertFrom-Json
+    if ($AddBindingProject.revision -ne 2) {
+        throw "add binding output should bump project revision"
+    }
+    $BindingGraph = $AddBindingProject.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
+    if ($null -eq $BindingGraph) {
+        throw "add binding output graph missing"
+    }
+    $AddedBindingEdge = $BindingGraph.edges | Where-Object { $_.kind -eq "command_binding" -and $_.source_node_id -eq "node.shell.operator" -and $_.target_node_id -eq "node.module.synthetic_wave_provider" } | Select-Object -First 1
+    if ($null -eq $AddedBindingEdge) {
+        throw "add binding output command edge missing"
+    }
+    $RemoveBindingReportOutput = & cargo run --quiet -p rusty-studio-cli -- remove-binding --project $AddBindingOutput --graph "studio.graph.synthetic_wave_desktop" --kind "command" --source-node "node.shell.operator" --target-node "node.module.synthetic_wave_provider" --output $RemoveBindingOutput
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio remove binding failed with exit code $LASTEXITCODE"
+    }
+    $RemoveBindingReportText = $RemoveBindingReportOutput -join [Environment]::NewLine
+    $RemoveBindingReport = $RemoveBindingReportText | ConvertFrom-Json
+    if ($RemoveBindingReport.'$schema' -ne "rusty.studio.edit_report.v1") {
+        throw "remove binding edit report schema mismatch"
+    }
+    if ($RemoveBindingReport.operation -ne "remove_binding") {
+        throw "remove binding edit report operation mismatch"
+    }
+    if ($RemoveBindingReport.status -ne "applied") {
+        throw "remove binding edit report did not apply"
+    }
+    if ($RemoveBindingReport.requested_reference_id -ne $ExpectedBindingId) {
+        throw "remove binding edit report requested reference mismatch"
+    }
+    Invoke-Checked "studio validate remove-binding output" "cargo" @(
+        "run",
+        "-p",
+        "rusty-studio-cli",
+        "--",
+        "validate",
+        "--project",
+        $RemoveBindingOutput
+    )
+    $RemoveBindingProject = Get-Content -Raw -Path $RemoveBindingOutput | ConvertFrom-Json
+    if ($RemoveBindingProject.revision -ne 3) {
+        throw "remove binding output should bump project revision from add-binding output"
+    }
+    $RemovedBindingGraph = $RemoveBindingProject.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
+    if ($null -eq $RemovedBindingGraph) {
+        throw "remove binding output graph missing"
+    }
+    $RemovedBindingEdge = $RemovedBindingGraph.edges | Where-Object { $_.kind -eq "command_binding" -and $_.source_node_id -eq "node.shell.operator" -and $_.target_node_id -eq "node.module.synthetic_wave_provider" } | Select-Object -First 1
+    if ($null -ne $RemovedBindingEdge) {
+        throw "remove binding output still contains removed command edge"
     }
     Invoke-Checked "studio shell descriptor" "cargo" @(
         "run",

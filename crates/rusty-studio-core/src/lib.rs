@@ -1,18 +1,19 @@
 use rusty_studio_model::{
-    StudioEdge, StudioEdgeKind, StudioEditOperation, StudioEditReport, StudioEditStatus,
-    StudioExportBundle, StudioExportPlan, StudioGraph, StudioNode, StudioNodeKind, StudioProject,
-    StudioResolvedGraph, StudioResolvedProject, StudioShellArtifact, StudioShellArtifactManifest,
-    StudioShellArtifactManifestValidationReport, StudioShellArtifactRejection,
-    StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
-    StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
-    StudioShellDescriptorValidationReport, StudioShellHostProfile, StudioShellHostRoutes,
-    StudioShellRuntimeAuthority, StudioShellTargetKind, StudioShellTemplateIndex,
-    StudioShellTemplateIndexEntry, StudioShellTemplateIndexValidationReport,
-    StudioShellTemplateManifest, StudioShellTemplateReport, StudioShellTemplateStatus,
-    StudioValidationCheck, StudioValidationReport, StudioValidationStatus, StudioViewModel,
-    EDIT_REPORT_SCHEMA, EXPORT_PLAN_SCHEMA, PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA,
-    SHELL_ARTIFACT_MANIFEST_SCHEMA, SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA,
-    SHELL_ARTIFACT_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
+    StudioBindingKind, StudioEdge, StudioEdgeKind, StudioEditOperation, StudioEditReport,
+    StudioEditStatus, StudioExportBundle, StudioExportPlan, StudioGraph, StudioNode,
+    StudioNodeKind, StudioProject, StudioResolvedGraph, StudioResolvedProject, StudioShellArtifact,
+    StudioShellArtifactManifest, StudioShellArtifactManifestValidationReport,
+    StudioShellArtifactRejection, StudioShellArtifactReport, StudioShellArtifactStatus,
+    StudioShellBinding, StudioShellDescriptor, StudioShellDescriptorReport,
+    StudioShellDescriptorStatus, StudioShellDescriptorValidationReport, StudioShellHostProfile,
+    StudioShellHostRoutes, StudioShellRuntimeAuthority, StudioShellTargetKind,
+    StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
+    StudioShellTemplateIndexValidationReport, StudioShellTemplateManifest,
+    StudioShellTemplateReport, StudioShellTemplateStatus, StudioValidationCheck,
+    StudioValidationReport, StudioValidationStatus, StudioViewModel, EDIT_REPORT_SCHEMA,
+    EXPORT_PLAN_SCHEMA, PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA, SHELL_ARTIFACT_MANIFEST_SCHEMA,
+    SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
+    SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
     SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
     SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
     SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
@@ -929,6 +930,442 @@ pub fn remove_module_from_graph(
         "Edited project candidate failed validation; source project was left unchanged".to_string(),
         graph_id,
         module_reference_id,
+        &requested_host_profile,
+        Vec::new(),
+        validation,
+    )
+}
+
+pub fn add_binding_to_graph(
+    project: &mut StudioProject,
+    graph_id: &str,
+    binding_kind: StudioBindingKind,
+    source_node_id: &str,
+    target_node_id: &str,
+    base_dir: Option<&Path>,
+) -> StudioEditReport {
+    let original_revision = project.revision;
+    let requested_host_profile = graph_target_host_profile(project, graph_id);
+    let requested_binding_id =
+        generated_binding_edge_id(binding_kind, source_node_id, target_node_id);
+
+    if !is_dotted_id(graph_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::AddBinding,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_graph_id".to_string()),
+            "Graph id is not a dotted id".to_string(),
+            graph_id,
+            &requested_binding_id,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    if !is_dotted_id(source_node_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::AddBinding,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_node_id".to_string()),
+            "Binding source node id is not a dotted id".to_string(),
+            graph_id,
+            &requested_binding_id,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    if !is_dotted_id(target_node_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::AddBinding,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_node_id".to_string()),
+            "Binding target node id is not a dotted id".to_string(),
+            graph_id,
+            &requested_binding_id,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    if source_node_id == target_node_id {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::AddBinding,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.self_binding".to_string()),
+            "Binding source and target must be different nodes".to_string(),
+            graph_id,
+            &requested_binding_id,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    let mut candidate = project.clone();
+    let mut changed_fields = Vec::new();
+    {
+        let Some(graph) = candidate
+            .graphs
+            .iter_mut()
+            .find(|graph| graph.graph_id == graph_id)
+        else {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::AddBinding,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.graph_missing".to_string()),
+                "Graph was not found in the project".to_string(),
+                graph_id,
+                &requested_binding_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        };
+
+        let Some(source_node) = graph
+            .nodes
+            .iter()
+            .find(|node| node.node_id == source_node_id)
+        else {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::AddBinding,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.binding_source_missing".to_string()),
+                "Binding source node was not found in the graph".to_string(),
+                graph_id,
+                &requested_binding_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        };
+        let source_kind = source_node.kind;
+
+        let Some(target_node) = graph
+            .nodes
+            .iter()
+            .find(|node| node.node_id == target_node_id)
+        else {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::AddBinding,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.binding_target_missing".to_string()),
+                "Binding target node was not found in the graph".to_string(),
+                graph_id,
+                &requested_binding_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        };
+        let target_kind = target_node.kind;
+
+        if !binding_endpoint_kinds_are_valid(binding_kind, source_kind, target_kind) {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::AddBinding,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.binding_endpoint_kind_mismatch".to_string()),
+                binding_endpoint_kind_message(binding_kind).to_string(),
+                graph_id,
+                &requested_binding_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        }
+
+        let edge_kind = edge_kind_for_binding(binding_kind);
+        let binding_exists = graph.edges.iter().any(|edge| {
+            edge.kind == edge_kind
+                && edge.source_node_id == source_node_id
+                && edge.target_node_id == target_node_id
+        });
+        if !binding_exists {
+            if graph
+                .edges
+                .iter()
+                .any(|edge| edge.edge_id == requested_binding_id)
+            {
+                return edit_report(
+                    project,
+                    original_revision,
+                    original_revision,
+                    StudioEditOperation::AddBinding,
+                    StudioEditStatus::Rejected,
+                    Some("studio.issue.edge_id_conflict".to_string()),
+                    "Generated binding edge id conflicts with an existing edge".to_string(),
+                    graph_id,
+                    &requested_binding_id,
+                    &requested_host_profile,
+                    Vec::new(),
+                    validate_project_with_base(project, base_dir),
+                );
+            }
+            graph.edges.push(StudioEdge {
+                edge_id: requested_binding_id.clone(),
+                kind: edge_kind,
+                source_node_id: source_node_id.to_string(),
+                target_node_id: target_node_id.to_string(),
+            });
+            changed_fields.push(format!("graphs.{graph_id}.edges.{requested_binding_id}"));
+        }
+    }
+
+    if !changed_fields.is_empty() {
+        let Some(next_revision) = candidate.revision.checked_add(1) else {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::AddBinding,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.revision_overflow".to_string()),
+                "Project revision cannot be incremented".to_string(),
+                graph_id,
+                &requested_binding_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        };
+        candidate.revision = next_revision;
+    }
+
+    let validation = validate_project_with_base(&candidate, base_dir);
+    if validation.status == StudioValidationStatus::Pass {
+        *project = candidate;
+        let resulting_revision = project.revision;
+        let message = if changed_fields.is_empty() {
+            "Graph already contains the requested binding"
+        } else {
+            "Graph binding was added"
+        };
+        return edit_report(
+            project,
+            original_revision,
+            resulting_revision,
+            StudioEditOperation::AddBinding,
+            StudioEditStatus::Applied,
+            None,
+            message.to_string(),
+            graph_id,
+            &requested_binding_id,
+            &requested_host_profile,
+            changed_fields,
+            validation,
+        );
+    }
+
+    let issue_code = first_failed_issue_code(&validation)
+        .unwrap_or_else(|| "studio.issue.edit_rejected".to_string());
+    edit_report(
+        project,
+        original_revision,
+        original_revision,
+        StudioEditOperation::AddBinding,
+        StudioEditStatus::Rejected,
+        Some(issue_code),
+        "Edited project candidate failed validation; source project was left unchanged".to_string(),
+        graph_id,
+        &requested_binding_id,
+        &requested_host_profile,
+        Vec::new(),
+        validation,
+    )
+}
+
+pub fn remove_binding_from_graph(
+    project: &mut StudioProject,
+    graph_id: &str,
+    binding_kind: StudioBindingKind,
+    source_node_id: &str,
+    target_node_id: &str,
+    base_dir: Option<&Path>,
+) -> StudioEditReport {
+    let original_revision = project.revision;
+    let requested_host_profile = graph_target_host_profile(project, graph_id);
+    let requested_binding_id =
+        generated_binding_edge_id(binding_kind, source_node_id, target_node_id);
+
+    if !is_dotted_id(graph_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::RemoveBinding,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_graph_id".to_string()),
+            "Graph id is not a dotted id".to_string(),
+            graph_id,
+            &requested_binding_id,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    if !is_dotted_id(source_node_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::RemoveBinding,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_node_id".to_string()),
+            "Binding source node id is not a dotted id".to_string(),
+            graph_id,
+            &requested_binding_id,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    if !is_dotted_id(target_node_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::RemoveBinding,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_node_id".to_string()),
+            "Binding target node id is not a dotted id".to_string(),
+            graph_id,
+            &requested_binding_id,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    let mut candidate = project.clone();
+    let mut changed_fields = Vec::new();
+    {
+        let Some(graph) = candidate
+            .graphs
+            .iter_mut()
+            .find(|graph| graph.graph_id == graph_id)
+        else {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::RemoveBinding,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.graph_missing".to_string()),
+                "Graph was not found in the project".to_string(),
+                graph_id,
+                &requested_binding_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        };
+
+        let edge_kind = edge_kind_for_binding(binding_kind);
+        let removed_edge_ids = graph
+            .edges
+            .iter()
+            .filter(|edge| {
+                edge.kind == edge_kind
+                    && edge.source_node_id == source_node_id
+                    && edge.target_node_id == target_node_id
+            })
+            .map(|edge| edge.edge_id.clone())
+            .collect::<BTreeSet<_>>();
+        for edge_id in &removed_edge_ids {
+            changed_fields.push(format!("graphs.{graph_id}.edges.{edge_id}"));
+        }
+        graph
+            .edges
+            .retain(|edge| !removed_edge_ids.contains(&edge.edge_id));
+    }
+
+    if !changed_fields.is_empty() {
+        let Some(next_revision) = candidate.revision.checked_add(1) else {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::RemoveBinding,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.revision_overflow".to_string()),
+                "Project revision cannot be incremented".to_string(),
+                graph_id,
+                &requested_binding_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        };
+        candidate.revision = next_revision;
+    }
+
+    let validation = validate_project_with_base(&candidate, base_dir);
+    if validation.status == StudioValidationStatus::Pass {
+        *project = candidate;
+        let resulting_revision = project.revision;
+        let message = if changed_fields.is_empty() {
+            "Graph already omits the requested binding"
+        } else {
+            "Graph binding was removed"
+        };
+        return edit_report(
+            project,
+            original_revision,
+            resulting_revision,
+            StudioEditOperation::RemoveBinding,
+            StudioEditStatus::Applied,
+            None,
+            message.to_string(),
+            graph_id,
+            &requested_binding_id,
+            &requested_host_profile,
+            changed_fields,
+            validation,
+        );
+    }
+
+    let issue_code = first_failed_issue_code(&validation)
+        .unwrap_or_else(|| "studio.issue.edit_rejected".to_string());
+    edit_report(
+        project,
+        original_revision,
+        original_revision,
+        StudioEditOperation::RemoveBinding,
+        StudioEditStatus::Rejected,
+        Some(issue_code),
+        "Edited project candidate failed validation; source project was left unchanged".to_string(),
+        graph_id,
+        &requested_binding_id,
         &requested_host_profile,
         Vec::new(),
         validation,
@@ -3002,6 +3439,42 @@ fn validate_edge(
         "edge target node is missing",
         "studio.issue.missing_edge_target",
     );
+    if let Some(binding_kind) = binding_kind_for_edge(edge.kind) {
+        push_check(
+            checks,
+            &format!(
+                "studio.check.graph.{prefix}.edge.{}.self_binding",
+                edge.edge_id
+            ),
+            edge.source_node_id != edge.target_node_id,
+            "binding edge connects distinct nodes",
+            "binding edge source and target are the same node",
+            "studio.issue.self_binding",
+        );
+        let source_kind = graph
+            .nodes
+            .iter()
+            .find(|node| node.node_id == edge.source_node_id)
+            .map(|node| node.kind);
+        let target_kind = graph
+            .nodes
+            .iter()
+            .find(|node| node.node_id == edge.target_node_id)
+            .map(|node| node.kind);
+        if let (Some(source_kind), Some(target_kind)) = (source_kind, target_kind) {
+            push_check(
+                checks,
+                &format!(
+                    "studio.check.graph.{prefix}.edge.{}.binding_endpoint_kinds",
+                    edge.edge_id
+                ),
+                binding_endpoint_kinds_are_valid(binding_kind, source_kind, target_kind),
+                "binding endpoint node kinds match the binding type",
+                binding_endpoint_kind_message(binding_kind),
+                "studio.issue.binding_endpoint_kind_mismatch",
+            );
+        }
+    }
 }
 
 fn resolve_graph(graph: &StudioGraph) -> StudioResolvedGraph {
@@ -3207,6 +3680,65 @@ fn generated_package_module_edge_id(
     format!("edge.{package_reference_id}.{module_reference_id}")
 }
 
+fn generated_binding_edge_id(
+    binding_kind: StudioBindingKind,
+    source_node_id: &str,
+    target_node_id: &str,
+) -> String {
+    format!(
+        "edge.{}.{}.{}",
+        binding_kind_label(binding_kind),
+        source_node_id,
+        target_node_id
+    )
+}
+
+fn edge_kind_for_binding(binding_kind: StudioBindingKind) -> StudioEdgeKind {
+    match binding_kind {
+        StudioBindingKind::Stream => StudioEdgeKind::StreamBinding,
+        StudioBindingKind::Command => StudioEdgeKind::CommandBinding,
+    }
+}
+
+fn binding_kind_for_edge(edge_kind: StudioEdgeKind) -> Option<StudioBindingKind> {
+    match edge_kind {
+        StudioEdgeKind::StreamBinding => Some(StudioBindingKind::Stream),
+        StudioEdgeKind::CommandBinding => Some(StudioBindingKind::Command),
+        _ => None,
+    }
+}
+
+fn binding_kind_label(binding_kind: StudioBindingKind) -> &'static str {
+    match binding_kind {
+        StudioBindingKind::Stream => "stream_binding",
+        StudioBindingKind::Command => "command_binding",
+    }
+}
+
+fn binding_endpoint_kinds_are_valid(
+    binding_kind: StudioBindingKind,
+    source_kind: StudioNodeKind,
+    target_kind: StudioNodeKind,
+) -> bool {
+    match binding_kind {
+        StudioBindingKind::Stream => {
+            source_kind == StudioNodeKind::Module && target_kind == StudioNodeKind::Module
+        }
+        StudioBindingKind::Command => {
+            source_kind == StudioNodeKind::OperatorShell && target_kind == StudioNodeKind::Module
+        }
+    }
+}
+
+fn binding_endpoint_kind_message(binding_kind: StudioBindingKind) -> &'static str {
+    match binding_kind {
+        StudioBindingKind::Stream => "Stream bindings must connect module nodes",
+        StudioBindingKind::Command => {
+            "Command bindings must connect an operator_shell node to a module node"
+        }
+    }
+}
+
 fn label_for_reference(reference_id: &str) -> String {
     let leaf = reference_id.rsplit('.').next().unwrap_or(reference_id);
     leaf.split(['_', '-'])
@@ -3291,9 +3823,10 @@ pub fn is_dotted_id(value: &str) -> bool {
 mod tests {
     use super::*;
     use rusty_studio_model::{
-        StudioEdgeKind, StudioEditOperation, StudioEditStatus, StudioNode, StudioNodeKind,
-        StudioShellArtifactStatus, StudioShellDescriptorStatus, StudioShellTargetKind,
-        StudioShellTemplateStatus, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+        StudioBindingKind, StudioEdgeKind, StudioEditOperation, StudioEditStatus, StudioNode,
+        StudioNodeKind, StudioShellArtifactStatus, StudioShellDescriptorStatus,
+        StudioShellTargetKind, StudioShellTemplateStatus,
+        SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
     };
 
     fn valid_project() -> StudioProject {
@@ -3999,6 +4532,9 @@ mod tests {
                 node.kind = StudioNodeKind::ValidationSlot;
             }
         }
+        project.graphs[1]
+            .edges
+            .retain(|edge| edge.kind != StudioEdgeKind::CommandBinding);
 
         let report = shell_artifacts_for_project(&project, Some(&root));
 
@@ -4310,6 +4846,161 @@ mod tests {
             .nodes
             .iter()
             .any(|node| node.reference_id == "module.synthetic_provider"));
+    }
+
+    #[test]
+    fn add_binding_to_graph_adds_command_binding_and_bumps_revision() {
+        let root = temp_root("add-binding");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_shell_project_with_relative_references();
+        project.graphs[0]
+            .edges
+            .retain(|edge| edge.kind != StudioEdgeKind::CommandBinding);
+
+        let report = add_binding_to_graph(
+            &mut project,
+            "studio.graph.test",
+            StudioBindingKind::Command,
+            "node.shell.operator",
+            "node.module.synthetic_provider",
+            Some(&root),
+        );
+
+        assert_eq!(report.operation, StudioEditOperation::AddBinding);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(
+            report.requested_reference_id,
+            "edge.command_binding.node.shell.operator.node.module.synthetic_provider"
+        );
+        assert_eq!(report.requested_host_profile, "host_run.profile.desktop");
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 2);
+        assert_eq!(project.revision, 2);
+        assert!(project.graphs[0].edges.iter().any(|edge| {
+            edge.kind == StudioEdgeKind::CommandBinding
+                && edge.source_node_id == "node.shell.operator"
+                && edge.target_node_id == "node.module.synthetic_provider"
+        }));
+        assert_eq!(report.validation.status, StudioValidationStatus::Pass);
+        assert!(report.changed_fields.iter().any(|field| {
+            field.ends_with(
+                "edges.edge.command_binding.node.shell.operator.node.module.synthetic_provider",
+            )
+        }));
+    }
+
+    #[test]
+    fn add_binding_to_graph_is_idempotent_when_binding_exists() {
+        let root = temp_root("add-binding-idempotent");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_shell_project_with_relative_references();
+
+        let report = add_binding_to_graph(
+            &mut project,
+            "studio.graph.test",
+            StudioBindingKind::Command,
+            "node.shell.operator",
+            "node.module.synthetic_provider",
+            Some(&root),
+        );
+
+        assert_eq!(report.operation, StudioEditOperation::AddBinding);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 1);
+        assert!(report.changed_fields.is_empty());
+        assert_eq!(project.revision, 1);
+    }
+
+    #[test]
+    fn add_binding_to_graph_rejects_endpoint_kind_mismatch_without_mutating() {
+        let root = temp_root("add-binding-kind-mismatch");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_shell_project_with_relative_references();
+
+        let report = add_binding_to_graph(
+            &mut project,
+            "studio.graph.test",
+            StudioBindingKind::Stream,
+            "node.shell.operator",
+            "node.module.synthetic_provider",
+            Some(&root),
+        );
+
+        assert_eq!(report.operation, StudioEditOperation::AddBinding);
+        assert_eq!(report.status, StudioEditStatus::Rejected);
+        assert_eq!(
+            report.issue_code.as_deref(),
+            Some("studio.issue.binding_endpoint_kind_mismatch")
+        );
+        assert_eq!(project.revision, 1);
+        assert!(!project.graphs[0].edges.iter().any(|edge| {
+            edge.kind == StudioEdgeKind::StreamBinding
+                && edge.source_node_id == "node.shell.operator"
+                && edge.target_node_id == "node.module.synthetic_provider"
+        }));
+    }
+
+    #[test]
+    fn remove_binding_from_graph_removes_matching_binding() {
+        let root = temp_root("remove-binding");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_shell_project_with_relative_references();
+
+        let report = remove_binding_from_graph(
+            &mut project,
+            "studio.graph.test",
+            StudioBindingKind::Command,
+            "node.shell.operator",
+            "node.module.synthetic_provider",
+            Some(&root),
+        );
+
+        assert_eq!(report.operation, StudioEditOperation::RemoveBinding);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(
+            report.requested_reference_id,
+            "edge.command_binding.node.shell.operator.node.module.synthetic_provider"
+        );
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 2);
+        assert_eq!(project.revision, 2);
+        assert!(!project.graphs[0].edges.iter().any(|edge| {
+            edge.kind == StudioEdgeKind::CommandBinding
+                && edge.source_node_id == "node.shell.operator"
+                && edge.target_node_id == "node.module.synthetic_provider"
+        }));
+        assert_eq!(report.validation.status, StudioValidationStatus::Pass);
+        assert!(report
+            .changed_fields
+            .iter()
+            .any(|field| field.ends_with("edges.edge.shell_command")));
+    }
+
+    #[test]
+    fn remove_binding_from_graph_is_idempotent_when_binding_is_absent() {
+        let root = temp_root("remove-binding-idempotent");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_shell_project_with_relative_references();
+        project.graphs[0]
+            .edges
+            .retain(|edge| edge.kind != StudioEdgeKind::CommandBinding);
+
+        let report = remove_binding_from_graph(
+            &mut project,
+            "studio.graph.test",
+            StudioBindingKind::Command,
+            "node.shell.operator",
+            "node.module.synthetic_provider",
+            Some(&root),
+        );
+
+        assert_eq!(report.operation, StudioEditOperation::RemoveBinding);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 1);
+        assert!(report.changed_fields.is_empty());
+        assert_eq!(project.revision, 1);
     }
 
     #[test]

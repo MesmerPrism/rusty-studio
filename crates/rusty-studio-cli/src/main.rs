@@ -1,7 +1,8 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use rusty_studio_core::{
-    add_module_to_graph, export_plan, load_project, load_shell_artifact_manifest,
-    load_shell_descriptor, load_shell_template_index, remove_module_from_graph, resolve_project,
+    add_binding_to_graph, add_module_to_graph, export_plan, load_project,
+    load_shell_artifact_manifest, load_shell_descriptor, load_shell_template_index,
+    remove_binding_from_graph, remove_module_from_graph, resolve_project,
     retarget_graph_host_profile, save_json, save_project, shell_artifacts_for_project,
     shell_descriptor_artifact_path, shell_descriptor_for_graph,
     shell_templates_for_artifact_manifest, validate_project_with_base,
@@ -9,7 +10,7 @@ use rusty_studio_core::{
     view_model_for_graph,
 };
 use rusty_studio_model::{
-    StudioEditStatus, StudioShellArtifactStatus, StudioShellDescriptorStatus,
+    StudioBindingKind, StudioEditStatus, StudioShellArtifactStatus, StudioShellDescriptorStatus,
     StudioShellTemplateStatus,
 };
 use std::path::{Path, PathBuf};
@@ -32,6 +33,8 @@ enum Command {
     RetargetHost(RetargetHostArgs),
     AddModule(AddModuleArgs),
     RemoveModule(RemoveModuleArgs),
+    AddBinding(BindingArgs),
+    RemoveBinding(BindingArgs),
     ShellDescriptor(ShellDescriptorArgs),
     ValidateShellDescriptor(DescriptorArgs),
     ShellArtifacts(ShellArtifactsArgs),
@@ -98,6 +101,39 @@ struct RemoveModuleArgs {
     output: Option<PathBuf>,
     #[arg(long)]
     write: bool,
+}
+
+#[derive(Debug, Parser)]
+struct BindingArgs {
+    #[arg(long)]
+    project: PathBuf,
+    #[arg(long)]
+    graph: String,
+    #[arg(long)]
+    kind: BindingKindArg,
+    #[arg(long)]
+    source_node: String,
+    #[arg(long)]
+    target_node: String,
+    #[arg(long)]
+    output: Option<PathBuf>,
+    #[arg(long)]
+    write: bool,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum BindingKindArg {
+    Stream,
+    Command,
+}
+
+impl From<BindingKindArg> for StudioBindingKind {
+    fn from(value: BindingKindArg) -> Self {
+        match value {
+            BindingKindArg::Stream => StudioBindingKind::Stream,
+            BindingKindArg::Command => StudioBindingKind::Command,
+        }
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -250,6 +286,62 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 &mut project,
                 &args.graph,
                 &args.module,
+                args.project.parent(),
+            );
+            if report.status == StudioEditStatus::Applied {
+                if args.write {
+                    save_project(&args.project, &project)?;
+                } else if let Some(output) = args.output.as_ref() {
+                    save_project(output, &project)?;
+                }
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::AddBinding(args) => {
+            if args.write && args.output.is_some() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "--write and --output are mutually exclusive",
+                )
+                .into());
+            }
+
+            let mut project = load_project(&args.project)?;
+            let report = add_binding_to_graph(
+                &mut project,
+                &args.graph,
+                args.kind.into(),
+                &args.source_node,
+                &args.target_node,
+                args.project.parent(),
+            );
+            if report.status == StudioEditStatus::Applied {
+                if args.write {
+                    save_project(&args.project, &project)?;
+                } else if let Some(output) = args.output.as_ref() {
+                    save_project(output, &project)?;
+                }
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::RemoveBinding(args) => {
+            if args.write && args.output.is_some() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "--write and --output are mutually exclusive",
+                )
+                .into());
+            }
+
+            let mut project = load_project(&args.project)?;
+            let report = remove_binding_from_graph(
+                &mut project,
+                &args.graph,
+                args.kind.into(),
+                &args.source_node,
+                &args.target_node,
                 args.project.parent(),
             );
             if report.status == StudioEditStatus::Applied {
