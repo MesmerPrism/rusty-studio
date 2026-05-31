@@ -1,10 +1,11 @@
 use clap::{Parser, Subcommand};
 use rusty_studio_core::{
     export_plan, load_project, load_shell_artifact_manifest, load_shell_descriptor,
-    resolve_project, retarget_graph_host_profile, save_json, save_project,
-    shell_artifacts_for_project, shell_descriptor_artifact_path, shell_descriptor_for_graph,
-    shell_templates_for_artifact_manifest, validate_project_with_base,
-    validate_shell_artifact_manifest, validate_shell_descriptor, view_model_for_graph,
+    load_shell_template_index, resolve_project, retarget_graph_host_profile, save_json,
+    save_project, shell_artifacts_for_project, shell_descriptor_artifact_path,
+    shell_descriptor_for_graph, shell_templates_for_artifact_manifest, validate_project_with_base,
+    validate_shell_artifact_manifest, validate_shell_descriptor, validate_shell_template_index,
+    view_model_for_graph,
 };
 use rusty_studio_model::{
     StudioEditStatus, StudioShellArtifactStatus, StudioShellDescriptorStatus,
@@ -33,6 +34,7 @@ enum Command {
     ShellArtifacts(ShellArtifactsArgs),
     ValidateShellArtifacts(ManifestArgs),
     ShellTemplates(ShellTemplatesArgs),
+    ValidateShellTemplates(TemplateIndexArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -99,6 +101,12 @@ struct ShellTemplatesArgs {
     manifest: PathBuf,
     #[arg(long)]
     output_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct TemplateIndexArgs {
+    #[arg(long)]
+    index: PathBuf,
 }
 
 fn main() -> ExitCode {
@@ -232,6 +240,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     save_json(&output_dir.join("shell-templates.json"), index)?;
                 }
             }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ValidateShellTemplates(args) => {
+            let index = load_shell_template_index(&args.index)?;
+            let report = validate_shell_template_index(&index, args.index.parent());
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }

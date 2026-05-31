@@ -6,15 +6,16 @@ use rusty_studio_model::{
     StudioShellBinding, StudioShellDescriptor, StudioShellDescriptorReport,
     StudioShellDescriptorStatus, StudioShellDescriptorValidationReport, StudioShellHostProfile,
     StudioShellHostRoutes, StudioShellRuntimeAuthority, StudioShellTargetKind,
-    StudioShellTemplateIndex, StudioShellTemplateIndexEntry, StudioShellTemplateManifest,
+    StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
+    StudioShellTemplateIndexValidationReport, StudioShellTemplateManifest,
     StudioShellTemplateReport, StudioShellTemplateStatus, StudioValidationCheck,
     StudioValidationReport, StudioValidationStatus, StudioViewModel, EDIT_REPORT_SCHEMA,
     EXPORT_PLAN_SCHEMA, PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA, SHELL_ARTIFACT_MANIFEST_SCHEMA,
     SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
     SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
     SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
-    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
-    VIEW_MODEL_SCHEMA,
+    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
+    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{StudioEdgeView, StudioGraphView, StudioNodeView};
 use serde::Serialize;
@@ -45,6 +46,18 @@ pub enum StudioCoreError {
     },
     #[error("{path}: {source}")]
     ParseShellArtifactManifest {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellTemplateIndex {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellTemplateManifest {
         path: String,
         #[source]
         source: serde_json::Error,
@@ -97,6 +110,30 @@ pub fn load_shell_artifact_manifest(
         source,
     })?;
     serde_json::from_str(&text).map_err(|source| StudioCoreError::ParseShellArtifactManifest {
+        path: path.display().to_string(),
+        source,
+    })
+}
+
+pub fn load_shell_template_index(path: &Path) -> Result<StudioShellTemplateIndex, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| StudioCoreError::ParseShellTemplateIndex {
+        path: path.display().to_string(),
+        source,
+    })
+}
+
+pub fn load_shell_template_manifest(
+    path: &Path,
+) -> Result<StudioShellTemplateManifest, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| StudioCoreError::ParseShellTemplateManifest {
         path: path.display().to_string(),
         source,
     })
@@ -980,6 +1017,142 @@ pub fn shell_templates_for_artifact_manifest(
     )
 }
 
+pub fn validate_shell_template_index(
+    index: &StudioShellTemplateIndex,
+    base_dir: Option<&Path>,
+) -> StudioShellTemplateIndexValidationReport {
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.schema",
+        index.schema_id == SHELL_TEMPLATE_INDEX_SCHEMA,
+        "shell template index schema id is supported",
+        "shell template index schema id is unsupported",
+        "studio.issue.shell_template_index_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.index_id",
+        is_dotted_id(&index.index_id),
+        "index id uses dotted-id grammar",
+        "index id is not a dotted id",
+        "studio.issue.invalid_index_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.manifest_id",
+        is_dotted_id(&index.manifest_id),
+        "manifest id uses dotted-id grammar",
+        "manifest id is not a dotted id",
+        "studio.issue.invalid_manifest_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.project_id",
+        is_dotted_id(&index.project_id),
+        "project id uses dotted-id grammar",
+        "project id is not a dotted id",
+        "studio.issue.invalid_project_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.project_revision",
+        index.project_revision > 0,
+        "project revision is positive",
+        "project revision must be positive",
+        "studio.issue.invalid_revision",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.templates_present",
+        !index.templates.is_empty(),
+        "index declares shell templates",
+        "index must declare at least one shell template",
+        "studio.issue.no_shell_templates",
+    );
+
+    let duplicate_template_ids =
+        duplicate_template_field(&index.templates, |entry| entry.template_id.as_str());
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.unique_template_ids",
+        duplicate_template_ids.is_empty(),
+        "template ids are unique",
+        &format!(
+            "duplicate template ids: {}",
+            duplicate_template_ids.join(", ")
+        ),
+        "studio.issue.duplicate_template_id",
+    );
+    let duplicate_artifact_ids =
+        duplicate_template_field(&index.templates, |entry| entry.artifact_id.as_str());
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.unique_artifact_ids",
+        duplicate_artifact_ids.is_empty(),
+        "artifact ids are unique",
+        &format!(
+            "duplicate artifact ids: {}",
+            duplicate_artifact_ids.join(", ")
+        ),
+        "studio.issue.duplicate_artifact_id",
+    );
+    let duplicate_graph_ids =
+        duplicate_template_field(&index.templates, |entry| entry.graph_id.as_str());
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.unique_graph_ids",
+        duplicate_graph_ids.is_empty(),
+        "graph ids are unique",
+        &format!("duplicate graph ids: {}", duplicate_graph_ids.join(", ")),
+        "studio.issue.duplicate_template_graph_id",
+    );
+    let duplicate_template_paths =
+        duplicate_template_field(&index.templates, |entry| entry.template_path.as_str());
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.unique_template_paths",
+        duplicate_template_paths.is_empty(),
+        "template paths are unique",
+        &format!(
+            "duplicate template paths: {}",
+            duplicate_template_paths.join(", ")
+        ),
+        "studio.issue.duplicate_template_path",
+    );
+    let duplicate_descriptor_paths =
+        duplicate_template_field(&index.templates, |entry| entry.descriptor_path.as_str());
+    push_check(
+        &mut checks,
+        "studio.check.shell_template_index.unique_descriptor_paths",
+        duplicate_descriptor_paths.is_empty(),
+        "descriptor paths are unique",
+        &format!(
+            "duplicate descriptor paths: {}",
+            duplicate_descriptor_paths.join(", ")
+        ),
+        "studio.issue.duplicate_descriptor_path",
+    );
+
+    for entry in &index.templates {
+        validate_shell_template_index_entry(entry, base_dir, &mut checks);
+    }
+
+    StudioShellTemplateIndexValidationReport {
+        schema_id: SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+        index_id: index.index_id.clone(),
+        status: if checks
+            .iter()
+            .any(|check| check.status == StudioValidationStatus::Fail)
+        {
+            StudioValidationStatus::Fail
+        } else {
+            StudioValidationStatus::Pass
+        },
+        checks,
+    }
+}
+
 #[derive(Default)]
 struct ReferenceIndex {
     package_ids: BTreeSet<String>,
@@ -1408,6 +1581,337 @@ fn validate_shell_artifact_descriptor_reference(
     );
 }
 
+fn validate_shell_template_index_entry(
+    entry: &StudioShellTemplateIndexEntry,
+    base_dir: Option<&Path>,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let prefix = entry.template_id.clone();
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.template_id"),
+        is_dotted_id(&entry.template_id),
+        "template id uses dotted-id grammar",
+        "template id is not a dotted id",
+        "studio.issue.invalid_template_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.artifact_id"),
+        is_dotted_id(&entry.artifact_id),
+        "artifact id uses dotted-id grammar",
+        "artifact id is not a dotted id",
+        "studio.issue.invalid_artifact_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.graph_id"),
+        is_dotted_id(&entry.graph_id),
+        "graph id uses dotted-id grammar",
+        "graph id is not a dotted id",
+        "studio.issue.invalid_graph_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.shell_id"),
+        is_dotted_id(&entry.shell_id),
+        "shell id uses dotted-id grammar",
+        "shell id is not a dotted id",
+        "studio.issue.invalid_shell_id",
+    );
+    let template_path_is_safe = is_safe_relative_manifest_path(&entry.template_path);
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.template_path"),
+        template_path_is_safe,
+        "template path is a safe relative path",
+        "template path must be a portable relative path without traversal",
+        "studio.issue.invalid_template_path",
+    );
+    let descriptor_path_is_safe = is_safe_relative_manifest_path(&entry.descriptor_path);
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.descriptor_path"),
+        descriptor_path_is_safe,
+        "descriptor path is a safe relative path",
+        "descriptor path must be a portable relative path without traversal",
+        "studio.issue.invalid_descriptor_path",
+    );
+
+    if let Some(base_dir) = base_dir.filter(|_| template_path_is_safe && descriptor_path_is_safe) {
+        validate_shell_template_files(entry, base_dir, checks);
+    }
+}
+
+fn validate_shell_template_files(
+    entry: &StudioShellTemplateIndexEntry,
+    base_dir: &Path,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let prefix = entry.template_id.clone();
+    let template_path = resolve_manifest_relative_path(base_dir, &entry.template_path);
+    let template_exists = template_path.is_file();
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.template_exists"),
+        template_exists,
+        "template path resolves to a file",
+        "template path does not resolve to a file",
+        "studio.issue.template_missing",
+    );
+    if !template_exists {
+        return;
+    }
+
+    let template = match load_shell_template_manifest(&template_path) {
+        Ok(template) => {
+            push_check(
+                checks,
+                &format!("studio.check.shell_template_index.template.{prefix}.template_parse"),
+                true,
+                "template JSON parsed",
+                "template JSON did not parse",
+                "studio.issue.template_parse_failed",
+            );
+            template
+        }
+        Err(error) => {
+            checks.push(StudioValidationCheck {
+                check_id: format!(
+                    "studio.check.shell_template_index.template.{prefix}.template_parse"
+                ),
+                status: StudioValidationStatus::Fail,
+                evidence: error.to_string(),
+                issue_code: Some("studio.issue.template_parse_failed".to_string()),
+            });
+            return;
+        }
+    };
+
+    validate_shell_template_manifest_reference(entry, &template, checks);
+
+    let descriptor_path = resolve_manifest_relative_path(base_dir, &entry.descriptor_path);
+    let descriptor_exists = descriptor_path.is_file();
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.descriptor_exists"),
+        descriptor_exists,
+        "descriptor path resolves to a file",
+        "descriptor path does not resolve to a file",
+        "studio.issue.descriptor_missing",
+    );
+    if !descriptor_exists {
+        return;
+    }
+    let descriptor = match load_shell_descriptor(&descriptor_path) {
+        Ok(descriptor) => {
+            push_check(
+                checks,
+                &format!("studio.check.shell_template_index.template.{prefix}.descriptor_parse"),
+                true,
+                "descriptor JSON parsed",
+                "descriptor JSON did not parse",
+                "studio.issue.descriptor_parse_failed",
+            );
+            descriptor
+        }
+        Err(error) => {
+            checks.push(StudioValidationCheck {
+                check_id: format!(
+                    "studio.check.shell_template_index.template.{prefix}.descriptor_parse"
+                ),
+                status: StudioValidationStatus::Fail,
+                evidence: error.to_string(),
+                issue_code: Some("studio.issue.descriptor_parse_failed".to_string()),
+            });
+            return;
+        }
+    };
+
+    let descriptor_validation = validate_shell_descriptor(&descriptor);
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.descriptor_validation"),
+        descriptor_validation.status == StudioValidationStatus::Pass,
+        "descriptor validation passed",
+        "descriptor validation failed",
+        "studio.issue.descriptor_validation_failed",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.descriptor_graph"),
+        descriptor.graph_id == entry.graph_id && descriptor.graph_id == template.graph_id,
+        "descriptor graph id matches template index and manifest",
+        "descriptor graph id does not match template index and manifest",
+        "studio.issue.descriptor_graph_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.descriptor_shell"),
+        descriptor.shell_id == entry.shell_id && descriptor.shell_id == template.shell_id,
+        "descriptor shell id matches template index and manifest",
+        "descriptor shell id does not match template index and manifest",
+        "studio.issue.descriptor_shell_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.descriptor_target"),
+        descriptor.target_host_profile == template.target_host_profile,
+        "descriptor target host profile matches template manifest",
+        "descriptor target host profile does not match template manifest",
+        "studio.issue.descriptor_target_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.descriptor_target_kind"),
+        shell_target_kind(descriptor.host_profile.host_profile.as_deref()) == entry.target_kind
+            && entry.target_kind == template.target_kind,
+        "descriptor target kind matches template index and manifest",
+        "descriptor target kind does not match template index and manifest",
+        "studio.issue.descriptor_target_kind_mismatch",
+    );
+}
+
+fn validate_shell_template_manifest_reference(
+    entry: &StudioShellTemplateIndexEntry,
+    template: &StudioShellTemplateManifest,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let prefix = entry.template_id.clone();
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.template_schema"),
+        template.schema_id == SHELL_TEMPLATE_MANIFEST_SCHEMA,
+        "template manifest schema id is supported",
+        "template manifest schema id is unsupported",
+        "studio.issue.shell_template_manifest_schema",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.template_id_matches"),
+        template.template_id == entry.template_id,
+        "template id matches index entry",
+        "template id does not match index entry",
+        "studio.issue.template_id_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.artifact_id_matches"),
+        template.artifact_id == entry.artifact_id,
+        "artifact id matches index entry",
+        "artifact id does not match index entry",
+        "studio.issue.artifact_id_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.graph_id_matches"),
+        template.graph_id == entry.graph_id,
+        "graph id matches index entry",
+        "graph id does not match index entry",
+        "studio.issue.template_graph_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.shell_id_matches"),
+        template.shell_id == entry.shell_id,
+        "shell id matches index entry",
+        "shell id does not match index entry",
+        "studio.issue.template_shell_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.target_kind_matches"),
+        template.target_kind == entry.target_kind,
+        "target kind matches index entry",
+        "target kind does not match index entry",
+        "studio.issue.template_target_kind_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.descriptor_path_matches"),
+        template.descriptor_path == entry.descriptor_path,
+        "descriptor path matches index entry",
+        "descriptor path does not match index entry",
+        "studio.issue.template_descriptor_path_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.target_host_profile"),
+        is_dotted_id(&template.target_host_profile),
+        "target host profile uses dotted-id grammar",
+        "target host profile is not a dotted id",
+        "studio.issue.invalid_target_host_profile",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.host_profile_class"),
+        optional_dotted_id(template.host_profile_class.as_deref()),
+        "host profile class is absent or uses dotted-id grammar",
+        "host profile class is not a dotted id",
+        "studio.issue.invalid_host_profile_class",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.source_descriptor_path"),
+        is_safe_relative_manifest_path(&template.source_descriptor_path),
+        "source descriptor path is a safe relative path",
+        "source descriptor path must be a portable relative path without traversal",
+        "studio.issue.invalid_source_descriptor_path",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.runtime_command_authority"),
+        template.runtime_authority.command_session_authority == "rusty.manifold",
+        "Manifold owns command/session authority",
+        "command/session authority must remain rusty.manifold",
+        "studio.issue.runtime_authority_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.runtime_host_authority"),
+        template.runtime_authority.install_launch_evidence_authority == "rusty.hostess",
+        "Hostess owns install/launch/evidence authority",
+        "install/launch/evidence authority must remain rusty.hostess",
+        "studio.issue.runtime_authority_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.studio_role"),
+        template.runtime_authority.studio_role == "authoring.export_planning",
+        "Studio remains authoring/export-planning authority",
+        "Studio role must remain authoring.export_planning",
+        "studio.issue.studio_role_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.host_routes"),
+        optional_dotted_id(template.host_routes.app_id.as_deref())
+            && optional_dotted_id(template.host_routes.install_route.as_deref())
+            && optional_dotted_id(template.host_routes.launch_route.as_deref())
+            && optional_dotted_id(template.host_routes.command_bridge.as_deref())
+            && optional_dotted_id(template.host_routes.evidence_pull_route.as_deref()),
+        "host routes are absent or use dotted-id grammar",
+        "one or more host routes are not dotted ids",
+        "studio.issue.invalid_host_route",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.package_ids"),
+        all_dotted_ids(&template.package_ids),
+        "package ids use dotted-id grammar",
+        "one or more package ids are not dotted ids",
+        "studio.issue.invalid_package_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_template_index.template.{prefix}.module_ids"),
+        all_dotted_ids(&template.module_ids),
+        "module ids use dotted-id grammar",
+        "one or more module ids are not dotted ids",
+        "studio.issue.invalid_module_id",
+    );
+}
+
 fn shell_template_for_artifact(artifact: &StudioShellArtifact) -> StudioShellTemplateManifest {
     StudioShellTemplateManifest {
         schema_id: SHELL_TEMPLATE_MANIFEST_SCHEMA.to_string(),
@@ -1483,6 +1987,20 @@ where
     let mut counts = BTreeMap::new();
     for artifact in artifacts {
         *counts.entry(field(artifact).to_string()).or_insert(0) += 1;
+    }
+    counts
+        .into_iter()
+        .filter_map(|(id, count)| (count > 1).then_some(id))
+        .collect()
+}
+
+fn duplicate_template_field<F>(entries: &[StudioShellTemplateIndexEntry], field: F) -> Vec<String>
+where
+    F: Fn(&StudioShellTemplateIndexEntry) -> &str,
+{
+    let mut counts = BTreeMap::new();
+    for entry in entries {
+        *counts.entry(field(entry).to_string()).or_insert(0) += 1;
     }
     counts
         .into_iter()
@@ -2227,6 +2745,7 @@ mod tests {
     use rusty_studio_model::{
         StudioEdgeKind, StudioEditStatus, StudioNode, StudioNodeKind, StudioShellArtifactStatus,
         StudioShellDescriptorStatus, StudioShellTargetKind, StudioShellTemplateStatus,
+        SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
     };
 
     fn valid_project() -> StudioProject {
@@ -2815,6 +3334,111 @@ mod tests {
             template_report.issue_code.as_deref(),
             Some("studio.issue.invalid_descriptor_path")
         );
+    }
+
+    #[test]
+    fn shell_template_index_roundtrips_and_validates_files() {
+        let root = temp_root("shell-template-index-roundtrip");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let artifact_report = shell_artifacts_for_project(&project, Some(&root));
+        let manifest = artifact_report
+            .manifest
+            .as_ref()
+            .expect("shell artifact manifest");
+        for descriptor in &artifact_report.descriptors {
+            let descriptor_path = resolve_manifest_relative_path(
+                &root,
+                &shell_descriptor_artifact_path(&descriptor.graph_id),
+            );
+            save_json(&descriptor_path, descriptor).expect("save descriptor");
+        }
+        let template_report = shell_templates_for_artifact_manifest(manifest, Some(&root));
+        let index = template_report.index.as_ref().expect("template index");
+        for (entry, template) in index.templates.iter().zip(template_report.templates.iter()) {
+            save_json(
+                &resolve_manifest_relative_path(&root, &entry.template_path),
+                template,
+            )
+            .expect("save template");
+        }
+        let index_path = root.join("shell-templates.json");
+        save_json(&index_path, index).expect("save index");
+
+        let loaded_index = load_shell_template_index(&index_path).expect("load template index");
+        let validation = validate_shell_template_index(&loaded_index, Some(&root));
+
+        assert_eq!(loaded_index, *index);
+        assert_eq!(
+            validation.schema_id,
+            SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA
+        );
+        assert_eq!(validation.status, StudioValidationStatus::Pass);
+    }
+
+    #[test]
+    fn shell_template_index_validation_rejects_template_mismatch() {
+        let root = temp_root("shell-template-index-mismatch");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let artifact_report = shell_artifacts_for_project(&project, Some(&root));
+        let manifest = artifact_report
+            .manifest
+            .as_ref()
+            .expect("shell artifact manifest");
+        for descriptor in &artifact_report.descriptors {
+            let descriptor_path = resolve_manifest_relative_path(
+                &root,
+                &shell_descriptor_artifact_path(&descriptor.graph_id),
+            );
+            save_json(&descriptor_path, descriptor).expect("save descriptor");
+        }
+        let template_report = shell_templates_for_artifact_manifest(manifest, Some(&root));
+        let mut index = template_report.index.expect("template index");
+        for (entry, template) in index.templates.iter().zip(template_report.templates.iter()) {
+            save_json(
+                &resolve_manifest_relative_path(&root, &entry.template_path),
+                template,
+            )
+            .expect("save template");
+        }
+        index.templates[0].shell_id = "shell.synthetic.changed".to_string();
+
+        let validation = validate_shell_template_index(&index, Some(&root));
+
+        assert_eq!(validation.status, StudioValidationStatus::Fail);
+        assert!(validation.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.template_shell_mismatch")
+        }));
+    }
+
+    #[test]
+    fn shell_template_index_validation_rejects_path_traversal() {
+        let root = temp_root("shell-template-index-path-traversal");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let artifact_report = shell_artifacts_for_project(&project, Some(&root));
+        let manifest = artifact_report
+            .manifest
+            .as_ref()
+            .expect("shell artifact manifest");
+        for descriptor in &artifact_report.descriptors {
+            let descriptor_path = resolve_manifest_relative_path(
+                &root,
+                &shell_descriptor_artifact_path(&descriptor.graph_id),
+            );
+            save_json(&descriptor_path, descriptor).expect("save descriptor");
+        }
+        let template_report = shell_templates_for_artifact_manifest(manifest, Some(&root));
+        let mut index = template_report.index.expect("template index");
+        index.templates[0].template_path = "../outside.json".to_string();
+
+        let validation = validate_shell_template_index(&index, Some(&root));
+
+        assert_eq!(validation.status, StudioValidationStatus::Fail);
+        assert!(validation.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.invalid_template_path")
+        }));
     }
 
     #[test]

@@ -254,6 +254,18 @@ try {
     if ($ShellTemplatesIndex.templates.Count -ne 3) {
         throw "shell templates index should contain desktop, phone, and quest templates"
     }
+    $ShellTemplatesValidationOutput = & cargo run --quiet -p rusty-studio-cli -- validate-shell-templates --index $ShellTemplatesIndexPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio validate shell templates failed with exit code $LASTEXITCODE"
+    }
+    $ShellTemplatesValidationText = $ShellTemplatesValidationOutput -join [Environment]::NewLine
+    $ShellTemplatesValidation = $ShellTemplatesValidationText | ConvertFrom-Json
+    if ($ShellTemplatesValidation.'$schema' -ne "rusty.studio.shell_template_index_validation_report.v1") {
+        throw "shell templates validation schema mismatch"
+    }
+    if ($ShellTemplatesValidation.status -ne "pass") {
+        throw "shell templates validation did not pass"
+    }
     $TemplateTargetKinds = @($ShellTemplatesIndex.templates | ForEach-Object { $_.target_kind })
     foreach ($RequiredTargetKind in @("desktop", "phone", "quest")) {
         if ($TemplateTargetKinds -notcontains $RequiredTargetKind) {

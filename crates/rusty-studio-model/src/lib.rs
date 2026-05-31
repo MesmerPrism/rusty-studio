@@ -17,6 +17,8 @@ pub const SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA: &str =
 pub const SHELL_TEMPLATE_INDEX_SCHEMA: &str = "rusty.studio.shell_template_index.v1";
 pub const SHELL_TEMPLATE_MANIFEST_SCHEMA: &str = "rusty.studio.shell_template_manifest.v1";
 pub const SHELL_TEMPLATE_REPORT_SCHEMA: &str = "rusty.studio.shell_template_report.v1";
+pub const SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA: &str =
+    "rusty.studio.shell_template_index_validation_report.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -344,6 +346,15 @@ pub struct StudioShellHostRoutes {
     pub launch_route: Option<String>,
     pub command_bridge: Option<String>,
     pub evidence_pull_route: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellTemplateIndexValidationReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: &'static str,
+    pub index_id: String,
+    pub status: StudioValidationStatus,
+    pub checks: Vec<StudioValidationCheck>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

@@ -2,12 +2,14 @@ pub use makepad_widgets;
 
 use makepad_widgets::*;
 use rusty_studio_core::{
-    load_shell_artifact_manifest, load_shell_descriptor, validate_shell_artifact_manifest,
-    validate_shell_descriptor,
+    load_shell_artifact_manifest, load_shell_descriptor, load_shell_template_index,
+    load_shell_template_manifest, validate_shell_artifact_manifest, validate_shell_descriptor,
+    validate_shell_template_index,
 };
 use rusty_studio_model::{
     StudioShellArtifact, StudioShellArtifactManifest, StudioShellBinding, StudioShellDescriptor,
-    StudioShellTargetKind, StudioValidationStatus,
+    StudioShellTargetKind, StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
+    StudioShellTemplateManifest, StudioValidationStatus,
 };
 use std::path::{Path, PathBuf};
 
@@ -87,6 +89,15 @@ script_mod! {
         Row{FieldLabel{text: "artifacts"} artifact_rows := SmallValue{text: ""}}
     }
 
+    let TemplatePanel = Panel{
+        SectionTitle{text: "Shell Template Index"}
+        Row{FieldLabel{text: "index"} template_index_source := SmallValue{text: ""}}
+        Row{FieldLabel{text: "bundle"} template_index_identity := FieldValue{text: ""}}
+        Row{FieldLabel{text: "validation"} template_index_validation := FieldValue{text: ""}}
+        Row{FieldLabel{text: "templates"} template_rows := SmallValue{text: ""}}
+        Row{FieldLabel{text: "authority"} template_authority := SmallValue{text: ""}}
+    }
+
     let HostPanel = Panel{
         SectionTitle{text: "Host"}
         Row{FieldLabel{text: "target"} host_target := FieldValue{text: ""}}
@@ -160,6 +171,7 @@ script_mod! {
                         spacing: 12.0
 
                         ManifestPanel{}
+                        TemplatePanel{}
                         DescriptorPanel{}
                         HostPanel{}
                         PackagePanel{}
@@ -180,6 +192,12 @@ pub struct App {
     #[rust]
     manifest: Option<StudioShellArtifactManifest>,
     #[rust]
+    template_index_source: Option<PathBuf>,
+    #[rust]
+    template_index: Option<StudioShellTemplateIndex>,
+    #[rust]
+    template_manifest: Option<StudioShellTemplateManifest>,
+    #[rust]
     descriptor_source: Option<PathBuf>,
     #[rust]
     descriptor: Option<StudioShellDescriptor>,
@@ -196,6 +214,9 @@ impl App {
     fn set_shell_input(&mut self, cx: &mut Cx, input: LoadedShellInput) {
         self.manifest_source = input.manifest_source;
         self.manifest = input.manifest;
+        self.template_index_source = input.template_index_source;
+        self.template_index = input.template_index;
+        self.template_manifest = input.template_manifest;
         self.descriptor_source = Some(input.descriptor_source);
         self.descriptor = Some(input.descriptor);
         self.sync_loaded_descriptor(cx);
@@ -206,6 +227,7 @@ impl App {
             self.sync_error(cx, "no shell descriptor loaded");
             return;
         };
+        self.sync_template_index(cx);
         self.sync_manifest(cx);
         let source = self.descriptor_source.clone().unwrap_or_default();
         self.ui
@@ -281,6 +303,42 @@ impl App {
         }
     }
 
+    fn sync_template_index(&mut self, cx: &mut Cx) {
+        if let (Some(source), Some(index)) = (
+            self.template_index_source.as_ref(),
+            self.template_index.as_ref(),
+        ) {
+            self.ui
+                .label(cx, ids!(template_index_source))
+                .set_text(cx, &source.display().to_string());
+            self.ui
+                .label(cx, ids!(template_index_identity))
+                .set_text(cx, &template_index_identity_line(index));
+            self.ui
+                .label(cx, ids!(template_index_validation))
+                .set_text(cx, &template_index_validation_line(index, source.parent()));
+            self.ui
+                .label(cx, ids!(template_rows))
+                .set_text(cx, &template_lines(&index.templates));
+            self.ui.label(cx, ids!(template_authority)).set_text(
+                cx,
+                &template_authority_line(self.template_manifest.as_ref()),
+            );
+        } else {
+            self.ui
+                .label(cx, ids!(template_index_source))
+                .set_text(cx, "no template index input");
+            self.ui
+                .label(cx, ids!(template_index_identity))
+                .set_text(cx, "");
+            self.ui
+                .label(cx, ids!(template_index_validation))
+                .set_text(cx, "");
+            self.ui.label(cx, ids!(template_rows)).set_text(cx, "");
+            self.ui.label(cx, ids!(template_authority)).set_text(cx, "");
+        }
+    }
+
     fn sync_error(&mut self, cx: &mut Cx, error: &str) {
         self.ui.label(cx, ids!(manifest_source)).set_text(cx, "");
         self.ui
@@ -290,6 +348,17 @@ impl App {
             .label(cx, ids!(manifest_validation))
             .set_text(cx, error);
         self.ui.label(cx, ids!(artifact_rows)).set_text(cx, "");
+        self.ui
+            .label(cx, ids!(template_index_source))
+            .set_text(cx, "");
+        self.ui
+            .label(cx, ids!(template_index_identity))
+            .set_text(cx, "template input load failed");
+        self.ui
+            .label(cx, ids!(template_index_validation))
+            .set_text(cx, error);
+        self.ui.label(cx, ids!(template_rows)).set_text(cx, "");
+        self.ui.label(cx, ids!(template_authority)).set_text(cx, "");
         self.ui.label(cx, ids!(descriptor_source)).set_text(cx, "");
         self.ui
             .label(cx, ids!(descriptor_identity))
@@ -336,11 +405,17 @@ impl AppMain for App {
 struct LoadedShellInput {
     manifest_source: Option<PathBuf>,
     manifest: Option<StudioShellArtifactManifest>,
+    template_index_source: Option<PathBuf>,
+    template_index: Option<StudioShellTemplateIndex>,
+    template_manifest: Option<StudioShellTemplateManifest>,
     descriptor_source: PathBuf,
     descriptor: StudioShellDescriptor,
 }
 
 fn load_initial_shell_input() -> Result<LoadedShellInput, String> {
+    if let Some(template_index_path) = template_index_path_from_args() {
+        return load_shell_input_from_template_index(&template_index_path);
+    }
     if let Some(manifest_path) = manifest_path_from_args() {
         return load_shell_input_from_manifest(&manifest_path);
     }
@@ -349,9 +424,15 @@ fn load_initial_shell_input() -> Result<LoadedShellInput, String> {
         return Ok(LoadedShellInput {
             manifest_source: None,
             manifest: None,
+            template_index_source: None,
+            template_index: None,
+            template_manifest: None,
             descriptor_source: descriptor_path,
             descriptor,
         });
+    }
+    if let Some(template_index_path) = find_default_template_index_path() {
+        return load_shell_input_from_template_index(&template_index_path);
     }
     if let Some(manifest_path) = find_default_manifest_path() {
         return load_shell_input_from_manifest(&manifest_path);
@@ -364,6 +445,9 @@ fn load_initial_shell_input() -> Result<LoadedShellInput, String> {
     Ok(LoadedShellInput {
         manifest_source: None,
         manifest: None,
+        template_index_source: None,
+        template_index: None,
+        template_manifest: None,
         descriptor_source: descriptor_path,
         descriptor,
     })
@@ -379,6 +463,10 @@ fn descriptor_path_from_args() -> Option<PathBuf> {
 
 fn manifest_path_from_args() -> Option<PathBuf> {
     path_from_args("--manifest")
+}
+
+fn template_index_path_from_args() -> Option<PathBuf> {
+    path_from_args("--templates")
 }
 
 fn path_from_args(flag: &str) -> Option<PathBuf> {
@@ -411,6 +499,16 @@ fn find_default_manifest_path() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
+fn find_default_template_index_path() -> Option<PathBuf> {
+    let current_dir = std::env::current_dir().ok()?;
+    let candidates = [
+        current_dir.join("target/studio-shell-templates/shell-templates.json"),
+        current_dir.join("../../target/studio-shell-templates/shell-templates.json"),
+        current_dir.join("../../../target/studio-shell-templates/shell-templates.json"),
+    ];
+    candidates.into_iter().find(|path| path.is_file())
+}
+
 fn load_shell_input_from_manifest(path: &Path) -> Result<LoadedShellInput, String> {
     let manifest = load_shell_artifact_manifest(path).map_err(|error| error.to_string())?;
     let validation = validate_shell_artifact_manifest(&manifest, path.parent());
@@ -424,6 +522,33 @@ fn load_shell_input_from_manifest(path: &Path) -> Result<LoadedShellInput, Strin
     Ok(LoadedShellInput {
         manifest_source: Some(path.to_path_buf()),
         manifest: Some(manifest),
+        template_index_source: None,
+        template_index: None,
+        template_manifest: None,
+        descriptor_source,
+        descriptor,
+    })
+}
+
+fn load_shell_input_from_template_index(path: &Path) -> Result<LoadedShellInput, String> {
+    let index = load_shell_template_index(path).map_err(|error| error.to_string())?;
+    let validation = validate_shell_template_index(&index, path.parent());
+    if validation.status != StudioValidationStatus::Pass {
+        return Err(template_index_validation_line(&index, path.parent()));
+    }
+    let entry = selected_template_entry(&index)
+        .ok_or_else(|| "template index does not declare a loadable shell template".to_string())?;
+    let template_source = template_manifest_path(path, entry);
+    let template_manifest =
+        load_shell_template_manifest(&template_source).map_err(|error| error.to_string())?;
+    let descriptor_source = template_descriptor_path(path, entry);
+    let descriptor = load_descriptor_for_path(&descriptor_source)?;
+    Ok(LoadedShellInput {
+        manifest_source: None,
+        manifest: None,
+        template_index_source: Some(path.to_path_buf()),
+        template_index: Some(index),
+        template_manifest: Some(template_manifest),
         descriptor_source,
         descriptor,
     })
@@ -439,9 +564,39 @@ fn selected_manifest_artifact(
         .or_else(|| manifest.artifacts.first())
 }
 
+fn selected_template_entry(
+    index: &StudioShellTemplateIndex,
+) -> Option<&StudioShellTemplateIndexEntry> {
+    index
+        .templates
+        .iter()
+        .find(|entry| entry.target_kind == StudioShellTargetKind::Desktop)
+        .or_else(|| index.templates.first())
+}
+
 fn manifest_descriptor_path(manifest_path: &Path, artifact: &StudioShellArtifact) -> PathBuf {
     artifact.descriptor_path.split('/').fold(
         manifest_path
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .to_path_buf(),
+        |path, segment| path.join(segment),
+    )
+}
+
+fn template_manifest_path(index_path: &Path, entry: &StudioShellTemplateIndexEntry) -> PathBuf {
+    entry.template_path.split('/').fold(
+        index_path
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .to_path_buf(),
+        |path, segment| path.join(segment),
+    )
+}
+
+fn template_descriptor_path(index_path: &Path, entry: &StudioShellTemplateIndexEntry) -> PathBuf {
+    entry.descriptor_path.split('/').fold(
+        index_path
             .parent()
             .unwrap_or_else(|| Path::new(""))
             .to_path_buf(),
@@ -498,6 +653,62 @@ fn manifest_validation_line(
     format!(
         "{}; {pass_count} passing checks, {fail_count} failing checks",
         validation_status_word(report.status)
+    )
+}
+
+fn template_index_identity_line(index: &StudioShellTemplateIndex) -> String {
+    format!(
+        "{} / {} rev {}",
+        index.index_id, index.project_id, index.project_revision
+    )
+}
+
+fn template_index_validation_line(
+    index: &StudioShellTemplateIndex,
+    base_dir: Option<&Path>,
+) -> String {
+    let report = validate_shell_template_index(index, base_dir);
+    let pass_count = report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Pass)
+        .count();
+    let fail_count = report.checks.len() - pass_count;
+    format!(
+        "{}; {pass_count} passing checks, {fail_count} failing checks",
+        validation_status_word(report.status)
+    )
+}
+
+fn template_lines(entries: &[StudioShellTemplateIndexEntry]) -> String {
+    if entries.is_empty() {
+        return "none".to_string();
+    }
+    entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "{}: {} / {}\n  template: {}\n  descriptor: {}",
+                target_kind_label(entry.target_kind),
+                entry.graph_id,
+                entry.shell_id,
+                entry.template_path,
+                entry.descriptor_path
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn template_authority_line(template: Option<&StudioShellTemplateManifest>) -> String {
+    let Some(template) = template else {
+        return "".to_string();
+    };
+    format!(
+        "command/session: {}\ninstall/launch/evidence: {}\nstudio: {}",
+        template.runtime_authority.command_session_authority,
+        template.runtime_authority.install_launch_evidence_authority,
+        template.runtime_authority.studio_role
     )
 }
 
@@ -593,8 +804,9 @@ fn optional_value(value: Option<&str>) -> &str {
 mod tests {
     use super::*;
     use rusty_studio_model::{
-        StudioShellArtifact, StudioShellHostProfile, SHELL_ARTIFACT_MANIFEST_SCHEMA,
-        SHELL_DESCRIPTOR_SCHEMA,
+        StudioShellArtifact, StudioShellHostProfile, StudioShellHostRoutes,
+        StudioShellRuntimeAuthority, StudioShellTemplateIndexEntry, SHELL_ARTIFACT_MANIFEST_SCHEMA,
+        SHELL_DESCRIPTOR_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
     };
 
     fn sample_descriptor() -> StudioShellDescriptor {
@@ -673,6 +885,65 @@ mod tests {
         }
     }
 
+    fn sample_template_index() -> StudioShellTemplateIndex {
+        StudioShellTemplateIndex {
+            schema_id: SHELL_TEMPLATE_INDEX_SCHEMA.to_string(),
+            index_id: "studio.shell_templates.test".to_string(),
+            manifest_id: "studio.shell_artifacts.test".to_string(),
+            project_id: "studio.project.test".to_string(),
+            project_revision: 1,
+            templates: vec![
+                StudioShellTemplateIndexEntry {
+                    template_id: "studio.shell_template.phone".to_string(),
+                    artifact_id: "studio.shell_artifact.phone".to_string(),
+                    graph_id: "studio.graph.phone".to_string(),
+                    shell_id: "shell.test.phone".to_string(),
+                    target_kind: StudioShellTargetKind::Phone,
+                    template_path: "shells/phone/phone.json".to_string(),
+                    descriptor_path: "descriptors/phone.json".to_string(),
+                },
+                StudioShellTemplateIndexEntry {
+                    template_id: "studio.shell_template.desktop".to_string(),
+                    artifact_id: "studio.shell_artifact.desktop".to_string(),
+                    graph_id: "studio.graph.desktop".to_string(),
+                    shell_id: "shell.test.desktop".to_string(),
+                    target_kind: StudioShellTargetKind::Desktop,
+                    template_path: "shells/desktop/desktop.json".to_string(),
+                    descriptor_path: "descriptors/desktop.json".to_string(),
+                },
+            ],
+        }
+    }
+
+    fn sample_template_manifest() -> StudioShellTemplateManifest {
+        StudioShellTemplateManifest {
+            schema_id: SHELL_TEMPLATE_MANIFEST_SCHEMA.to_string(),
+            template_id: "studio.shell_template.desktop".to_string(),
+            artifact_id: "studio.shell_artifact.desktop".to_string(),
+            graph_id: "studio.graph.desktop".to_string(),
+            shell_id: "shell.test.desktop".to_string(),
+            target_kind: StudioShellTargetKind::Desktop,
+            target_host_profile: "host_run.profile.desktop".to_string(),
+            host_profile_class: Some("host.desktop".to_string()),
+            source_descriptor_path: "descriptors/desktop.json".to_string(),
+            descriptor_path: "descriptors/desktop.json".to_string(),
+            runtime_authority: StudioShellRuntimeAuthority {
+                command_session_authority: "rusty.manifold".to_string(),
+                install_launch_evidence_authority: "rusty.hostess".to_string(),
+                studio_role: "authoring.export_planning".to_string(),
+            },
+            host_routes: StudioShellHostRoutes {
+                app_id: Some("app.host_shell.desktop".to_string()),
+                install_route: Some("install.local_process".to_string()),
+                launch_route: Some("launch.local_process".to_string()),
+                command_bridge: Some("bridge.local_cli".to_string()),
+                evidence_pull_route: Some("evidence.filesystem".to_string()),
+            },
+            package_ids: vec!["package.synthetic".to_string()],
+            module_ids: vec!["module.synthetic_provider".to_string()],
+        }
+    }
+
     #[test]
     fn descriptor_helpers_surface_pass_validation() {
         let descriptor = sample_descriptor();
@@ -706,5 +977,21 @@ mod tests {
         assert!(lines.contains("phone: studio.graph.phone / shell.test.phone"));
         assert!(lines.contains("desktop: studio.graph.desktop / shell.test.desktop"));
         assert!(manifest_identity_line(&manifest).contains("studio.project.test rev 1"));
+    }
+
+    #[test]
+    fn template_helpers_prefer_desktop_and_surface_authority() {
+        let index = sample_template_index();
+        let template = sample_template_manifest();
+        let selected = selected_template_entry(&index).expect("selected template");
+        let lines = template_lines(&index.templates);
+        let authority = template_authority_line(Some(&template));
+
+        assert_eq!(selected.target_kind, StudioShellTargetKind::Desktop);
+        assert!(lines.contains("phone: studio.graph.phone / shell.test.phone"));
+        assert!(lines.contains("desktop: studio.graph.desktop / shell.test.desktop"));
+        assert!(template_index_identity_line(&index).contains("studio.project.test rev 1"));
+        assert!(authority.contains("command/session: rusty.manifold"));
+        assert!(authority.contains("install/launch/evidence: rusty.hostess"));
     }
 }
