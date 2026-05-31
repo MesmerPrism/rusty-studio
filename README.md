@@ -13,8 +13,8 @@ Current scope:
 - expose deterministic CLI commands for agents and future GUI parity;
 - expose catalog package/module and host-profile palette rows through the
   shared view model;
-- expose failed validation diagnostics through the shared view model and
-  Makepad surface;
+- expose actionable failed validation diagnostics with graph/reference targets
+  through the shared view model and Makepad surface;
 - add the next available catalog module from that palette through a shared
   core/CLI/Makepad mutation path;
 - render the resolved synthetic project in a Makepad desktop authoring surface;

@@ -980,7 +980,26 @@ fn validation_issue_lines(model: &StudioViewModel) -> String {
         .iter()
         .map(|issue| {
             let issue_code = issue.issue_code.as_deref().unwrap_or("unknown_issue");
-            format!("{} [{}]\n  {}", issue.check_id, issue_code, issue.evidence)
+            let mut lines = vec![format!("{} [{}]", issue.check_id, issue_code)];
+            if let Some(graph_id) = issue.graph_id.as_deref() {
+                let graph_label = if issue.targets_selected_graph {
+                    "selected graph"
+                } else {
+                    "graph"
+                };
+                lines.push(format!("  {graph_label}: {graph_id}"));
+            }
+            if !issue.node_ids.is_empty() {
+                lines.push(format!("  nodes: {}", issue.node_ids.join(", ")));
+            }
+            if !issue.edge_ids.is_empty() {
+                lines.push(format!("  edges: {}", issue.edge_ids.join(", ")));
+            }
+            if !issue.reference_ids.is_empty() {
+                lines.push(format!("  refs: {}", issue.reference_ids.join(", ")));
+            }
+            lines.push(format!("  {}", issue.evidence));
+            lines.join("\n")
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -1297,6 +1316,8 @@ mod tests {
         let issue_lines = validation_issue_lines(&model);
         assert!(issue_lines.contains("studio.check.graph.studio.graph.makepad_edit.package_refs"));
         assert!(issue_lines.contains("studio.issue.package_reference_missing"));
+        assert!(issue_lines.contains("selected graph: studio.graph.makepad_edit"));
+        assert!(issue_lines.contains("refs: package.missing"));
         assert!(issue_lines.contains("package references missing from catalog"));
     }
 

@@ -170,6 +170,15 @@ try {
     if ($PackageReferenceIssue.check_id -ne "studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs") {
         throw "diagnostic view model package issue check id mismatch"
     }
+    if ($PackageReferenceIssue.graph_id -ne "studio.graph.synthetic_wave_desktop") {
+        throw "diagnostic view model package issue graph id mismatch"
+    }
+    if (-not $PackageReferenceIssue.targets_selected_graph) {
+        throw "diagnostic view model package issue should target selected graph"
+    }
+    if (@($PackageReferenceIssue.reference_ids) -notcontains "package.missing") {
+        throw "diagnostic view model package issue missing affected reference id"
+    }
     if ($PackageReferenceIssue.evidence -notlike "*package references missing from catalog*") {
         throw "diagnostic view model package issue evidence mismatch"
     }

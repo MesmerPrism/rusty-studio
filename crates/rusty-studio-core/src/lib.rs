@@ -290,12 +290,12 @@ pub fn view_model_for_graph(
         .filter(|check| check.status == StudioValidationStatus::Pass)
         .count();
     let validation_fail_count = validation.checks.len() - validation_pass_count;
-    let validation_issues = validation_issue_views(&validation);
     let graphs = project.graphs.iter().map(graph_view).collect::<Vec<_>>();
     let selected_graph_index = selected_graph_index(&graphs, requested_graph_id);
     let selected_graph_id = selected_graph_index
         .and_then(|index| graphs.get(index))
         .map(|graph| graph.graph_id.clone());
+    let validation_issues = validation_issue_views(&validation, selected_graph_id.as_deref());
     let selected_graph = selected_graph_index.and_then(|index| project.graphs.get(index));
     let reference_index = reference_index_for_project(project, base_dir);
     let catalog_packages = catalog_package_views(reference_index.as_ref(), selected_graph);
@@ -2655,6 +2655,10 @@ fn validate_shell_artifact_descriptor_reference(
                 status: StudioValidationStatus::Fail,
                 evidence: error.to_string(),
                 issue_code: Some("studio.issue.descriptor_parse_failed".to_string()),
+                graph_id: Some(artifact.graph_id.clone()),
+                node_ids: Vec::new(),
+                edge_ids: Vec::new(),
+                reference_ids: Vec::new(),
             });
             return;
         }
@@ -2815,6 +2819,10 @@ fn validate_shell_template_files(
                 status: StudioValidationStatus::Fail,
                 evidence: error.to_string(),
                 issue_code: Some("studio.issue.template_parse_failed".to_string()),
+                graph_id: Some(entry.graph_id.clone()),
+                node_ids: Vec::new(),
+                edge_ids: Vec::new(),
+                reference_ids: Vec::new(),
             });
             return;
         }
@@ -2855,6 +2863,10 @@ fn validate_shell_template_files(
                 status: StudioValidationStatus::Fail,
                 evidence: error.to_string(),
                 issue_code: Some("studio.issue.descriptor_parse_failed".to_string()),
+                graph_id: Some(entry.graph_id.clone()),
+                node_ids: Vec::new(),
+                edge_ids: Vec::new(),
+                reference_ids: Vec::new(),
             });
             return;
         }
@@ -3164,21 +3176,29 @@ fn validate_graph(
     checks: &mut Vec<StudioValidationCheck>,
 ) {
     let prefix = graph.graph_id.clone();
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{prefix}.id"),
         is_dotted_id(&graph.graph_id),
         "graph id uses dotted-id grammar",
         "graph id is not a dotted id",
         "studio.issue.invalid_graph_id",
+        Some(&prefix),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
     );
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{prefix}.nodes_present"),
         !graph.nodes.is_empty(),
         "graph contains nodes",
         "graph must contain nodes",
         "studio.issue.no_nodes",
+        Some(&prefix),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
     );
 
     let mut node_ids = BTreeSet::new();
@@ -3191,15 +3211,19 @@ fn validate_graph(
         if node.kind == StudioNodeKind::HostProfile {
             host_profile_refs.insert(node.reference_id.clone());
         }
-        push_check(
+        push_contextual_check(
             checks,
             &format!("studio.check.graph.{prefix}.node.{}.id", node.node_id),
             is_dotted_id(&node.node_id),
             "node id uses dotted-id grammar",
             "node id is not a dotted id",
             "studio.issue.invalid_node_id",
+            Some(&prefix),
+            vec![node.node_id.clone()],
+            Vec::new(),
+            Vec::new(),
         );
-        push_check(
+        push_contextual_check(
             checks,
             &format!(
                 "studio.check.graph.{prefix}.node.{}.reference",
@@ -3209,27 +3233,39 @@ fn validate_graph(
             "node reference id uses dotted-id grammar",
             "node reference id is not a dotted id",
             "studio.issue.invalid_reference_id",
+            Some(&prefix),
+            vec![node.node_id.clone()],
+            Vec::new(),
+            vec![node.reference_id.clone()],
         );
     }
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{prefix}.unique_nodes"),
         duplicate_nodes.is_empty(),
         "node ids are unique",
         &format!("duplicate node ids: {}", duplicate_nodes.join(", ")),
         "studio.issue.duplicate_node_id",
+        Some(&prefix),
+        duplicate_nodes.clone(),
+        Vec::new(),
+        Vec::new(),
     );
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{prefix}.target_host"),
         host_profile_refs.contains(&graph.target_host_profile),
         "target host profile resolves to a host_profile node",
         "target host profile does not resolve to a host_profile node",
         "studio.issue.missing_target_host_profile",
+        Some(&prefix),
+        Vec::new(),
+        Vec::new(),
+        vec![graph.target_host_profile.clone()],
     );
 
     let edge_by_id = edge_duplicates(&graph.edges);
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{prefix}.unique_edges"),
         edge_by_id.is_empty(),
@@ -3239,6 +3275,10 @@ fn validate_graph(
             edge_by_id.keys().cloned().collect::<Vec<_>>().join(", ")
         ),
         "studio.issue.duplicate_edge_id",
+        Some(&prefix),
+        Vec::new(),
+        edge_by_id.keys().cloned().collect::<Vec<_>>(),
+        Vec::new(),
     );
     for edge in &graph.edges {
         validate_edge(graph, edge, &node_ids, checks);
@@ -3481,7 +3521,7 @@ fn validate_graph_references(
         .filter(|node| !reference_index.package_ids.contains(&node.reference_id))
         .map(|node| node.reference_id.clone())
         .collect::<Vec<_>>();
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{}.package_refs", graph.graph_id),
         missing_packages.is_empty(),
@@ -3491,6 +3531,10 @@ fn validate_graph_references(
             missing_packages.join(", ")
         ),
         "studio.issue.package_reference_missing",
+        Some(&graph.graph_id),
+        Vec::new(),
+        Vec::new(),
+        missing_packages.clone(),
     );
 
     let missing_modules = graph
@@ -3500,7 +3544,7 @@ fn validate_graph_references(
         .filter(|node| !reference_index.module_ids.contains(&node.reference_id))
         .map(|node| node.reference_id.clone())
         .collect::<Vec<_>>();
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{}.module_refs", graph.graph_id),
         missing_modules.is_empty(),
@@ -3510,6 +3554,10 @@ fn validate_graph_references(
             missing_modules.join(", ")
         ),
         "studio.issue.module_reference_missing",
+        Some(&graph.graph_id),
+        Vec::new(),
+        Vec::new(),
+        missing_modules.clone(),
     );
 
     let missing_host_profiles = graph
@@ -3523,7 +3571,7 @@ fn validate_graph_references(
         })
         .map(|node| node.reference_id.clone())
         .collect::<Vec<_>>();
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{}.host_profile_refs", graph.graph_id),
         missing_host_profiles.is_empty(),
@@ -3533,8 +3581,12 @@ fn validate_graph_references(
             missing_host_profiles.join(", ")
         ),
         "studio.issue.host_profile_reference_missing",
+        Some(&graph.graph_id),
+        Vec::new(),
+        Vec::new(),
+        missing_host_profiles.clone(),
     );
-    push_check(
+    push_contextual_check(
         checks,
         &format!(
             "studio.check.graph.{}.target_host_profile_ref",
@@ -3546,6 +3598,10 @@ fn validate_graph_references(
         "target host profile resolves through declared host-run profiles",
         "target host profile is missing from declared host-run profiles",
         "studio.issue.target_host_profile_reference_missing",
+        Some(&graph.graph_id),
+        Vec::new(),
+        Vec::new(),
+        vec![graph.target_host_profile.clone()],
     );
 }
 
@@ -3643,32 +3699,44 @@ fn validate_edge(
     checks: &mut Vec<StudioValidationCheck>,
 ) {
     let prefix = &graph.graph_id;
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{prefix}.edge.{}.id", edge.edge_id),
         is_dotted_id(&edge.edge_id),
         "edge id uses dotted-id grammar",
         "edge id is not a dotted id",
         "studio.issue.invalid_edge_id",
+        Some(prefix),
+        Vec::new(),
+        vec![edge.edge_id.clone()],
+        Vec::new(),
     );
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{prefix}.edge.{}.source", edge.edge_id),
         node_ids.contains(&edge.source_node_id),
         "edge source node exists",
         "edge source node is missing",
         "studio.issue.missing_edge_source",
+        Some(prefix),
+        vec![edge.source_node_id.clone()],
+        vec![edge.edge_id.clone()],
+        Vec::new(),
     );
-    push_check(
+    push_contextual_check(
         checks,
         &format!("studio.check.graph.{prefix}.edge.{}.target", edge.edge_id),
         node_ids.contains(&edge.target_node_id),
         "edge target node exists",
         "edge target node is missing",
         "studio.issue.missing_edge_target",
+        Some(prefix),
+        vec![edge.target_node_id.clone()],
+        vec![edge.edge_id.clone()],
+        Vec::new(),
     );
     if let Some(binding_kind) = binding_kind_for_edge(edge.kind) {
-        push_check(
+        push_contextual_check(
             checks,
             &format!(
                 "studio.check.graph.{prefix}.edge.{}.self_binding",
@@ -3678,6 +3746,10 @@ fn validate_edge(
             "binding edge connects distinct nodes",
             "binding edge source and target are the same node",
             "studio.issue.self_binding",
+            Some(prefix),
+            vec![edge.source_node_id.clone(), edge.target_node_id.clone()],
+            vec![edge.edge_id.clone()],
+            Vec::new(),
         );
         let source_kind = graph
             .nodes
@@ -3690,7 +3762,7 @@ fn validate_edge(
             .find(|node| node.node_id == edge.target_node_id)
             .map(|node| node.kind);
         if let (Some(source_kind), Some(target_kind)) = (source_kind, target_kind) {
-            push_check(
+            push_contextual_check(
                 checks,
                 &format!(
                     "studio.check.graph.{prefix}.edge.{}.binding_endpoint_kinds",
@@ -3700,6 +3772,10 @@ fn validate_edge(
                 "binding endpoint node kinds match the binding type",
                 binding_endpoint_kind_message(binding_kind),
                 "studio.issue.binding_endpoint_kind_mismatch",
+                Some(prefix),
+                vec![edge.source_node_id.clone(), edge.target_node_id.clone()],
+                vec![edge.edge_id.clone()],
+                Vec::new(),
             );
         }
     }
@@ -3763,7 +3839,10 @@ fn graph_view(graph: &StudioGraph) -> StudioGraphView {
     }
 }
 
-fn validation_issue_views(report: &StudioValidationReport) -> Vec<StudioValidationIssueView> {
+fn validation_issue_views(
+    report: &StudioValidationReport,
+    selected_graph_id: Option<&str>,
+) -> Vec<StudioValidationIssueView> {
     report
         .checks
         .iter()
@@ -3772,6 +3851,14 @@ fn validation_issue_views(report: &StudioValidationReport) -> Vec<StudioValidati
             check_id: check.check_id.clone(),
             issue_code: check.issue_code.clone(),
             evidence: check.evidence.clone(),
+            graph_id: check.graph_id.clone(),
+            node_ids: check.node_ids.clone(),
+            edge_ids: check.edge_ids.clone(),
+            reference_ids: check.reference_ids.clone(),
+            targets_selected_graph: check
+                .graph_id
+                .as_deref()
+                .is_some_and(|graph_id| selected_graph_id == Some(graph_id)),
         })
         .collect()
 }
@@ -3830,6 +3917,32 @@ fn push_check(
     fail_evidence: &str,
     issue_code: &str,
 ) {
+    push_contextual_check(
+        checks,
+        check_id,
+        passed,
+        pass_evidence,
+        fail_evidence,
+        issue_code,
+        None,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+}
+
+fn push_contextual_check(
+    checks: &mut Vec<StudioValidationCheck>,
+    check_id: &str,
+    passed: bool,
+    pass_evidence: &str,
+    fail_evidence: &str,
+    issue_code: &str,
+    graph_id: Option<&str>,
+    node_ids: Vec<String>,
+    edge_ids: Vec<String>,
+    reference_ids: Vec<String>,
+) {
     checks.push(StudioValidationCheck {
         check_id: check_id.to_string(),
         status: if passed {
@@ -3839,6 +3952,10 @@ fn push_check(
         },
         evidence: if passed { pass_evidence } else { fail_evidence }.to_string(),
         issue_code: (!passed).then(|| issue_code.to_string()),
+        graph_id: graph_id.map(str::to_string),
+        node_ids,
+        edge_ids,
+        reference_ids,
     });
 }
 
@@ -4317,10 +4434,13 @@ mod tests {
         project.graphs[0].nodes.push(duplicate);
         let report = validate_project(&project);
         assert_eq!(report.status, StudioValidationStatus::Fail);
-        assert!(report
+        let issue = report
             .checks
             .iter()
-            .any(|check| check.issue_code.as_deref() == Some("studio.issue.duplicate_node_id")));
+            .find(|check| check.issue_code.as_deref() == Some("studio.issue.duplicate_node_id"))
+            .expect("duplicate node issue");
+        assert_eq!(issue.graph_id.as_deref(), Some("studio.graph.test"));
+        assert_eq!(issue.node_ids, vec!["node.package.synthetic".to_string()]);
     }
 
     #[test]
@@ -4329,10 +4449,14 @@ mod tests {
         project.graphs[0].edges[0].target_node_id = "node.missing".to_string();
         let report = validate_project(&project);
         assert_eq!(report.status, StudioValidationStatus::Fail);
-        assert!(report
+        let issue = report
             .checks
             .iter()
-            .any(|check| check.issue_code.as_deref() == Some("studio.issue.missing_edge_target")));
+            .find(|check| check.issue_code.as_deref() == Some("studio.issue.missing_edge_target"))
+            .expect("missing edge target issue");
+        assert_eq!(issue.graph_id.as_deref(), Some("studio.graph.test"));
+        assert_eq!(issue.node_ids, vec!["node.missing".to_string()]);
+        assert_eq!(issue.edge_ids, vec!["edge.package_host".to_string()]);
     }
 
     #[test]
@@ -4341,9 +4465,18 @@ mod tests {
         project.graphs[0].target_host_profile = "host_run.profile.headset".to_string();
         let report = validate_project(&project);
         assert_eq!(report.status, StudioValidationStatus::Fail);
-        assert!(report.checks.iter().any(|check| {
-            check.issue_code.as_deref() == Some("studio.issue.missing_target_host_profile")
-        }));
+        let issue = report
+            .checks
+            .iter()
+            .find(|check| {
+                check.issue_code.as_deref() == Some("studio.issue.missing_target_host_profile")
+            })
+            .expect("missing target host issue");
+        assert_eq!(issue.graph_id.as_deref(), Some("studio.graph.test"));
+        assert_eq!(
+            issue.reference_ids,
+            vec!["host_run.profile.headset".to_string()]
+        );
     }
 
     #[test]
@@ -4377,9 +4510,15 @@ mod tests {
         project.graphs[0].nodes[0].reference_id = "package.missing".to_string();
         let report = validate_project_with_base(&project, Some(&root));
         assert_eq!(report.status, StudioValidationStatus::Fail);
-        assert!(report.checks.iter().any(|check| {
-            check.issue_code.as_deref() == Some("studio.issue.package_reference_missing")
-        }));
+        let issue = report
+            .checks
+            .iter()
+            .find(|check| {
+                check.issue_code.as_deref() == Some("studio.issue.package_reference_missing")
+            })
+            .expect("package reference issue");
+        assert_eq!(issue.graph_id.as_deref(), Some("studio.graph.test"));
+        assert_eq!(issue.reference_ids, vec!["package.missing".to_string()]);
     }
 
     #[test]
@@ -5359,13 +5498,23 @@ mod tests {
 
         assert_eq!(model.validation_status, StudioValidationStatus::Fail);
         assert!(model.validation_fail_count > 0);
-        assert!(model.validation_issues.iter().any(|issue| {
-            issue.issue_code.as_deref() == Some("studio.issue.package_reference_missing")
-                && issue.check_id == "studio.check.graph.studio.graph.test.package_refs"
-                && issue
-                    .evidence
-                    .contains("package references missing from catalog")
-        }));
+        let issue = model
+            .validation_issues
+            .iter()
+            .find(|issue| {
+                issue.issue_code.as_deref() == Some("studio.issue.package_reference_missing")
+            })
+            .expect("package reference issue");
+        assert_eq!(
+            issue.check_id,
+            "studio.check.graph.studio.graph.test.package_refs"
+        );
+        assert!(issue
+            .evidence
+            .contains("package references missing from catalog"));
+        assert_eq!(issue.graph_id.as_deref(), Some("studio.graph.test"));
+        assert_eq!(issue.reference_ids, vec!["package.missing".to_string()]);
+        assert!(issue.targets_selected_graph);
     }
 
     #[test]

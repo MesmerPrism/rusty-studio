@@ -100,6 +100,14 @@ pub struct StudioValidationCheck {
     pub status: StudioValidationStatus,
     pub evidence: String,
     pub issue_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub node_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub edge_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reference_ids: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -444,6 +452,15 @@ pub struct StudioValidationIssueView {
     pub check_id: String,
     pub issue_code: Option<String>,
     pub evidence: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub node_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub edge_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reference_ids: Vec<String>,
+    pub targets_selected_graph: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
