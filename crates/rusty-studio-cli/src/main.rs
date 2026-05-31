@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rusty_studio_core::{
-    add_binding_to_graph, add_module_to_graph, export_plan, load_project,
-    load_shell_artifact_manifest, load_shell_descriptor, load_shell_template_index,
+    add_binding_to_graph, add_module_to_graph, add_next_catalog_module_to_graph, export_plan,
+    load_project, load_shell_artifact_manifest, load_shell_descriptor, load_shell_template_index,
     remove_binding_from_graph, remove_module_from_graph, resolve_project,
     retarget_graph_host_profile, save_json, save_project, shell_artifacts_for_project,
     shell_descriptor_artifact_path, shell_descriptor_for_graph,
@@ -32,6 +32,7 @@ enum Command {
     ViewModel(ViewModelArgs),
     RetargetHost(RetargetHostArgs),
     AddModule(AddModuleArgs),
+    AddPaletteModule(AddPaletteModuleArgs),
     RemoveModule(RemoveModuleArgs),
     AddBinding(BindingArgs),
     RemoveBinding(BindingArgs),
@@ -83,6 +84,18 @@ struct AddModuleArgs {
     module: String,
     #[arg(long)]
     label: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+    #[arg(long)]
+    write: bool,
+}
+
+#[derive(Debug, Parser)]
+struct AddPaletteModuleArgs {
+    #[arg(long)]
+    project: PathBuf,
+    #[arg(long)]
+    graph: String,
     #[arg(long)]
     output: Option<PathBuf>,
     #[arg(long)]
@@ -262,6 +275,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 args.label.as_deref(),
                 args.project.parent(),
             );
+            if report.status == StudioEditStatus::Applied {
+                if args.write {
+                    save_project(&args.project, &project)?;
+                } else if let Some(output) = args.output.as_ref() {
+                    save_project(output, &project)?;
+                }
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::AddPaletteModule(args) => {
+            if args.write && args.output.is_some() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "--write and --output are mutually exclusive",
+                )
+                .into());
+            }
+
+            let mut project = load_project(&args.project)?;
+            let report =
+                add_next_catalog_module_to_graph(&mut project, &args.graph, args.project.parent());
             if report.status == StudioEditStatus::Applied {
                 if args.write {
                     save_project(&args.project, &project)?;

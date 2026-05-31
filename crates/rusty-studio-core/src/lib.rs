@@ -27,6 +27,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+const NEXT_PALETTE_MODULE_REQUEST: &str = "module.palette.next_available";
+
 #[derive(Debug, Error)]
 pub enum StudioCoreError {
     #[error("{path}: {source}")]
@@ -479,6 +481,96 @@ pub fn retarget_graph_host_profile(
         host_profile_reference_id,
         Vec::new(),
         validation,
+    )
+}
+
+pub fn add_next_catalog_module_to_graph(
+    project: &mut StudioProject,
+    graph_id: &str,
+    base_dir: Option<&Path>,
+) -> StudioEditReport {
+    let original_revision = project.revision;
+    let requested_host_profile = graph_target_host_profile(project, graph_id);
+
+    if !is_dotted_id(graph_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::AddModule,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_graph_id".to_string()),
+            "Graph id is not a dotted id".to_string(),
+            graph_id,
+            NEXT_PALETTE_MODULE_REQUEST,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    let Some(graph) = project
+        .graphs
+        .iter()
+        .find(|graph| graph.graph_id == graph_id)
+    else {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::AddModule,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.graph_missing".to_string()),
+            "Graph was not found in the project".to_string(),
+            graph_id,
+            NEXT_PALETTE_MODULE_REQUEST,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    };
+
+    let Some(reference_index) = reference_index_for_project(project, base_dir) else {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::AddModule,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.reference_index_missing".to_string()),
+            "Package catalog references are unavailable for palette selection".to_string(),
+            graph_id,
+            NEXT_PALETTE_MODULE_REQUEST,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    };
+
+    let Some(selection) = next_available_catalog_module(graph, &reference_index) else {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditOperation::AddModule,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.no_available_palette_module".to_string()),
+            "No catalog module is available to add to the selected graph".to_string(),
+            graph_id,
+            NEXT_PALETTE_MODULE_REQUEST,
+            &requested_host_profile,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    };
+
+    add_module_to_graph(
+        project,
+        graph_id,
+        &selection.package_id,
+        &selection.module_id,
+        Some(&selection.label),
+        base_dir,
     )
 }
 
@@ -2095,6 +2187,13 @@ struct HostProfileReference {
     required_permissions: Vec<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CatalogModuleSelection {
+    package_id: String,
+    module_id: String,
+    label: String,
+}
+
 fn reference_index_for_project(
     project: &StudioProject,
     base_dir: Option<&Path>,
@@ -2171,6 +2270,44 @@ fn selected_node_reference_ids(
         .filter(|node| node.kind == kind)
         .map(|node| node.reference_id.clone())
         .collect()
+}
+
+fn next_available_catalog_module(
+    graph: &StudioGraph,
+    reference_index: &ReferenceIndex,
+) -> Option<CatalogModuleSelection> {
+    let selected_modules = selected_node_reference_ids(Some(graph), StudioNodeKind::Module);
+    for package_id in &reference_index.package_ids {
+        let Some(module_ids) = reference_index.package_modules.get(package_id) else {
+            continue;
+        };
+        let mut candidates = module_ids
+            .iter()
+            .filter(|module_id| !selected_modules.contains(*module_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| {
+            palette_module_rank(left)
+                .cmp(&palette_module_rank(right))
+                .then_with(|| left.cmp(right))
+        });
+        if let Some(module_id) = candidates.into_iter().next() {
+            return Some(CatalogModuleSelection {
+                package_id: package_id.clone(),
+                label: label_for_reference(&module_id),
+                module_id,
+            });
+        }
+    }
+    None
+}
+
+fn palette_module_rank(module_id: &str) -> u8 {
+    if module_id.ends_with(".provider") || module_id.ends_with("_provider") {
+        0
+    } else {
+        1
+    }
 }
 
 fn shell_host_profile(
@@ -4794,6 +4931,48 @@ mod tests {
                 .any(|field| field
                     .ends_with("edges.edge.package.synthetic.module.synthetic_provider"))
         );
+    }
+
+    #[test]
+    fn add_next_catalog_module_to_graph_uses_palette_selection() {
+        let root = temp_root("add-next-palette-module");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+
+        let report =
+            add_next_catalog_module_to_graph(&mut project, "studio.graph.test", Some(&root));
+
+        assert_eq!(report.operation, StudioEditOperation::AddModule);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.requested_reference_id, "module.synthetic_provider");
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 2);
+        assert!(project.graphs[0].nodes.iter().any(|node| {
+            node.kind == StudioNodeKind::Module && node.reference_id == "module.synthetic_provider"
+        }));
+        assert!(project.graphs[0].edges.iter().any(|edge| {
+            edge.kind == StudioEdgeKind::PackageProvidesModule
+                && edge.target_node_id == "node.module.synthetic_provider"
+        }));
+    }
+
+    #[test]
+    fn add_next_catalog_module_to_graph_rejects_when_palette_is_exhausted() {
+        let root = temp_root("add-next-palette-module-exhausted");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_shell_project_with_relative_references();
+
+        let report =
+            add_next_catalog_module_to_graph(&mut project, "studio.graph.test", Some(&root));
+
+        assert_eq!(report.operation, StudioEditOperation::AddModule);
+        assert_eq!(report.status, StudioEditStatus::Rejected);
+        assert_eq!(
+            report.issue_code.as_deref(),
+            Some("studio.issue.no_available_palette_module")
+        );
+        assert_eq!(report.requested_reference_id, NEXT_PALETTE_MODULE_REQUEST);
+        assert_eq!(project.revision, 1);
     }
 
     #[test]
