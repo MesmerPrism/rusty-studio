@@ -19,11 +19,12 @@ $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Push-Location $RepoRoot
 try {
     $EditOutput = Join-Path $RepoRoot "target\studio-edit-retarget-headset.json"
+    $AddModuleOutput = Join-Path $RepoRoot "target\studio-edit-add-module.json"
     $ShellOutput = Join-Path $RepoRoot "target\studio-shell-descriptor-desktop.json"
     $ShellArtifactsDir = Join-Path $RepoRoot "target\studio-shells"
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $ShellOutput)) {
+    foreach ($GeneratedOutput in @($EditOutput, $AddModuleOutput, $ShellOutput)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -141,6 +142,53 @@ try {
         "--project",
         $EditOutput
     )
+    $AddModuleReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-module --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --package "package.biosignal_sensor" --module "module.biosignal_sensor.provider" --label "Biosignal Provider" --output $AddModuleOutput
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio add module failed with exit code $LASTEXITCODE"
+    }
+    $AddModuleReportText = $AddModuleReportOutput -join [Environment]::NewLine
+    $AddModuleReport = $AddModuleReportText | ConvertFrom-Json
+    if ($AddModuleReport.'$schema' -ne "rusty.studio.edit_report.v1") {
+        throw "add module edit report schema mismatch"
+    }
+    if ($AddModuleReport.operation -ne "add_module") {
+        throw "add module edit report operation mismatch"
+    }
+    if ($AddModuleReport.status -ne "applied") {
+        throw "add module edit report did not apply"
+    }
+    if ($AddModuleReport.requested_reference_id -ne "module.biosignal_sensor.provider") {
+        throw "add module edit report requested reference mismatch"
+    }
+    Invoke-Checked "studio validate add-module output" "cargo" @(
+        "run",
+        "-p",
+        "rusty-studio-cli",
+        "--",
+        "validate",
+        "--project",
+        $AddModuleOutput
+    )
+    $AddModuleProject = Get-Content -Raw -Path $AddModuleOutput | ConvertFrom-Json
+    if ($AddModuleProject.revision -ne 2) {
+        throw "add module output should bump project revision"
+    }
+    $AddedGraph = $AddModuleProject.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
+    if ($null -eq $AddedGraph) {
+        throw "add module output graph missing"
+    }
+    $AddedPackage = $AddedGraph.nodes | Where-Object { $_.kind -eq "package" -and $_.reference_id -eq "package.biosignal_sensor" } | Select-Object -First 1
+    if ($null -eq $AddedPackage) {
+        throw "add module output package node missing"
+    }
+    $AddedModule = $AddedGraph.nodes | Where-Object { $_.kind -eq "module" -and $_.reference_id -eq "module.biosignal_sensor.provider" } | Select-Object -First 1
+    if ($null -eq $AddedModule) {
+        throw "add module output module node missing"
+    }
+    $AddedEdge = $AddedGraph.edges | Where-Object { $_.kind -eq "package_provides_module" -and $_.source_node_id -eq $AddedPackage.node_id -and $_.target_node_id -eq $AddedModule.node_id } | Select-Object -First 1
+    if ($null -eq $AddedEdge) {
+        throw "add module output package/module edge missing"
+    }
     Invoke-Checked "studio shell descriptor" "cargo" @(
         "run",
         "-p",

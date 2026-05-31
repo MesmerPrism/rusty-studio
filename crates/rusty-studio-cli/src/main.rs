@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 use rusty_studio_core::{
-    export_plan, load_project, load_shell_artifact_manifest, load_shell_descriptor,
-    load_shell_template_index, resolve_project, retarget_graph_host_profile, save_json,
-    save_project, shell_artifacts_for_project, shell_descriptor_artifact_path,
+    add_module_to_graph, export_plan, load_project, load_shell_artifact_manifest,
+    load_shell_descriptor, load_shell_template_index, resolve_project, retarget_graph_host_profile,
+    save_json, save_project, shell_artifacts_for_project, shell_descriptor_artifact_path,
     shell_descriptor_for_graph, shell_templates_for_artifact_manifest, validate_project_with_base,
     validate_shell_artifact_manifest, validate_shell_descriptor, validate_shell_template_index,
     view_model_for_graph,
@@ -29,6 +29,7 @@ enum Command {
     ExportPlan(ProjectArgs),
     ViewModel(ViewModelArgs),
     RetargetHost(RetargetHostArgs),
+    AddModule(AddModuleArgs),
     ShellDescriptor(ShellDescriptorArgs),
     ValidateShellDescriptor(DescriptorArgs),
     ShellArtifacts(ShellArtifactsArgs),
@@ -59,6 +60,24 @@ struct RetargetHostArgs {
     graph: String,
     #[arg(long)]
     host_profile: String,
+    #[arg(long)]
+    output: Option<PathBuf>,
+    #[arg(long)]
+    write: bool,
+}
+
+#[derive(Debug, Parser)]
+struct AddModuleArgs {
+    #[arg(long)]
+    project: PathBuf,
+    #[arg(long)]
+    graph: String,
+    #[arg(long)]
+    package: String,
+    #[arg(long)]
+    module: String,
+    #[arg(long)]
+    label: Option<String>,
     #[arg(long)]
     output: Option<PathBuf>,
     #[arg(long)]
@@ -161,6 +180,34 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 &mut project,
                 &args.graph,
                 &args.host_profile,
+                args.project.parent(),
+            );
+            if report.status == StudioEditStatus::Applied {
+                if args.write {
+                    save_project(&args.project, &project)?;
+                } else if let Some(output) = args.output.as_ref() {
+                    save_project(output, &project)?;
+                }
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::AddModule(args) => {
+            if args.write && args.output.is_some() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "--write and --output are mutually exclusive",
+                )
+                .into());
+            }
+
+            let mut project = load_project(&args.project)?;
+            let report = add_module_to_graph(
+                &mut project,
+                &args.graph,
+                &args.package,
+                &args.module,
+                args.label.as_deref(),
                 args.project.parent(),
             );
             if report.status == StudioEditStatus::Applied {

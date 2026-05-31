@@ -109,13 +109,22 @@ pub struct StudioEditReport {
     pub project_id: String,
     pub original_revision: u64,
     pub resulting_revision: u64,
+    pub operation: StudioEditOperation,
     pub status: StudioEditStatus,
     pub issue_code: Option<String>,
     pub message: String,
     pub graph_id: String,
+    pub requested_reference_id: String,
     pub requested_host_profile: String,
     pub changed_fields: Vec<String>,
     pub validation: StudioValidationReport,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioEditOperation {
+    RetargetHost,
+    AddModule,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

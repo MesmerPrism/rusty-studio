@@ -16,6 +16,8 @@ Current scope:
   state;
 - retarget a graph host profile through a shared core/CLI/Makepad mutation
   path with edit reports and revision bumps;
+- add package/module graph links through a shared core/CLI/Makepad mutation
+  path with catalog-backed validation and revision bumps;
 - export and validate a schema-only shell descriptor for a selected graph;
 - export a schema-only shell artifact manifest for desktop, phone, and Quest
   operator shell descriptors;
@@ -43,6 +45,7 @@ cargo run -p rusty-studio-cli -- export-plan --project examples\synthetic-studio
 cargo run -p rusty-studio-cli -- view-model --project examples\synthetic-studio-project.json
 cargo run -p rusty-studio-cli -- view-model --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-cli -- retarget-host --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --host-profile host_run.profile.headset --output target\studio-edit-retarget-headset.json
+cargo run -p rusty-studio-cli -- add-module --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --package package.biosignal_sensor --module module.biosignal_sensor.provider --label "Biosignal Provider" --output target\studio-edit-add-module.json
 cargo run -p rusty-studio-cli -- shell-descriptor --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --output target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-cli -- validate-shell-descriptor --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-cli -- shell-artifacts --project examples\synthetic-studio-project.json --output-dir target\studio-shells
@@ -55,8 +58,8 @@ cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell
 cargo run -p rusty-studio-desktop-shell -- --templates target\studio-shell-templates\shell-templates.json
 ```
 
-All CLI commands print JSON. The Makepad surface uses the same core retarget
-operation and displays the resulting edit report after an accepted or rejected
+All CLI commands print JSON. The Makepad surface uses the same core edit
+operations and displays the resulting edit report after an accepted or rejected
 request. The desktop shell is a read-only descriptor, artifact-manifest, or
 template-index consumer; it does not own runtime command/session authority,
 launch, or evidence collection.
