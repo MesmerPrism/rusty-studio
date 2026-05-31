@@ -1,0 +1,3015 @@
+use rusty_studio_model::{
+    StudioEdge, StudioEditReport, StudioEditStatus, StudioExportBundle, StudioExportPlan,
+    StudioGraph, StudioNodeKind, StudioProject, StudioResolvedGraph, StudioResolvedProject,
+    StudioShellArtifact, StudioShellArtifactManifest, StudioShellArtifactManifestValidationReport,
+    StudioShellArtifactRejection, StudioShellArtifactReport, StudioShellArtifactStatus,
+    StudioShellBinding, StudioShellDescriptor, StudioShellDescriptorReport,
+    StudioShellDescriptorStatus, StudioShellDescriptorValidationReport, StudioShellHostProfile,
+    StudioShellHostRoutes, StudioShellRuntimeAuthority, StudioShellTargetKind,
+    StudioShellTemplateIndex, StudioShellTemplateIndexEntry, StudioShellTemplateManifest,
+    StudioShellTemplateReport, StudioShellTemplateStatus, StudioValidationCheck,
+    StudioValidationReport, StudioValidationStatus, StudioViewModel, EDIT_REPORT_SCHEMA,
+    EXPORT_PLAN_SCHEMA, PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA, SHELL_ARTIFACT_MANIFEST_SCHEMA,
+    SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
+    SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
+    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
+    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
+    VIEW_MODEL_SCHEMA,
+};
+use rusty_studio_model::{StudioEdgeView, StudioGraphView, StudioNodeView};
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum StudioCoreError {
+    #[error("{path}: {source}")]
+    ReadProject {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseProject {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellDescriptor {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellArtifactManifest {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    SerializeProject {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    WriteProject {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+pub fn load_project(path: &Path) -> Result<StudioProject, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| StudioCoreError::ParseProject {
+        path: path.display().to_string(),
+        source,
+    })
+}
+
+pub fn save_project(path: &Path, project: &StudioProject) -> Result<(), StudioCoreError> {
+    save_json(path, project)
+}
+
+pub fn load_shell_descriptor(path: &Path) -> Result<StudioShellDescriptor, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| StudioCoreError::ParseShellDescriptor {
+        path: path.display().to_string(),
+        source,
+    })
+}
+
+pub fn load_shell_artifact_manifest(
+    path: &Path,
+) -> Result<StudioShellArtifactManifest, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| StudioCoreError::ParseShellArtifactManifest {
+        path: path.display().to_string(),
+        source,
+    })
+}
+
+pub fn save_json<T: Serialize>(path: &Path, value: &T) -> Result<(), StudioCoreError> {
+    let mut text = serde_json::to_string_pretty(value).map_err(|source| {
+        StudioCoreError::SerializeProject {
+            path: path.display().to_string(),
+            source,
+        }
+    })?;
+    text.push('\n');
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|source| StudioCoreError::WriteProject {
+            path: path.display().to_string(),
+            source,
+        })?;
+    }
+    std::fs::write(path, text).map_err(|source| StudioCoreError::WriteProject {
+        path: path.display().to_string(),
+        source,
+    })
+}
+
+pub fn validate_project(project: &StudioProject) -> StudioValidationReport {
+    validate_project_with_base(project, None)
+}
+
+pub fn validate_project_with_base(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+) -> StudioValidationReport {
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.schema",
+        project.schema_id == PROJECT_SCHEMA,
+        "project schema id is supported",
+        "unsupported project schema id",
+        "studio.issue.unsupported_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.project_id",
+        is_dotted_id(&project.project_id),
+        "project id uses dotted-id grammar",
+        "project id is not a dotted id",
+        "studio.issue.invalid_project_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.revision",
+        project.revision > 0,
+        "project revision is positive",
+        "project revision must be positive",
+        "studio.issue.invalid_revision",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.graphs_present",
+        !project.graphs.is_empty(),
+        "project contains at least one graph",
+        "project must contain at least one graph",
+        "studio.issue.no_graphs",
+    );
+
+    let reference_index = validate_project_references(project, base_dir, &mut checks);
+    for graph in &project.graphs {
+        validate_graph(graph, reference_index.as_ref(), &mut checks);
+    }
+
+    StudioValidationReport {
+        schema_id: VALIDATION_REPORT_SCHEMA,
+        project_id: project.project_id.clone(),
+        revision: project.revision,
+        status: if checks
+            .iter()
+            .any(|check| check.status == StudioValidationStatus::Fail)
+        {
+            StudioValidationStatus::Fail
+        } else {
+            StudioValidationStatus::Pass
+        },
+        checks,
+    }
+}
+
+pub fn resolve_project(project: &StudioProject) -> StudioResolvedProject {
+    StudioResolvedProject {
+        schema_id: RESOLVED_PROJECT_SCHEMA,
+        project_id: project.project_id.clone(),
+        revision: project.revision,
+        graphs: project.graphs.iter().map(resolve_graph).collect(),
+    }
+}
+
+pub fn export_plan(project: &StudioProject) -> StudioExportPlan {
+    StudioExportPlan {
+        schema_id: EXPORT_PLAN_SCHEMA,
+        project_id: project.project_id.clone(),
+        revision: project.revision,
+        bundles: project
+            .graphs
+            .iter()
+            .map(|graph| StudioExportBundle {
+                bundle_id: format!("studio.export.{}", graph.graph_id),
+                graph_id: graph.graph_id.clone(),
+                target_host_profile: graph.target_host_profile.clone(),
+                package_ids: graph
+                    .nodes
+                    .iter()
+                    .filter(|node| node.kind == StudioNodeKind::Package)
+                    .map(|node| node.reference_id.clone())
+                    .collect(),
+                module_ids: graph
+                    .nodes
+                    .iter()
+                    .filter(|node| node.kind == StudioNodeKind::Module)
+                    .map(|node| node.reference_id.clone())
+                    .collect(),
+                operator_shell_ids: graph
+                    .nodes
+                    .iter()
+                    .filter(|node| node.kind == StudioNodeKind::OperatorShell)
+                    .map(|node| node.reference_id.clone())
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+pub fn view_model(project: &StudioProject, base_dir: Option<&Path>) -> StudioViewModel {
+    view_model_for_graph(project, base_dir, None)
+}
+
+pub fn view_model_for_graph(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    requested_graph_id: Option<&str>,
+) -> StudioViewModel {
+    let validation = validate_project_with_base(project, base_dir);
+    let validation_pass_count = validation
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Pass)
+        .count();
+    let validation_fail_count = validation.checks.len() - validation_pass_count;
+    let graphs = project.graphs.iter().map(graph_view).collect::<Vec<_>>();
+    let selected_graph_index = selected_graph_index(&graphs, requested_graph_id);
+    let selected_graph_id = selected_graph_index
+        .and_then(|index| graphs.get(index))
+        .map(|graph| graph.graph_id.clone());
+    let selection_issue_code = match (requested_graph_id, selected_graph_index) {
+        (Some(_), None) => Some("studio.issue.graph_selection_missing".to_string()),
+        _ => None,
+    };
+    StudioViewModel {
+        schema_id: VIEW_MODEL_SCHEMA,
+        project_id: project.project_id.clone(),
+        revision: project.revision,
+        display_name: project.display_name.clone(),
+        validation_status: validation.status,
+        validation_pass_count,
+        validation_fail_count,
+        graph_count: project.graphs.len(),
+        requested_graph_id: requested_graph_id.map(str::to_string),
+        selected_graph_index,
+        selected_graph_id,
+        selection_issue_code,
+        graphs,
+    }
+}
+
+pub fn retarget_graph_host_profile(
+    project: &mut StudioProject,
+    graph_id: &str,
+    host_profile_reference_id: &str,
+    base_dir: Option<&Path>,
+) -> StudioEditReport {
+    let original_revision = project.revision;
+
+    if !is_dotted_id(graph_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_graph_id".to_string()),
+            "Graph id is not a dotted id".to_string(),
+            graph_id,
+            host_profile_reference_id,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    if !is_dotted_id(host_profile_reference_id) {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.invalid_reference_id".to_string()),
+            "Host profile reference id is not a dotted id".to_string(),
+            graph_id,
+            host_profile_reference_id,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    let mut candidate = project.clone();
+    let Some(graph) = candidate
+        .graphs
+        .iter_mut()
+        .find(|graph| graph.graph_id == graph_id)
+    else {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.graph_missing".to_string()),
+            "Graph was not found in the project".to_string(),
+            graph_id,
+            host_profile_reference_id,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    };
+
+    let mut changed_fields = Vec::new();
+    if graph.target_host_profile != host_profile_reference_id {
+        graph.target_host_profile = host_profile_reference_id.to_string();
+        changed_fields.push(format!("graphs.{graph_id}.target_host_profile"));
+    }
+
+    if graph
+        .nodes
+        .iter()
+        .all(|node| node.kind != StudioNodeKind::HostProfile)
+    {
+        return edit_report(
+            project,
+            original_revision,
+            original_revision,
+            StudioEditStatus::Rejected,
+            Some("studio.issue.no_host_profile_node".to_string()),
+            "Graph does not contain a host_profile node".to_string(),
+            graph_id,
+            host_profile_reference_id,
+            Vec::new(),
+            validate_project_with_base(project, base_dir),
+        );
+    }
+
+    if graph.nodes.iter().all(|node| {
+        node.kind != StudioNodeKind::HostProfile || node.reference_id != host_profile_reference_id
+    }) {
+        let host_node = graph
+            .nodes
+            .iter_mut()
+            .find(|node| node.kind == StudioNodeKind::HostProfile)
+            .expect("host_profile node presence was checked");
+        host_node.reference_id = host_profile_reference_id.to_string();
+        changed_fields.push(format!(
+            "graphs.{graph_id}.nodes.{}.reference_id",
+            host_node.node_id
+        ));
+    }
+
+    if !changed_fields.is_empty() {
+        let Some(next_revision) = candidate.revision.checked_add(1) else {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.revision_overflow".to_string()),
+                "Project revision cannot be incremented".to_string(),
+                graph_id,
+                host_profile_reference_id,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        };
+        candidate.revision = next_revision;
+    }
+
+    let validation = validate_project_with_base(&candidate, base_dir);
+    if validation.status == StudioValidationStatus::Pass {
+        *project = candidate;
+        let resulting_revision = project.revision;
+        let message = if changed_fields.is_empty() {
+            "Graph already targets the requested host profile"
+        } else {
+            "Graph host profile was retargeted"
+        };
+        return edit_report(
+            project,
+            original_revision,
+            resulting_revision,
+            StudioEditStatus::Applied,
+            None,
+            message.to_string(),
+            graph_id,
+            host_profile_reference_id,
+            changed_fields,
+            validation,
+        );
+    }
+
+    let issue_code = first_failed_issue_code(&validation)
+        .unwrap_or_else(|| "studio.issue.edit_rejected".to_string());
+    edit_report(
+        project,
+        original_revision,
+        original_revision,
+        StudioEditStatus::Rejected,
+        Some(issue_code),
+        "Edited project candidate failed validation; source project was left unchanged".to_string(),
+        graph_id,
+        host_profile_reference_id,
+        Vec::new(),
+        validation,
+    )
+}
+
+pub fn shell_descriptor_for_graph(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    graph_id: &str,
+) -> StudioShellDescriptorReport {
+    let validation = validate_project_with_base(project, base_dir);
+
+    if !is_dotted_id(graph_id) {
+        return shell_descriptor_report(
+            project,
+            graph_id,
+            StudioShellDescriptorStatus::Rejected,
+            Some("studio.issue.invalid_graph_id".to_string()),
+            "Graph id is not a dotted id".to_string(),
+            validation,
+            None,
+        );
+    }
+
+    if validation.status == StudioValidationStatus::Fail {
+        let issue_code = first_failed_issue_code(&validation)
+            .unwrap_or_else(|| "studio.issue.validation_failed".to_string());
+        return shell_descriptor_report(
+            project,
+            graph_id,
+            StudioShellDescriptorStatus::Rejected,
+            Some(issue_code),
+            "Project validation failed; shell descriptor was not exported".to_string(),
+            validation,
+            None,
+        );
+    }
+
+    let Some(graph) = project
+        .graphs
+        .iter()
+        .find(|graph| graph.graph_id == graph_id)
+    else {
+        return shell_descriptor_report(
+            project,
+            graph_id,
+            StudioShellDescriptorStatus::Rejected,
+            Some("studio.issue.graph_missing".to_string()),
+            "Graph was not found in the project".to_string(),
+            validation,
+            None,
+        );
+    };
+
+    let operator_shell_nodes = graph
+        .nodes
+        .iter()
+        .filter(|node| node.kind == StudioNodeKind::OperatorShell)
+        .collect::<Vec<_>>();
+    let Some(shell_node) = operator_shell_nodes.first().copied() else {
+        return shell_descriptor_report(
+            project,
+            graph_id,
+            StudioShellDescriptorStatus::Rejected,
+            Some("studio.issue.no_operator_shell".to_string()),
+            "Graph does not contain an operator_shell node".to_string(),
+            validation,
+            None,
+        );
+    };
+    if operator_shell_nodes.len() > 1 {
+        return shell_descriptor_report(
+            project,
+            graph_id,
+            StudioShellDescriptorStatus::Rejected,
+            Some("studio.issue.multiple_operator_shells".to_string()),
+            "Graph contains multiple operator_shell nodes; export one shell at a time".to_string(),
+            validation,
+            None,
+        );
+    }
+
+    let reference_index = reference_index_for_project(project, base_dir);
+    let descriptor = StudioShellDescriptor {
+        schema_id: SHELL_DESCRIPTOR_SCHEMA.to_string(),
+        descriptor_id: format!("studio.shell_descriptor.{}", graph.graph_id),
+        project_id: project.project_id.clone(),
+        project_revision: project.revision,
+        graph_id: graph.graph_id.clone(),
+        display_name: graph.display_name.clone(),
+        shell_id: shell_node.reference_id.clone(),
+        shell_label: shell_node.label.clone(),
+        target_host_profile: graph.target_host_profile.clone(),
+        host_profile: shell_host_profile(&graph.target_host_profile, reference_index.as_ref()),
+        package_ids: graph
+            .nodes
+            .iter()
+            .filter(|node| node.kind == StudioNodeKind::Package)
+            .map(|node| node.reference_id.clone())
+            .collect(),
+        module_ids: graph
+            .nodes
+            .iter()
+            .filter(|node| node.kind == StudioNodeKind::Module)
+            .map(|node| node.reference_id.clone())
+            .collect(),
+        validation_slot_ids: graph
+            .nodes
+            .iter()
+            .filter(|node| node.kind == StudioNodeKind::ValidationSlot)
+            .map(|node| node.reference_id.clone())
+            .collect(),
+        stream_bindings: graph
+            .edges
+            .iter()
+            .filter(|edge| edge.kind == rusty_studio_model::StudioEdgeKind::StreamBinding)
+            .map(shell_binding)
+            .collect(),
+        command_bindings: graph
+            .edges
+            .iter()
+            .filter(|edge| edge.kind == rusty_studio_model::StudioEdgeKind::CommandBinding)
+            .map(shell_binding)
+            .collect(),
+    };
+
+    shell_descriptor_report(
+        project,
+        graph_id,
+        StudioShellDescriptorStatus::Exported,
+        None,
+        "Shell descriptor exported".to_string(),
+        validation,
+        Some(descriptor),
+    )
+}
+
+pub fn validate_shell_descriptor(
+    descriptor: &StudioShellDescriptor,
+) -> StudioShellDescriptorValidationReport {
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.schema",
+        descriptor.schema_id == SHELL_DESCRIPTOR_SCHEMA,
+        "shell descriptor schema id is supported",
+        "shell descriptor schema id is unsupported",
+        "studio.issue.shell_descriptor_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.descriptor_id",
+        is_dotted_id(&descriptor.descriptor_id),
+        "descriptor id uses dotted-id grammar",
+        "descriptor id is not a dotted id",
+        "studio.issue.invalid_descriptor_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.project_id",
+        is_dotted_id(&descriptor.project_id),
+        "project id uses dotted-id grammar",
+        "project id is not a dotted id",
+        "studio.issue.invalid_project_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.project_revision",
+        descriptor.project_revision > 0,
+        "project revision is positive",
+        "project revision must be positive",
+        "studio.issue.invalid_revision",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.graph_id",
+        is_dotted_id(&descriptor.graph_id),
+        "graph id uses dotted-id grammar",
+        "graph id is not a dotted id",
+        "studio.issue.invalid_graph_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.shell_id",
+        is_dotted_id(&descriptor.shell_id),
+        "shell id uses dotted-id grammar",
+        "shell id is not a dotted id",
+        "studio.issue.invalid_shell_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.target_host_profile",
+        is_dotted_id(&descriptor.target_host_profile),
+        "target host profile uses dotted-id grammar",
+        "target host profile is not a dotted id",
+        "studio.issue.invalid_target_host_profile",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.host_profile_id",
+        is_dotted_id(&descriptor.host_profile.profile_id),
+        "host profile id uses dotted-id grammar",
+        "host profile id is not a dotted id",
+        "studio.issue.invalid_host_profile_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.host_profile_matches_target",
+        descriptor.host_profile.profile_id == descriptor.target_host_profile,
+        "host profile id matches target host profile",
+        "host profile id does not match target host profile",
+        "studio.issue.host_profile_target_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.host_app_id",
+        optional_dotted_id(descriptor.host_profile.app_id.as_deref()),
+        "host app id is absent or uses dotted-id grammar",
+        "host app id is not a dotted id",
+        "studio.issue.invalid_host_app_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.install_route",
+        optional_dotted_id(descriptor.host_profile.install_route.as_deref()),
+        "install route is absent or uses dotted-id grammar",
+        "install route is not a dotted id",
+        "studio.issue.invalid_install_route",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.launch_route",
+        optional_dotted_id(descriptor.host_profile.launch_route.as_deref()),
+        "launch route is absent or uses dotted-id grammar",
+        "launch route is not a dotted id",
+        "studio.issue.invalid_launch_route",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.command_bridge",
+        optional_dotted_id(descriptor.host_profile.command_bridge.as_deref()),
+        "command bridge is absent or uses dotted-id grammar",
+        "command bridge is not a dotted id",
+        "studio.issue.invalid_command_bridge",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.evidence_pull_route",
+        optional_dotted_id(descriptor.host_profile.evidence_pull_route.as_deref()),
+        "evidence pull route is absent or uses dotted-id grammar",
+        "evidence pull route is not a dotted id",
+        "studio.issue.invalid_evidence_pull_route",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.required_permissions",
+        all_dotted_ids(&descriptor.host_profile.required_permissions),
+        "required permissions use dotted-id grammar",
+        "one or more required permissions are not dotted ids",
+        "studio.issue.invalid_required_permission",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.packages_present",
+        !descriptor.package_ids.is_empty(),
+        "descriptor declares package ids",
+        "descriptor must declare at least one package id",
+        "studio.issue.no_descriptor_packages",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.package_ids",
+        all_dotted_ids(&descriptor.package_ids),
+        "package ids use dotted-id grammar",
+        "one or more package ids are not dotted ids",
+        "studio.issue.invalid_package_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.module_ids",
+        all_dotted_ids(&descriptor.module_ids),
+        "module ids use dotted-id grammar",
+        "one or more module ids are not dotted ids",
+        "studio.issue.invalid_module_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_descriptor.validation_slot_ids",
+        all_dotted_ids(&descriptor.validation_slot_ids),
+        "validation slot ids use dotted-id grammar",
+        "one or more validation slot ids are not dotted ids",
+        "studio.issue.invalid_validation_slot_id",
+    );
+    validate_shell_bindings("stream_bindings", &descriptor.stream_bindings, &mut checks);
+    validate_shell_bindings(
+        "command_bindings",
+        &descriptor.command_bindings,
+        &mut checks,
+    );
+
+    StudioShellDescriptorValidationReport {
+        schema_id: SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA,
+        descriptor_id: descriptor.descriptor_id.clone(),
+        status: if checks
+            .iter()
+            .any(|check| check.status == StudioValidationStatus::Fail)
+        {
+            StudioValidationStatus::Fail
+        } else {
+            StudioValidationStatus::Pass
+        },
+        checks,
+    }
+}
+
+pub fn shell_artifacts_for_project(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+) -> StudioShellArtifactReport {
+    let validation = validate_project_with_base(project, base_dir);
+    if validation.status == StudioValidationStatus::Fail {
+        let issue_code = first_failed_issue_code(&validation)
+            .unwrap_or_else(|| "studio.issue.validation_failed".to_string());
+        return shell_artifact_report(
+            project,
+            StudioShellArtifactStatus::Rejected,
+            Some(issue_code),
+            "Project validation failed; shell artifacts were not exported".to_string(),
+            validation,
+            None,
+            Vec::new(),
+            Vec::new(),
+        );
+    }
+
+    let mut artifacts = Vec::new();
+    let mut descriptors = Vec::new();
+    let mut rejections = Vec::new();
+    for graph in &project.graphs {
+        let descriptor_report = shell_descriptor_for_graph(project, base_dir, &graph.graph_id);
+        match (descriptor_report.status, descriptor_report.descriptor) {
+            (StudioShellDescriptorStatus::Exported, Some(descriptor)) => {
+                let descriptor_validation = validate_shell_descriptor(&descriptor);
+                if descriptor_validation.status == StudioValidationStatus::Pass {
+                    artifacts.push(shell_artifact_for_descriptor(&descriptor));
+                    descriptors.push(descriptor);
+                } else {
+                    let issue_code = first_failed_check_issue_code(&descriptor_validation)
+                        .unwrap_or_else(|| "studio.issue.shell_descriptor_invalid".to_string());
+                    rejections.push(StudioShellArtifactRejection {
+                        graph_id: graph.graph_id.clone(),
+                        issue_code: Some(issue_code),
+                        message: "Generated shell descriptor failed validation".to_string(),
+                    });
+                }
+            }
+            (_, _) => {
+                rejections.push(StudioShellArtifactRejection {
+                    graph_id: graph.graph_id.clone(),
+                    issue_code: descriptor_report.issue_code,
+                    message: descriptor_report.message,
+                });
+            }
+        }
+    }
+
+    if !rejections.is_empty() {
+        return shell_artifact_report(
+            project,
+            StudioShellArtifactStatus::Rejected,
+            rejections
+                .first()
+                .and_then(|rejection| rejection.issue_code.clone()),
+            "One or more graph shell descriptors could not be exported".to_string(),
+            validation,
+            None,
+            Vec::new(),
+            rejections,
+        );
+    }
+
+    let manifest = StudioShellArtifactManifest {
+        schema_id: SHELL_ARTIFACT_MANIFEST_SCHEMA.to_string(),
+        manifest_id: format!("studio.shell_artifacts.{}", project.project_id),
+        project_id: project.project_id.clone(),
+        project_revision: project.revision,
+        artifacts,
+    };
+    shell_artifact_report(
+        project,
+        StudioShellArtifactStatus::Exported,
+        None,
+        "Shell artifacts exported".to_string(),
+        validation,
+        Some(manifest),
+        descriptors,
+        Vec::new(),
+    )
+}
+
+pub fn validate_shell_artifact_manifest(
+    manifest: &StudioShellArtifactManifest,
+    base_dir: Option<&Path>,
+) -> StudioShellArtifactManifestValidationReport {
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.shell_artifact_manifest.schema",
+        manifest.schema_id == SHELL_ARTIFACT_MANIFEST_SCHEMA,
+        "shell artifact manifest schema id is supported",
+        "shell artifact manifest schema id is unsupported",
+        "studio.issue.shell_artifact_manifest_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_artifact_manifest.manifest_id",
+        is_dotted_id(&manifest.manifest_id),
+        "manifest id uses dotted-id grammar",
+        "manifest id is not a dotted id",
+        "studio.issue.invalid_manifest_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_artifact_manifest.project_id",
+        is_dotted_id(&manifest.project_id),
+        "project id uses dotted-id grammar",
+        "project id is not a dotted id",
+        "studio.issue.invalid_project_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_artifact_manifest.project_revision",
+        manifest.project_revision > 0,
+        "project revision is positive",
+        "project revision must be positive",
+        "studio.issue.invalid_revision",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_artifact_manifest.artifacts_present",
+        !manifest.artifacts.is_empty(),
+        "manifest declares shell artifacts",
+        "manifest must declare at least one shell artifact",
+        "studio.issue.no_shell_artifacts",
+    );
+
+    let duplicate_artifact_ids = duplicate_artifact_field(&manifest.artifacts, |artifact| {
+        artifact.artifact_id.as_str()
+    });
+    push_check(
+        &mut checks,
+        "studio.check.shell_artifact_manifest.unique_artifact_ids",
+        duplicate_artifact_ids.is_empty(),
+        "artifact ids are unique",
+        &format!(
+            "duplicate artifact ids: {}",
+            duplicate_artifact_ids.join(", ")
+        ),
+        "studio.issue.duplicate_artifact_id",
+    );
+    let duplicate_graph_ids =
+        duplicate_artifact_field(&manifest.artifacts, |artifact| artifact.graph_id.as_str());
+    push_check(
+        &mut checks,
+        "studio.check.shell_artifact_manifest.unique_graph_ids",
+        duplicate_graph_ids.is_empty(),
+        "artifact graph ids are unique",
+        &format!(
+            "duplicate artifact graph ids: {}",
+            duplicate_graph_ids.join(", ")
+        ),
+        "studio.issue.duplicate_artifact_graph_id",
+    );
+    let duplicate_descriptor_paths = duplicate_artifact_field(&manifest.artifacts, |artifact| {
+        artifact.descriptor_path.as_str()
+    });
+    push_check(
+        &mut checks,
+        "studio.check.shell_artifact_manifest.unique_descriptor_paths",
+        duplicate_descriptor_paths.is_empty(),
+        "descriptor paths are unique",
+        &format!(
+            "duplicate descriptor paths: {}",
+            duplicate_descriptor_paths.join(", ")
+        ),
+        "studio.issue.duplicate_descriptor_path",
+    );
+
+    for artifact in &manifest.artifacts {
+        validate_shell_artifact_manifest_entry(artifact, base_dir, &mut checks);
+    }
+
+    StudioShellArtifactManifestValidationReport {
+        schema_id: SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA,
+        manifest_id: manifest.manifest_id.clone(),
+        status: if checks
+            .iter()
+            .any(|check| check.status == StudioValidationStatus::Fail)
+        {
+            StudioValidationStatus::Fail
+        } else {
+            StudioValidationStatus::Pass
+        },
+        checks,
+    }
+}
+
+pub fn shell_templates_for_artifact_manifest(
+    manifest: &StudioShellArtifactManifest,
+    base_dir: Option<&Path>,
+) -> StudioShellTemplateReport {
+    let validation = validate_shell_artifact_manifest(manifest, base_dir);
+    if validation.status == StudioValidationStatus::Fail {
+        let issue_code = first_failed_shell_artifact_manifest_issue_code(&validation)
+            .unwrap_or_else(|| "studio.issue.shell_artifact_manifest_invalid".to_string());
+        return shell_template_report(
+            manifest,
+            StudioShellTemplateStatus::Rejected,
+            Some(issue_code),
+            "Shell artifact manifest validation failed; shell templates were not exported"
+                .to_string(),
+            validation,
+            None,
+            Vec::new(),
+        );
+    }
+
+    let templates: Vec<_> = manifest
+        .artifacts
+        .iter()
+        .map(shell_template_for_artifact)
+        .collect();
+    let index = StudioShellTemplateIndex {
+        schema_id: SHELL_TEMPLATE_INDEX_SCHEMA.to_string(),
+        index_id: format!("studio.shell_templates.{}", manifest.project_id),
+        manifest_id: manifest.manifest_id.clone(),
+        project_id: manifest.project_id.clone(),
+        project_revision: manifest.project_revision,
+        templates: manifest
+            .artifacts
+            .iter()
+            .map(shell_template_index_entry)
+            .collect(),
+    };
+
+    shell_template_report(
+        manifest,
+        StudioShellTemplateStatus::Exported,
+        None,
+        "Shell templates exported".to_string(),
+        validation,
+        Some(index),
+        templates,
+    )
+}
+
+#[derive(Default)]
+struct ReferenceIndex {
+    package_ids: BTreeSet<String>,
+    module_ids: BTreeSet<String>,
+    host_profiles: BTreeMap<String, HostProfileReference>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct HostProfileReference {
+    profile_id: String,
+    host_profile: Option<String>,
+    app_id: Option<String>,
+    install_route: Option<String>,
+    launch_route: Option<String>,
+    command_bridge: Option<String>,
+    evidence_pull_route: Option<String>,
+    required_permissions: Vec<String>,
+}
+
+fn reference_index_for_project(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+) -> Option<ReferenceIndex> {
+    let mut checks = Vec::new();
+    validate_project_references(project, base_dir, &mut checks)
+}
+
+fn shell_host_profile(
+    profile_id: &str,
+    reference_index: Option<&ReferenceIndex>,
+) -> StudioShellHostProfile {
+    let reference = reference_index.and_then(|index| index.host_profiles.get(profile_id));
+    StudioShellHostProfile {
+        profile_id: reference
+            .map(|reference| reference.profile_id.clone())
+            .unwrap_or_else(|| profile_id.to_string()),
+        host_profile: reference.and_then(|reference| reference.host_profile.clone()),
+        app_id: reference.and_then(|reference| reference.app_id.clone()),
+        install_route: reference.and_then(|reference| reference.install_route.clone()),
+        launch_route: reference.and_then(|reference| reference.launch_route.clone()),
+        command_bridge: reference.and_then(|reference| reference.command_bridge.clone()),
+        evidence_pull_route: reference.and_then(|reference| reference.evidence_pull_route.clone()),
+        required_permissions: reference
+            .map(|reference| reference.required_permissions.clone())
+            .unwrap_or_default(),
+    }
+}
+
+fn shell_binding(edge: &StudioEdge) -> StudioShellBinding {
+    StudioShellBinding {
+        binding_id: edge.edge_id.clone(),
+        source_node_id: edge.source_node_id.clone(),
+        target_node_id: edge.target_node_id.clone(),
+    }
+}
+
+fn shell_descriptor_report(
+    project: &StudioProject,
+    graph_id: &str,
+    status: StudioShellDescriptorStatus,
+    issue_code: Option<String>,
+    message: String,
+    validation: StudioValidationReport,
+    descriptor: Option<StudioShellDescriptor>,
+) -> StudioShellDescriptorReport {
+    StudioShellDescriptorReport {
+        schema_id: SHELL_DESCRIPTOR_REPORT_SCHEMA,
+        project_id: project.project_id.clone(),
+        revision: project.revision,
+        status,
+        issue_code,
+        message,
+        graph_id: graph_id.to_string(),
+        validation,
+        descriptor,
+    }
+}
+
+fn validate_shell_bindings(
+    field: &str,
+    bindings: &[StudioShellBinding],
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let duplicate_ids = duplicate_binding_ids(bindings);
+    push_check(
+        checks,
+        &format!("studio.check.shell_descriptor.{field}.unique_ids"),
+        duplicate_ids.is_empty(),
+        "binding ids are unique",
+        &format!("duplicate binding ids: {}", duplicate_ids.join(", ")),
+        "studio.issue.duplicate_binding_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_descriptor.{field}.ids"),
+        bindings
+            .iter()
+            .all(|binding| is_dotted_id(&binding.binding_id)),
+        "binding ids use dotted-id grammar",
+        "one or more binding ids are not dotted ids",
+        "studio.issue.invalid_binding_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_descriptor.{field}.source_nodes"),
+        bindings
+            .iter()
+            .all(|binding| is_dotted_id(&binding.source_node_id)),
+        "binding source node ids use dotted-id grammar",
+        "one or more binding source node ids are not dotted ids",
+        "studio.issue.invalid_binding_source",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_descriptor.{field}.target_nodes"),
+        bindings
+            .iter()
+            .all(|binding| is_dotted_id(&binding.target_node_id)),
+        "binding target node ids use dotted-id grammar",
+        "one or more binding target node ids are not dotted ids",
+        "studio.issue.invalid_binding_target",
+    );
+}
+
+fn duplicate_binding_ids(bindings: &[StudioShellBinding]) -> Vec<String> {
+    let mut counts = BTreeMap::new();
+    for binding in bindings {
+        *counts.entry(binding.binding_id.clone()).or_insert(0) += 1;
+    }
+    counts
+        .into_iter()
+        .filter_map(|(id, count)| (count > 1).then_some(id))
+        .collect()
+}
+
+fn shell_artifact_for_descriptor(descriptor: &StudioShellDescriptor) -> StudioShellArtifact {
+    StudioShellArtifact {
+        artifact_id: format!("studio.shell_artifact.{}", descriptor.graph_id),
+        graph_id: descriptor.graph_id.clone(),
+        shell_id: descriptor.shell_id.clone(),
+        target_kind: shell_target_kind(descriptor.host_profile.host_profile.as_deref()),
+        target_host_profile: descriptor.target_host_profile.clone(),
+        host_profile_class: descriptor.host_profile.host_profile.clone(),
+        descriptor_path: shell_descriptor_artifact_path(&descriptor.graph_id),
+        app_id: descriptor.host_profile.app_id.clone(),
+        install_route: descriptor.host_profile.install_route.clone(),
+        launch_route: descriptor.host_profile.launch_route.clone(),
+        command_bridge: descriptor.host_profile.command_bridge.clone(),
+        evidence_pull_route: descriptor.host_profile.evidence_pull_route.clone(),
+        package_ids: descriptor.package_ids.clone(),
+        module_ids: descriptor.module_ids.clone(),
+    }
+}
+
+pub fn shell_descriptor_artifact_path(graph_id: &str) -> String {
+    format!("descriptors/{graph_id}.shell-descriptor.json")
+}
+
+pub fn shell_template_manifest_path(artifact: &StudioShellArtifact) -> String {
+    format!(
+        "shells/{}/{}.shell-template.json",
+        shell_target_kind_path(artifact.target_kind),
+        artifact.graph_id
+    )
+}
+
+pub fn shell_template_descriptor_path(graph_id: &str) -> String {
+    format!("descriptors/{graph_id}.shell-descriptor.json")
+}
+
+fn shell_target_kind(host_profile_class: Option<&str>) -> StudioShellTargetKind {
+    match host_profile_class {
+        Some("host.desktop") => StudioShellTargetKind::Desktop,
+        Some("host.mobile") => StudioShellTargetKind::Phone,
+        Some("host.headset") | Some("host.quest") => StudioShellTargetKind::Quest,
+        _ => StudioShellTargetKind::Unknown,
+    }
+}
+
+fn shell_target_kind_path(target_kind: StudioShellTargetKind) -> &'static str {
+    match target_kind {
+        StudioShellTargetKind::Desktop => "desktop",
+        StudioShellTargetKind::Phone => "phone",
+        StudioShellTargetKind::Quest => "quest",
+        StudioShellTargetKind::Unknown => "unknown",
+    }
+}
+
+fn shell_artifact_report(
+    project: &StudioProject,
+    status: StudioShellArtifactStatus,
+    issue_code: Option<String>,
+    message: String,
+    validation: StudioValidationReport,
+    manifest: Option<StudioShellArtifactManifest>,
+    descriptors: Vec<StudioShellDescriptor>,
+    rejections: Vec<StudioShellArtifactRejection>,
+) -> StudioShellArtifactReport {
+    StudioShellArtifactReport {
+        schema_id: SHELL_ARTIFACT_REPORT_SCHEMA,
+        project_id: project.project_id.clone(),
+        revision: project.revision,
+        status,
+        issue_code,
+        message,
+        validation,
+        manifest,
+        descriptors,
+        rejections,
+    }
+}
+
+fn validate_shell_artifact_manifest_entry(
+    artifact: &StudioShellArtifact,
+    base_dir: Option<&Path>,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let prefix = artifact.artifact_id.clone();
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.id"),
+        is_dotted_id(&artifact.artifact_id),
+        "artifact id uses dotted-id grammar",
+        "artifact id is not a dotted id",
+        "studio.issue.invalid_artifact_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.graph_id"),
+        is_dotted_id(&artifact.graph_id),
+        "artifact graph id uses dotted-id grammar",
+        "artifact graph id is not a dotted id",
+        "studio.issue.invalid_graph_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.shell_id"),
+        is_dotted_id(&artifact.shell_id),
+        "artifact shell id uses dotted-id grammar",
+        "artifact shell id is not a dotted id",
+        "studio.issue.invalid_shell_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.target_host_profile"),
+        is_dotted_id(&artifact.target_host_profile),
+        "target host profile uses dotted-id grammar",
+        "target host profile is not a dotted id",
+        "studio.issue.invalid_target_host_profile",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.host_profile_class"),
+        optional_dotted_id(artifact.host_profile_class.as_deref()),
+        "host profile class is absent or uses dotted-id grammar",
+        "host profile class is not a dotted id",
+        "studio.issue.invalid_host_profile_class",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.app_id"),
+        optional_dotted_id(artifact.app_id.as_deref()),
+        "app id is absent or uses dotted-id grammar",
+        "app id is not a dotted id",
+        "studio.issue.invalid_app_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.install_route"),
+        optional_dotted_id(artifact.install_route.as_deref()),
+        "install route is absent or uses dotted-id grammar",
+        "install route is not a dotted id",
+        "studio.issue.invalid_install_route",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.launch_route"),
+        optional_dotted_id(artifact.launch_route.as_deref()),
+        "launch route is absent or uses dotted-id grammar",
+        "launch route is not a dotted id",
+        "studio.issue.invalid_launch_route",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.command_bridge"),
+        optional_dotted_id(artifact.command_bridge.as_deref()),
+        "command bridge is absent or uses dotted-id grammar",
+        "command bridge is not a dotted id",
+        "studio.issue.invalid_command_bridge",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.evidence_pull_route"),
+        optional_dotted_id(artifact.evidence_pull_route.as_deref()),
+        "evidence pull route is absent or uses dotted-id grammar",
+        "evidence pull route is not a dotted id",
+        "studio.issue.invalid_evidence_pull_route",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.package_ids"),
+        all_dotted_ids(&artifact.package_ids),
+        "package ids use dotted-id grammar",
+        "one or more package ids are not dotted ids",
+        "studio.issue.invalid_package_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.module_ids"),
+        all_dotted_ids(&artifact.module_ids),
+        "module ids use dotted-id grammar",
+        "one or more module ids are not dotted ids",
+        "studio.issue.invalid_module_id",
+    );
+
+    let descriptor_path_is_safe = is_safe_relative_manifest_path(&artifact.descriptor_path);
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.descriptor_path"),
+        descriptor_path_is_safe,
+        "descriptor path is a safe relative path",
+        "descriptor path must be a portable relative path without traversal",
+        "studio.issue.invalid_descriptor_path",
+    );
+
+    if let Some(base_dir) = base_dir.filter(|_| descriptor_path_is_safe) {
+        validate_shell_artifact_descriptor_reference(artifact, base_dir, checks);
+    }
+}
+
+fn validate_shell_artifact_descriptor_reference(
+    artifact: &StudioShellArtifact,
+    base_dir: &Path,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let prefix = artifact.artifact_id.clone();
+    let descriptor_path = resolve_manifest_relative_path(base_dir, &artifact.descriptor_path);
+    let descriptor_exists = descriptor_path.is_file();
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.descriptor_exists"),
+        descriptor_exists,
+        "descriptor path resolves to a file",
+        "descriptor path does not resolve to a file",
+        "studio.issue.descriptor_missing",
+    );
+    if !descriptor_exists {
+        return;
+    }
+
+    let descriptor = match load_shell_descriptor(&descriptor_path) {
+        Ok(descriptor) => {
+            push_check(
+                checks,
+                &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.descriptor_parse"),
+                true,
+                "descriptor JSON parsed",
+                "descriptor JSON did not parse",
+                "studio.issue.descriptor_parse_failed",
+            );
+            descriptor
+        }
+        Err(error) => {
+            checks.push(StudioValidationCheck {
+                check_id: format!(
+                    "studio.check.shell_artifact_manifest.artifact.{prefix}.descriptor_parse"
+                ),
+                status: StudioValidationStatus::Fail,
+                evidence: error.to_string(),
+                issue_code: Some("studio.issue.descriptor_parse_failed".to_string()),
+            });
+            return;
+        }
+    };
+
+    let descriptor_validation = validate_shell_descriptor(&descriptor);
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.descriptor_validation"),
+        descriptor_validation.status == StudioValidationStatus::Pass,
+        "descriptor validation passed",
+        "descriptor validation failed",
+        "studio.issue.descriptor_validation_failed",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.descriptor_graph"),
+        descriptor.graph_id == artifact.graph_id,
+        "descriptor graph id matches artifact graph id",
+        "descriptor graph id does not match artifact graph id",
+        "studio.issue.descriptor_graph_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.descriptor_shell"),
+        descriptor.shell_id == artifact.shell_id,
+        "descriptor shell id matches artifact shell id",
+        "descriptor shell id does not match artifact shell id",
+        "studio.issue.descriptor_shell_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.descriptor_target"),
+        descriptor.target_host_profile == artifact.target_host_profile,
+        "descriptor target host profile matches artifact target host profile",
+        "descriptor target host profile does not match artifact target host profile",
+        "studio.issue.descriptor_target_mismatch",
+    );
+    push_check(
+        checks,
+        &format!(
+            "studio.check.shell_artifact_manifest.artifact.{prefix}.descriptor_host_profile_class"
+        ),
+        descriptor.host_profile.host_profile == artifact.host_profile_class,
+        "descriptor host profile class matches artifact host profile class",
+        "descriptor host profile class does not match artifact host profile class",
+        "studio.issue.descriptor_host_profile_class_mismatch",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.shell_artifact_manifest.artifact.{prefix}.descriptor_target_kind"),
+        shell_target_kind(descriptor.host_profile.host_profile.as_deref()) == artifact.target_kind,
+        "descriptor target kind matches artifact target kind",
+        "descriptor target kind does not match artifact target kind",
+        "studio.issue.descriptor_target_kind_mismatch",
+    );
+}
+
+fn shell_template_for_artifact(artifact: &StudioShellArtifact) -> StudioShellTemplateManifest {
+    StudioShellTemplateManifest {
+        schema_id: SHELL_TEMPLATE_MANIFEST_SCHEMA.to_string(),
+        template_id: shell_template_id(&artifact.graph_id),
+        artifact_id: artifact.artifact_id.clone(),
+        graph_id: artifact.graph_id.clone(),
+        shell_id: artifact.shell_id.clone(),
+        target_kind: artifact.target_kind,
+        target_host_profile: artifact.target_host_profile.clone(),
+        host_profile_class: artifact.host_profile_class.clone(),
+        source_descriptor_path: artifact.descriptor_path.clone(),
+        descriptor_path: shell_template_descriptor_path(&artifact.graph_id),
+        runtime_authority: StudioShellRuntimeAuthority {
+            command_session_authority: "rusty.manifold".to_string(),
+            install_launch_evidence_authority: "rusty.hostess".to_string(),
+            studio_role: "authoring.export_planning".to_string(),
+        },
+        host_routes: StudioShellHostRoutes {
+            app_id: artifact.app_id.clone(),
+            install_route: artifact.install_route.clone(),
+            launch_route: artifact.launch_route.clone(),
+            command_bridge: artifact.command_bridge.clone(),
+            evidence_pull_route: artifact.evidence_pull_route.clone(),
+        },
+        package_ids: artifact.package_ids.clone(),
+        module_ids: artifact.module_ids.clone(),
+    }
+}
+
+fn shell_template_index_entry(artifact: &StudioShellArtifact) -> StudioShellTemplateIndexEntry {
+    StudioShellTemplateIndexEntry {
+        template_id: shell_template_id(&artifact.graph_id),
+        artifact_id: artifact.artifact_id.clone(),
+        graph_id: artifact.graph_id.clone(),
+        shell_id: artifact.shell_id.clone(),
+        target_kind: artifact.target_kind,
+        template_path: shell_template_manifest_path(artifact),
+        descriptor_path: shell_template_descriptor_path(&artifact.graph_id),
+    }
+}
+
+fn shell_template_id(graph_id: &str) -> String {
+    format!("studio.shell_template.{graph_id}")
+}
+
+fn shell_template_report(
+    manifest: &StudioShellArtifactManifest,
+    status: StudioShellTemplateStatus,
+    issue_code: Option<String>,
+    message: String,
+    validation: StudioShellArtifactManifestValidationReport,
+    index: Option<StudioShellTemplateIndex>,
+    templates: Vec<StudioShellTemplateManifest>,
+) -> StudioShellTemplateReport {
+    StudioShellTemplateReport {
+        schema_id: SHELL_TEMPLATE_REPORT_SCHEMA,
+        manifest_id: manifest.manifest_id.clone(),
+        project_id: manifest.project_id.clone(),
+        project_revision: manifest.project_revision,
+        status,
+        issue_code,
+        message,
+        validation,
+        index,
+        templates,
+    }
+}
+
+fn duplicate_artifact_field<F>(artifacts: &[StudioShellArtifact], field: F) -> Vec<String>
+where
+    F: Fn(&StudioShellArtifact) -> &str,
+{
+    let mut counts = BTreeMap::new();
+    for artifact in artifacts {
+        *counts.entry(field(artifact).to_string()).or_insert(0) += 1;
+    }
+    counts
+        .into_iter()
+        .filter_map(|(id, count)| (count > 1).then_some(id))
+        .collect()
+}
+
+fn is_safe_relative_manifest_path(value: &str) -> bool {
+    if value.is_empty() || value.contains('\\') {
+        return false;
+    }
+    let path = Path::new(value);
+    if path.is_absolute() {
+        return false;
+    }
+    path.components()
+        .all(|component| matches!(component, std::path::Component::Normal(_)))
+}
+
+fn resolve_manifest_relative_path(base_dir: &Path, relative_path: &str) -> PathBuf {
+    relative_path
+        .split('/')
+        .fold(base_dir.to_path_buf(), |path, segment| path.join(segment))
+}
+
+fn validate_graph(
+    graph: &StudioGraph,
+    reference_index: Option<&ReferenceIndex>,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let prefix = graph.graph_id.clone();
+    push_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.id"),
+        is_dotted_id(&graph.graph_id),
+        "graph id uses dotted-id grammar",
+        "graph id is not a dotted id",
+        "studio.issue.invalid_graph_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.nodes_present"),
+        !graph.nodes.is_empty(),
+        "graph contains nodes",
+        "graph must contain nodes",
+        "studio.issue.no_nodes",
+    );
+
+    let mut node_ids = BTreeSet::new();
+    let mut duplicate_nodes = Vec::new();
+    let mut host_profile_refs = BTreeSet::new();
+    for node in &graph.nodes {
+        if !node_ids.insert(node.node_id.clone()) {
+            duplicate_nodes.push(node.node_id.clone());
+        }
+        if node.kind == StudioNodeKind::HostProfile {
+            host_profile_refs.insert(node.reference_id.clone());
+        }
+        push_check(
+            checks,
+            &format!("studio.check.graph.{prefix}.node.{}.id", node.node_id),
+            is_dotted_id(&node.node_id),
+            "node id uses dotted-id grammar",
+            "node id is not a dotted id",
+            "studio.issue.invalid_node_id",
+        );
+        push_check(
+            checks,
+            &format!(
+                "studio.check.graph.{prefix}.node.{}.reference",
+                node.node_id
+            ),
+            is_dotted_id(&node.reference_id),
+            "node reference id uses dotted-id grammar",
+            "node reference id is not a dotted id",
+            "studio.issue.invalid_reference_id",
+        );
+    }
+    push_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.unique_nodes"),
+        duplicate_nodes.is_empty(),
+        "node ids are unique",
+        &format!("duplicate node ids: {}", duplicate_nodes.join(", ")),
+        "studio.issue.duplicate_node_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.target_host"),
+        host_profile_refs.contains(&graph.target_host_profile),
+        "target host profile resolves to a host_profile node",
+        "target host profile does not resolve to a host_profile node",
+        "studio.issue.missing_target_host_profile",
+    );
+
+    let edge_by_id = edge_duplicates(&graph.edges);
+    push_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.unique_edges"),
+        edge_by_id.is_empty(),
+        "edge ids are unique",
+        &format!(
+            "duplicate edge ids: {}",
+            edge_by_id.keys().cloned().collect::<Vec<_>>().join(", ")
+        ),
+        "studio.issue.duplicate_edge_id",
+    );
+    for edge in &graph.edges {
+        validate_edge(graph, edge, &node_ids, checks);
+    }
+    if let Some(reference_index) = reference_index {
+        validate_graph_references(graph, reference_index, checks);
+    }
+}
+
+fn validate_project_references(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    checks: &mut Vec<StudioValidationCheck>,
+) -> Option<ReferenceIndex> {
+    let Some(base_dir) = base_dir else {
+        return None;
+    };
+    let mut references = ReferenceIndex::default();
+    let catalog_path = resolve_project_path(base_dir, &project.package_catalog_path);
+    push_check(
+        checks,
+        "studio.check.package_catalog_path",
+        catalog_path.is_file(),
+        "package catalog path resolves to a file",
+        "package catalog path does not resolve to a file",
+        "studio.issue.package_catalog_missing",
+    );
+    if let Some(catalog) = read_json_value(
+        &catalog_path,
+        checks,
+        "studio.check.package_catalog.parse",
+        "studio.issue.package_catalog_parse",
+    ) {
+        collect_catalog_references(&catalog_path, &catalog, &mut references, checks);
+    }
+    push_check(
+        checks,
+        "studio.check.host_run_profile_paths_present",
+        !project.host_run_profile_paths.is_empty(),
+        "project declares host-run profile paths",
+        "project must declare at least one host-run profile path",
+        "studio.issue.no_host_run_profiles",
+    );
+    for (index, path) in project.host_run_profile_paths.iter().enumerate() {
+        let profile_path = resolve_project_path(base_dir, path);
+        push_check(
+            checks,
+            &format!("studio.check.host_run_profile_path.{index}"),
+            profile_path.is_file(),
+            "host-run profile path resolves to a file",
+            "host-run profile path does not resolve to a file",
+            "studio.issue.host_run_profile_missing",
+        );
+        if let Some(profile) = read_json_value(
+            &profile_path,
+            checks,
+            &format!("studio.check.host_run_profile_path.{index}.parse"),
+            "studio.issue.host_run_profile_parse",
+        ) {
+            collect_host_profile_reference(index, &profile, &mut references, checks);
+        }
+    }
+    Some(references)
+}
+
+fn collect_catalog_references(
+    catalog_path: &Path,
+    catalog: &Value,
+    references: &mut ReferenceIndex,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    push_check(
+        checks,
+        "studio.check.package_catalog.schema",
+        string_field(catalog, "$schema") == Some("rusty.manifold.package.catalog.v1"),
+        "package catalog schema id is supported",
+        "package catalog schema id is unsupported",
+        "studio.issue.package_catalog_schema",
+    );
+    let packages = catalog.get("packages").and_then(Value::as_array);
+    push_check(
+        checks,
+        "studio.check.package_catalog.packages_present",
+        packages.is_some_and(|items| !items.is_empty()),
+        "package catalog declares packages",
+        "package catalog must declare at least one package",
+        "studio.issue.package_catalog_empty",
+    );
+    let Some(packages) = packages else {
+        return;
+    };
+    for (index, package) in packages.iter().enumerate() {
+        let package_id = string_field(package, "package_id").unwrap_or_default();
+        let manifest_path = string_field(package, "manifest_path").unwrap_or_default();
+        let package_key = if package_id.is_empty() {
+            format!("index.{index}")
+        } else {
+            package_id.to_string()
+        };
+        push_check(
+            checks,
+            &format!("studio.check.package_catalog.package.{package_key}.id"),
+            is_dotted_id(package_id),
+            "catalog package id uses dotted-id grammar",
+            "catalog package id is missing or invalid",
+            "studio.issue.package_catalog_package_id",
+        );
+        if is_dotted_id(package_id) {
+            references.package_ids.insert(package_id.to_string());
+        }
+        let manifest = resolve_catalog_manifest_path(catalog_path, manifest_path);
+        push_check(
+            checks,
+            &format!("studio.check.package_catalog.package.{package_key}.manifest_path"),
+            manifest.is_file(),
+            "catalog package manifest path resolves to a file",
+            "catalog package manifest path does not resolve to a file",
+            "studio.issue.package_manifest_missing",
+        );
+        if let Some(manifest_json) = read_json_value(
+            &manifest,
+            checks,
+            &format!("studio.check.package_manifest.{package_key}.parse"),
+            "studio.issue.package_manifest_parse",
+        ) {
+            collect_package_manifest_references(package_id, &manifest_json, references, checks);
+        }
+    }
+}
+
+fn collect_package_manifest_references(
+    expected_package_id: &str,
+    manifest: &Value,
+    references: &mut ReferenceIndex,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let package_key = if expected_package_id.is_empty() {
+        "unknown"
+    } else {
+        expected_package_id
+    };
+    push_check(
+        checks,
+        &format!("studio.check.package_manifest.{package_key}.schema"),
+        string_field(manifest, "$schema") == Some("rusty.manifold.package.manifest.v1"),
+        "package manifest schema id is supported",
+        "package manifest schema id is unsupported",
+        "studio.issue.package_manifest_schema",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.package_manifest.{package_key}.id_matches_catalog"),
+        string_field(manifest, "package_id") == Some(expected_package_id),
+        "package manifest id matches catalog package id",
+        "package manifest id does not match catalog package id",
+        "studio.issue.package_manifest_id_mismatch",
+    );
+    let modules = manifest
+        .get("exports")
+        .and_then(|exports| exports.get("modules"))
+        .and_then(Value::as_array);
+    push_check(
+        checks,
+        &format!("studio.check.package_manifest.{package_key}.module_exports"),
+        modules.is_some_and(|items| !items.is_empty()),
+        "package manifest exports modules",
+        "package manifest must export at least one module",
+        "studio.issue.package_manifest_no_modules",
+    );
+    if let Some(modules) = modules {
+        for module in modules {
+            if let Some(module_id) = module.as_str().filter(|value| is_dotted_id(value)) {
+                references.module_ids.insert(module_id.to_string());
+            }
+        }
+    }
+}
+
+fn collect_host_profile_reference(
+    index: usize,
+    profile: &Value,
+    references: &mut ReferenceIndex,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    push_check(
+        checks,
+        &format!("studio.check.host_run_profile_path.{index}.schema"),
+        string_field(profile, "$schema")
+            == Some("rusty.manifold.host_run.install_launch_profile.v1"),
+        "host-run profile schema id is supported",
+        "host-run profile schema id is unsupported",
+        "studio.issue.host_run_profile_schema",
+    );
+    let profile_id = string_field(profile, "profile_id").unwrap_or_default();
+    push_check(
+        checks,
+        &format!("studio.check.host_run_profile_path.{index}.profile_id"),
+        is_dotted_id(profile_id),
+        "host-run profile id uses dotted-id grammar",
+        "host-run profile id is missing or invalid",
+        "studio.issue.host_run_profile_id",
+    );
+    if is_dotted_id(profile_id) {
+        references.host_profiles.insert(
+            profile_id.to_string(),
+            HostProfileReference {
+                profile_id: profile_id.to_string(),
+                host_profile: string_field(profile, "host_profile").map(str::to_string),
+                app_id: string_field(profile, "app_id").map(str::to_string),
+                install_route: string_field(profile, "install_route").map(str::to_string),
+                launch_route: string_field(profile, "launch_route").map(str::to_string),
+                command_bridge: string_field(profile, "command_bridge").map(str::to_string),
+                evidence_pull_route: string_field(profile, "evidence_pull_route")
+                    .map(str::to_string),
+                required_permissions: string_array_field(profile, "required_permissions"),
+            },
+        );
+    }
+}
+
+fn validate_graph_references(
+    graph: &StudioGraph,
+    reference_index: &ReferenceIndex,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let missing_packages = graph
+        .nodes
+        .iter()
+        .filter(|node| node.kind == StudioNodeKind::Package)
+        .filter(|node| !reference_index.package_ids.contains(&node.reference_id))
+        .map(|node| node.reference_id.clone())
+        .collect::<Vec<_>>();
+    push_check(
+        checks,
+        &format!("studio.check.graph.{}.package_refs", graph.graph_id),
+        missing_packages.is_empty(),
+        "graph package nodes resolve through package catalog",
+        &format!(
+            "package references missing from catalog: {}",
+            missing_packages.join(", ")
+        ),
+        "studio.issue.package_reference_missing",
+    );
+
+    let missing_modules = graph
+        .nodes
+        .iter()
+        .filter(|node| node.kind == StudioNodeKind::Module)
+        .filter(|node| !reference_index.module_ids.contains(&node.reference_id))
+        .map(|node| node.reference_id.clone())
+        .collect::<Vec<_>>();
+    push_check(
+        checks,
+        &format!("studio.check.graph.{}.module_refs", graph.graph_id),
+        missing_modules.is_empty(),
+        "graph module nodes resolve through selected package manifests",
+        &format!(
+            "module references missing from package manifests: {}",
+            missing_modules.join(", ")
+        ),
+        "studio.issue.module_reference_missing",
+    );
+
+    let missing_host_profiles = graph
+        .nodes
+        .iter()
+        .filter(|node| node.kind == StudioNodeKind::HostProfile)
+        .filter(|node| {
+            !reference_index
+                .host_profiles
+                .contains_key(&node.reference_id)
+        })
+        .map(|node| node.reference_id.clone())
+        .collect::<Vec<_>>();
+    push_check(
+        checks,
+        &format!("studio.check.graph.{}.host_profile_refs", graph.graph_id),
+        missing_host_profiles.is_empty(),
+        "graph host-profile nodes resolve through declared host-run profiles",
+        &format!(
+            "host profile references missing from declared profiles: {}",
+            missing_host_profiles.join(", ")
+        ),
+        "studio.issue.host_profile_reference_missing",
+    );
+    push_check(
+        checks,
+        &format!(
+            "studio.check.graph.{}.target_host_profile_ref",
+            graph.graph_id
+        ),
+        reference_index
+            .host_profiles
+            .contains_key(&graph.target_host_profile),
+        "target host profile resolves through declared host-run profiles",
+        "target host profile is missing from declared host-run profiles",
+        "studio.issue.target_host_profile_reference_missing",
+    );
+}
+
+fn read_json_value(
+    path: &Path,
+    checks: &mut Vec<StudioValidationCheck>,
+    check_id: &str,
+    issue_code: &str,
+) -> Option<Value> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => match serde_json::from_str::<Value>(&text) {
+            Ok(value) => {
+                push_check(
+                    checks,
+                    check_id,
+                    true,
+                    "JSON document parsed",
+                    "JSON document could not parse",
+                    issue_code,
+                );
+                Some(value)
+            }
+            Err(error) => {
+                push_check(
+                    checks,
+                    check_id,
+                    false,
+                    "JSON document parsed",
+                    &format!("JSON parse error: {error}"),
+                    issue_code,
+                );
+                None
+            }
+        },
+        Err(error) => {
+            push_check(
+                checks,
+                check_id,
+                false,
+                "JSON document parsed",
+                &format!("JSON read error: {error}"),
+                issue_code,
+            );
+            None
+        }
+    }
+}
+
+fn string_field<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
+    value.get(field).and_then(Value::as_str)
+}
+
+fn string_array_field(value: &Value, field: &str) -> Vec<String> {
+    value
+        .get(field)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn resolve_project_path(base_dir: &Path, path: &str) -> PathBuf {
+    let path = Path::new(path);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base_dir.join(path)
+    }
+}
+
+fn resolve_catalog_manifest_path(catalog_path: &Path, manifest_path: &str) -> PathBuf {
+    let path = Path::new(manifest_path);
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    let Some(catalog_dir) = catalog_path.parent() else {
+        return path.to_path_buf();
+    };
+    let catalog_relative = catalog_dir.join(path);
+    if catalog_relative.is_file() {
+        return catalog_relative;
+    }
+    catalog_dir
+        .parent()
+        .map(|repo_root| repo_root.join(path))
+        .unwrap_or(catalog_relative)
+}
+
+fn validate_edge(
+    graph: &StudioGraph,
+    edge: &StudioEdge,
+    node_ids: &BTreeSet<String>,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let prefix = &graph.graph_id;
+    push_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.edge.{}.id", edge.edge_id),
+        is_dotted_id(&edge.edge_id),
+        "edge id uses dotted-id grammar",
+        "edge id is not a dotted id",
+        "studio.issue.invalid_edge_id",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.edge.{}.source", edge.edge_id),
+        node_ids.contains(&edge.source_node_id),
+        "edge source node exists",
+        "edge source node is missing",
+        "studio.issue.missing_edge_source",
+    );
+    push_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.edge.{}.target", edge.edge_id),
+        node_ids.contains(&edge.target_node_id),
+        "edge target node exists",
+        "edge target node is missing",
+        "studio.issue.missing_edge_target",
+    );
+}
+
+fn resolve_graph(graph: &StudioGraph) -> StudioResolvedGraph {
+    StudioResolvedGraph {
+        graph_id: graph.graph_id.clone(),
+        target_host_profile: graph.target_host_profile.clone(),
+        package_count: graph
+            .nodes
+            .iter()
+            .filter(|node| node.kind == StudioNodeKind::Package)
+            .count(),
+        module_count: graph
+            .nodes
+            .iter()
+            .filter(|node| node.kind == StudioNodeKind::Module)
+            .count(),
+        operator_shell_count: graph
+            .nodes
+            .iter()
+            .filter(|node| node.kind == StudioNodeKind::OperatorShell)
+            .count(),
+        node_count: graph.nodes.len(),
+        edge_count: graph.edges.len(),
+    }
+}
+
+fn graph_view(graph: &StudioGraph) -> StudioGraphView {
+    let resolved = resolve_graph(graph);
+    StudioGraphView {
+        graph_id: graph.graph_id.clone(),
+        display_name: graph.display_name.clone(),
+        target_host_profile: graph.target_host_profile.clone(),
+        node_count: resolved.node_count,
+        edge_count: resolved.edge_count,
+        package_count: resolved.package_count,
+        module_count: resolved.module_count,
+        operator_shell_count: resolved.operator_shell_count,
+        node_rows: graph
+            .nodes
+            .iter()
+            .map(|node| StudioNodeView {
+                node_id: node.node_id.clone(),
+                kind: node_kind_label(node.kind).to_string(),
+                reference_id: node.reference_id.clone(),
+                label: node.label.clone(),
+            })
+            .collect(),
+        edge_rows: graph
+            .edges
+            .iter()
+            .map(|edge| StudioEdgeView {
+                edge_id: edge.edge_id.clone(),
+                kind: edge_kind_label(edge.kind).to_string(),
+                source_node_id: edge.source_node_id.clone(),
+                target_node_id: edge.target_node_id.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn selected_graph_index(
+    graphs: &[StudioGraphView],
+    requested_graph_id: Option<&str>,
+) -> Option<usize> {
+    if graphs.is_empty() {
+        return None;
+    }
+    if let Some(requested_graph_id) = requested_graph_id {
+        return graphs
+            .iter()
+            .position(|graph| graph.graph_id == requested_graph_id);
+    }
+    Some(0)
+}
+
+fn node_kind_label(kind: StudioNodeKind) -> &'static str {
+    match kind {
+        StudioNodeKind::Package => "package",
+        StudioNodeKind::Module => "module",
+        StudioNodeKind::HostProfile => "host_profile",
+        StudioNodeKind::ValidationSlot => "validation_slot",
+        StudioNodeKind::OperatorShell => "operator_shell",
+    }
+}
+
+fn edge_kind_label(kind: rusty_studio_model::StudioEdgeKind) -> &'static str {
+    match kind {
+        rusty_studio_model::StudioEdgeKind::PackageProvidesModule => "package_provides_module",
+        rusty_studio_model::StudioEdgeKind::StreamBinding => "stream_binding",
+        rusty_studio_model::StudioEdgeKind::CommandBinding => "command_binding",
+        rusty_studio_model::StudioEdgeKind::ValidationSlotUsesPackage => {
+            "validation_slot_uses_package"
+        }
+        rusty_studio_model::StudioEdgeKind::ShellTargetsHostProfile => "shell_targets_host_profile",
+    }
+}
+
+fn edge_duplicates(edges: &[StudioEdge]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for edge in edges {
+        *counts.entry(edge.edge_id.clone()).or_insert(0) += 1;
+    }
+    counts.retain(|_, count| *count > 1);
+    counts
+}
+
+fn push_check(
+    checks: &mut Vec<StudioValidationCheck>,
+    check_id: &str,
+    passed: bool,
+    pass_evidence: &str,
+    fail_evidence: &str,
+    issue_code: &str,
+) {
+    checks.push(StudioValidationCheck {
+        check_id: check_id.to_string(),
+        status: if passed {
+            StudioValidationStatus::Pass
+        } else {
+            StudioValidationStatus::Fail
+        },
+        evidence: if passed { pass_evidence } else { fail_evidence }.to_string(),
+        issue_code: (!passed).then(|| issue_code.to_string()),
+    });
+}
+
+fn edit_report(
+    project: &StudioProject,
+    original_revision: u64,
+    resulting_revision: u64,
+    status: StudioEditStatus,
+    issue_code: Option<String>,
+    message: String,
+    graph_id: &str,
+    requested_host_profile: &str,
+    changed_fields: Vec<String>,
+    validation: StudioValidationReport,
+) -> StudioEditReport {
+    StudioEditReport {
+        schema_id: EDIT_REPORT_SCHEMA,
+        project_id: project.project_id.clone(),
+        original_revision,
+        resulting_revision,
+        status,
+        issue_code,
+        message,
+        graph_id: graph_id.to_string(),
+        requested_host_profile: requested_host_profile.to_string(),
+        changed_fields,
+        validation,
+    }
+}
+
+fn first_failed_issue_code(report: &StudioValidationReport) -> Option<String> {
+    report.checks.iter().find_map(|check| {
+        (check.status == StudioValidationStatus::Fail)
+            .then(|| check.issue_code.clone())
+            .flatten()
+    })
+}
+
+fn first_failed_check_issue_code(report: &StudioShellDescriptorValidationReport) -> Option<String> {
+    report.checks.iter().find_map(|check| {
+        (check.status == StudioValidationStatus::Fail)
+            .then(|| check.issue_code.clone())
+            .flatten()
+    })
+}
+
+fn first_failed_shell_artifact_manifest_issue_code(
+    report: &StudioShellArtifactManifestValidationReport,
+) -> Option<String> {
+    report.checks.iter().find_map(|check| {
+        (check.status == StudioValidationStatus::Fail)
+            .then(|| check.issue_code.clone())
+            .flatten()
+    })
+}
+
+fn optional_dotted_id(value: Option<&str>) -> bool {
+    match value {
+        Some(value) => is_dotted_id(value),
+        None => true,
+    }
+}
+
+fn all_dotted_ids(values: &[String]) -> bool {
+    values.iter().all(|value| is_dotted_id(value))
+}
+
+pub fn is_dotted_id(value: &str) -> bool {
+    let mut chars = value.chars().peekable();
+    let mut previous_dot = true;
+    let mut saw_segment_char = false;
+    while let Some(ch) = chars.next() {
+        let is_segment_char =
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-';
+        if ch == '.' {
+            if previous_dot || !saw_segment_char || chars.peek().is_none() {
+                return false;
+            }
+            previous_dot = true;
+            saw_segment_char = false;
+            continue;
+        }
+        if !is_segment_char {
+            return false;
+        }
+        previous_dot = false;
+        saw_segment_char = true;
+    }
+    !previous_dot && saw_segment_char
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusty_studio_model::{
+        StudioEdgeKind, StudioEditStatus, StudioNode, StudioNodeKind, StudioShellArtifactStatus,
+        StudioShellDescriptorStatus, StudioShellTargetKind, StudioShellTemplateStatus,
+    };
+
+    fn valid_project() -> StudioProject {
+        StudioProject {
+            schema_id: PROJECT_SCHEMA.to_string(),
+            project_id: "studio.project.test".to_string(),
+            revision: 1,
+            display_name: "Test".to_string(),
+            package_catalog_path: "packages/catalog.manifold.json".to_string(),
+            host_run_profile_paths: vec![
+                "fixtures/host-run/install-profile-desktop.json".to_string()
+            ],
+            graphs: vec![StudioGraph {
+                graph_id: "studio.graph.test".to_string(),
+                display_name: "Graph".to_string(),
+                target_host_profile: "host_run.profile.desktop".to_string(),
+                nodes: vec![
+                    StudioNode {
+                        node_id: "node.package.synthetic".to_string(),
+                        kind: StudioNodeKind::Package,
+                        reference_id: "package.synthetic".to_string(),
+                        label: "Package".to_string(),
+                    },
+                    StudioNode {
+                        node_id: "node.host.desktop".to_string(),
+                        kind: StudioNodeKind::HostProfile,
+                        reference_id: "host_run.profile.desktop".to_string(),
+                        label: "Desktop".to_string(),
+                    },
+                ],
+                edges: vec![StudioEdge {
+                    edge_id: "edge.package_host".to_string(),
+                    kind: StudioEdgeKind::ShellTargetsHostProfile,
+                    source_node_id: "node.package.synthetic".to_string(),
+                    target_node_id: "node.host.desktop".to_string(),
+                }],
+            }],
+        }
+    }
+
+    fn temp_root(name: &str) -> std::path::PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("rusty-studio-{name}-{unique}"));
+        std::fs::create_dir_all(&root).expect("create temp root");
+        root
+    }
+
+    fn write_fixture(path: &Path, text: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create fixture parent");
+        }
+        std::fs::write(path, text).expect("write fixture");
+    }
+
+    fn write_reference_fixture_tree(root: &Path) {
+        write_fixture(
+            &root.join("packages/catalog.manifold.json"),
+            r#"{
+  "$schema": "rusty.manifold.package.catalog.v1",
+  "catalog_id": "catalog.test",
+  "packages": [
+    {
+      "package_id": "package.synthetic",
+      "manifest_path": "packages/synthetic/manifests/package.manifold.json"
+    }
+  ]
+}"#,
+        );
+        write_fixture(
+            &root.join("packages/synthetic/manifests/package.manifold.json"),
+            r#"{
+  "$schema": "rusty.manifold.package.manifest.v1",
+  "package_id": "package.synthetic",
+  "version": "0.1.0",
+  "exports": {
+    "modules": [
+      "module.synthetic_provider"
+    ],
+    "streams": [],
+    "commands": []
+  }
+}"#,
+        );
+        write_fixture(
+            &root.join("profiles/desktop.json"),
+            r#"{
+  "$schema": "rusty.manifold.host_run.install_launch_profile.v1",
+  "profile_id": "host_run.profile.desktop",
+  "host_profile": "host.desktop",
+  "app_id": "app.host_shell.desktop",
+  "install_route": "install.local_process",
+  "launch_route": "launch.local_process",
+  "command_bridge": "bridge.local_cli",
+  "required_permissions": [],
+  "evidence_pull_route": "evidence.filesystem"
+}"#,
+        );
+        write_fixture(
+            &root.join("profiles/headset.json"),
+            r#"{
+  "$schema": "rusty.manifold.host_run.install_launch_profile.v1",
+  "profile_id": "host_run.profile.headset",
+  "host_profile": "host.quest",
+  "app_id": "app.host_shell.quest",
+  "install_route": "install.adb_package",
+  "launch_route": "launch.adb_activity",
+  "command_bridge": "bridge.local_cli",
+  "required_permissions": [],
+  "evidence_pull_route": "evidence.filesystem"
+}"#,
+        );
+        write_fixture(
+            &root.join("profiles/mobile.json"),
+            r#"{
+  "$schema": "rusty.manifold.host_run.install_launch_profile.v1",
+  "profile_id": "host_run.profile.mobile",
+  "host_profile": "host.mobile",
+  "app_id": "app.host_shell.mobile",
+  "install_route": "install.android_package",
+  "launch_route": "launch.android_intent",
+  "command_bridge": "bridge.adb_intent_file",
+  "required_permissions": [],
+  "evidence_pull_route": "evidence.adb_pull"
+}"#,
+        );
+    }
+
+    fn valid_project_with_relative_references() -> StudioProject {
+        let mut project = valid_project();
+        project.package_catalog_path = "packages/catalog.manifold.json".to_string();
+        project.host_run_profile_paths = vec![
+            "profiles/desktop.json".to_string(),
+            "profiles/headset.json".to_string(),
+        ];
+        project
+    }
+
+    fn valid_shell_project_with_relative_references() -> StudioProject {
+        let mut project = valid_project_with_relative_references();
+        project.graphs[0].nodes.push(StudioNode {
+            node_id: "node.module.synthetic_provider".to_string(),
+            kind: StudioNodeKind::Module,
+            reference_id: "module.synthetic_provider".to_string(),
+            label: "Synthetic Provider".to_string(),
+        });
+        project.graphs[0].nodes.push(StudioNode {
+            node_id: "node.shell.operator".to_string(),
+            kind: StudioNodeKind::OperatorShell,
+            reference_id: "shell.synthetic.operator".to_string(),
+            label: "Operator Shell".to_string(),
+        });
+        project.graphs[0].edges.push(StudioEdge {
+            edge_id: "edge.package_module".to_string(),
+            kind: StudioEdgeKind::PackageProvidesModule,
+            source_node_id: "node.package.synthetic".to_string(),
+            target_node_id: "node.module.synthetic_provider".to_string(),
+        });
+        project.graphs[0].edges.push(StudioEdge {
+            edge_id: "edge.shell_command".to_string(),
+            kind: StudioEdgeKind::CommandBinding,
+            source_node_id: "node.shell.operator".to_string(),
+            target_node_id: "node.module.synthetic_provider".to_string(),
+        });
+        project
+    }
+
+    fn valid_multi_shell_project_with_relative_references() -> StudioProject {
+        let mut project = valid_shell_project_with_relative_references();
+        project.host_run_profile_paths = vec![
+            "profiles/desktop.json".to_string(),
+            "profiles/mobile.json".to_string(),
+            "profiles/headset.json".to_string(),
+        ];
+
+        let mut phone_graph = project.graphs[0].clone();
+        phone_graph.graph_id = "studio.graph.phone".to_string();
+        phone_graph.display_name = "Phone Graph".to_string();
+        phone_graph.target_host_profile = "host_run.profile.mobile".to_string();
+        for node in &mut phone_graph.nodes {
+            if node.kind == StudioNodeKind::HostProfile {
+                node.node_id = "node.host.mobile".to_string();
+                node.reference_id = "host_run.profile.mobile".to_string();
+                node.label = "Phone".to_string();
+            }
+            if node.kind == StudioNodeKind::OperatorShell {
+                node.reference_id = "shell.synthetic.phone_operator".to_string();
+                node.label = "Phone Shell".to_string();
+            }
+        }
+        for edge in &mut phone_graph.edges {
+            if edge.kind == StudioEdgeKind::ShellTargetsHostProfile {
+                edge.target_node_id = "node.host.mobile".to_string();
+            }
+        }
+
+        let mut quest_graph = project.graphs[0].clone();
+        quest_graph.graph_id = "studio.graph.quest".to_string();
+        quest_graph.display_name = "Quest Graph".to_string();
+        quest_graph.target_host_profile = "host_run.profile.headset".to_string();
+        for node in &mut quest_graph.nodes {
+            if node.kind == StudioNodeKind::HostProfile {
+                node.node_id = "node.host.headset".to_string();
+                node.reference_id = "host_run.profile.headset".to_string();
+                node.label = "Quest".to_string();
+            }
+            if node.kind == StudioNodeKind::OperatorShell {
+                node.reference_id = "shell.synthetic.quest_operator".to_string();
+                node.label = "Quest Shell".to_string();
+            }
+        }
+        for edge in &mut quest_graph.edges {
+            if edge.kind == StudioEdgeKind::ShellTargetsHostProfile {
+                edge.target_node_id = "node.host.headset".to_string();
+            }
+        }
+
+        project.graphs.push(phone_graph);
+        project.graphs.push(quest_graph);
+        project
+    }
+
+    #[test]
+    fn valid_project_passes() {
+        let report = validate_project(&valid_project());
+        assert_eq!(report.status, StudioValidationStatus::Pass);
+    }
+
+    #[test]
+    fn save_project_roundtrips_authored_project_json() {
+        let root = temp_root("save-project");
+        let path = root.join("nested/project.json");
+        let project = valid_project();
+
+        save_project(&path, &project).expect("save project");
+        let loaded = load_project(&path).expect("load saved project");
+
+        assert_eq!(loaded, project);
+    }
+
+    #[test]
+    fn duplicate_node_fails() {
+        let mut project = valid_project();
+        let duplicate = project.graphs[0].nodes[0].clone();
+        project.graphs[0].nodes.push(duplicate);
+        let report = validate_project(&project);
+        assert_eq!(report.status, StudioValidationStatus::Fail);
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.issue_code.as_deref() == Some("studio.issue.duplicate_node_id")));
+    }
+
+    #[test]
+    fn missing_edge_target_fails() {
+        let mut project = valid_project();
+        project.graphs[0].edges[0].target_node_id = "node.missing".to_string();
+        let report = validate_project(&project);
+        assert_eq!(report.status, StudioValidationStatus::Fail);
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.issue_code.as_deref() == Some("studio.issue.missing_edge_target")));
+    }
+
+    #[test]
+    fn missing_target_host_profile_fails() {
+        let mut project = valid_project();
+        project.graphs[0].target_host_profile = "host_run.profile.headset".to_string();
+        let report = validate_project(&project);
+        assert_eq!(report.status, StudioValidationStatus::Fail);
+        assert!(report.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.missing_target_host_profile")
+        }));
+    }
+
+    #[test]
+    fn missing_reference_paths_fail_when_base_dir_is_supplied() {
+        let report = validate_project_with_base(&valid_project(), Some(Path::new("missing-base")));
+        assert_eq!(report.status, StudioValidationStatus::Fail);
+        assert!(report.checks.iter().any(
+            |check| check.issue_code.as_deref() == Some("studio.issue.package_catalog_missing")
+        ));
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.issue_code.as_deref()
+                == Some("studio.issue.host_run_profile_missing")));
+    }
+
+    #[test]
+    fn content_reference_resolution_accepts_catalog_manifest_and_profile() {
+        let root = temp_root("content-pass");
+        write_reference_fixture_tree(&root);
+        let report =
+            validate_project_with_base(&valid_project_with_relative_references(), Some(&root));
+        assert_eq!(report.status, StudioValidationStatus::Pass);
+    }
+
+    #[test]
+    fn missing_package_catalog_reference_fails() {
+        let root = temp_root("missing-package");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+        project.graphs[0].nodes[0].reference_id = "package.missing".to_string();
+        let report = validate_project_with_base(&project, Some(&root));
+        assert_eq!(report.status, StudioValidationStatus::Fail);
+        assert!(report.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.package_reference_missing")
+        }));
+    }
+
+    #[test]
+    fn missing_module_export_reference_fails() {
+        let root = temp_root("missing-module");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+        project.graphs[0].nodes.push(StudioNode {
+            node_id: "node.module.missing".to_string(),
+            kind: StudioNodeKind::Module,
+            reference_id: "module.missing".to_string(),
+            label: "Missing Module".to_string(),
+        });
+        let report = validate_project_with_base(&project, Some(&root));
+        assert_eq!(report.status, StudioValidationStatus::Fail);
+        assert!(report.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.module_reference_missing")
+        }));
+    }
+
+    #[test]
+    fn resolve_counts_graph_parts() {
+        let resolved = resolve_project(&valid_project());
+        let graph = &resolved.graphs[0];
+        assert_eq!(graph.package_count, 1);
+        assert_eq!(graph.module_count, 0);
+        assert_eq!(graph.edge_count, 1);
+    }
+
+    #[test]
+    fn export_plan_collects_bundle_refs() {
+        let plan = export_plan(&valid_project());
+        assert_eq!(plan.bundles[0].package_ids, vec!["package.synthetic"]);
+        assert_eq!(
+            plan.bundles[0].target_host_profile,
+            "host_run.profile.desktop"
+        );
+    }
+
+    #[test]
+    fn shell_descriptor_exports_valid_graph() {
+        let root = temp_root("shell-descriptor");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+
+        let report = shell_descriptor_for_graph(&project, Some(&root), "studio.graph.test");
+        let descriptor = report.descriptor.expect("descriptor exported");
+
+        assert_eq!(report.status, StudioShellDescriptorStatus::Exported);
+        assert_eq!(report.issue_code, None);
+        assert_eq!(descriptor.schema_id, SHELL_DESCRIPTOR_SCHEMA);
+        assert_eq!(descriptor.project_id, "studio.project.test");
+        assert_eq!(descriptor.shell_id, "shell.synthetic.operator");
+        assert_eq!(descriptor.target_host_profile, "host_run.profile.desktop");
+        assert_eq!(
+            descriptor.host_profile.host_profile.as_deref(),
+            Some("host.desktop")
+        );
+        assert_eq!(descriptor.package_ids, vec!["package.synthetic"]);
+        assert_eq!(descriptor.module_ids, vec!["module.synthetic_provider"]);
+        assert_eq!(descriptor.command_bindings.len(), 1);
+    }
+
+    #[test]
+    fn shell_descriptor_roundtrips_and_validates() {
+        let root = temp_root("shell-descriptor-roundtrip");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+        let report = shell_descriptor_for_graph(&project, Some(&root), "studio.graph.test");
+        let descriptor = report.descriptor.expect("descriptor exported");
+        let path = root.join("target/descriptor.json");
+
+        save_json(&path, &descriptor).expect("save descriptor");
+        let loaded = load_shell_descriptor(&path).expect("load descriptor");
+        let validation = validate_shell_descriptor(&loaded);
+
+        assert_eq!(loaded, descriptor);
+        assert_eq!(
+            validation.schema_id,
+            SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA
+        );
+        assert_eq!(validation.status, StudioValidationStatus::Pass);
+    }
+
+    #[test]
+    fn shell_descriptor_validation_rejects_target_mismatch() {
+        let root = temp_root("shell-descriptor-target-mismatch");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+        let report = shell_descriptor_for_graph(&project, Some(&root), "studio.graph.test");
+        let mut descriptor = report.descriptor.expect("descriptor exported");
+        descriptor.host_profile.profile_id = "host_run.profile.headset".to_string();
+
+        let validation = validate_shell_descriptor(&descriptor);
+
+        assert_eq!(validation.status, StudioValidationStatus::Fail);
+        assert!(validation.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.host_profile_target_mismatch")
+        }));
+    }
+
+    #[test]
+    fn shell_artifacts_export_desktop_phone_and_quest_descriptors() {
+        let root = temp_root("shell-artifacts");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+
+        let report = shell_artifacts_for_project(&project, Some(&root));
+        let manifest = report.manifest.expect("shell artifact manifest");
+
+        assert_eq!(report.status, StudioShellArtifactStatus::Exported);
+        assert_eq!(report.issue_code, None);
+        assert_eq!(manifest.schema_id, SHELL_ARTIFACT_MANIFEST_SCHEMA);
+        assert_eq!(manifest.artifacts.len(), 3);
+        assert_eq!(report.descriptors.len(), 3);
+        assert!(report.rejections.is_empty());
+        assert!(manifest
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.target_kind == StudioShellTargetKind::Desktop));
+        assert!(manifest
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.target_kind == StudioShellTargetKind::Phone));
+        assert!(manifest
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.target_kind == StudioShellTargetKind::Quest));
+        assert!(manifest.artifacts.iter().all(|artifact| {
+            artifact
+                .descriptor_path
+                .starts_with("descriptors/studio.graph.")
+                && artifact.descriptor_path.ends_with(".shell-descriptor.json")
+        }));
+        assert!(report
+            .descriptors
+            .iter()
+            .all(|descriptor| validate_shell_descriptor(descriptor).status
+                == StudioValidationStatus::Pass));
+    }
+
+    #[test]
+    fn shell_artifact_manifest_roundtrips_and_validates_descriptors() {
+        let root = temp_root("shell-artifact-manifest-roundtrip");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let report = shell_artifacts_for_project(&project, Some(&root));
+        let manifest = report.manifest.expect("shell artifact manifest");
+        let manifest_path = root.join("shell-artifacts.json");
+
+        for descriptor in &report.descriptors {
+            let descriptor_path = resolve_manifest_relative_path(
+                &root,
+                &shell_descriptor_artifact_path(&descriptor.graph_id),
+            );
+            save_json(&descriptor_path, descriptor).expect("save descriptor");
+        }
+        save_json(&manifest_path, &manifest).expect("save manifest");
+
+        let loaded_manifest =
+            load_shell_artifact_manifest(&manifest_path).expect("load shell artifact manifest");
+        let validation = validate_shell_artifact_manifest(&loaded_manifest, Some(&root));
+
+        assert_eq!(loaded_manifest, manifest);
+        assert_eq!(
+            validation.schema_id,
+            SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA
+        );
+        assert_eq!(validation.status, StudioValidationStatus::Pass);
+    }
+
+    #[test]
+    fn shell_artifact_manifest_validation_rejects_descriptor_mismatch() {
+        let root = temp_root("shell-artifact-manifest-descriptor-mismatch");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let report = shell_artifacts_for_project(&project, Some(&root));
+        let mut manifest = report.manifest.expect("shell artifact manifest");
+
+        for descriptor in &report.descriptors {
+            let descriptor_path = resolve_manifest_relative_path(
+                &root,
+                &shell_descriptor_artifact_path(&descriptor.graph_id),
+            );
+            save_json(&descriptor_path, descriptor).expect("save descriptor");
+        }
+        manifest.artifacts[1].shell_id = "shell.synthetic.changed".to_string();
+
+        let validation = validate_shell_artifact_manifest(&manifest, Some(&root));
+
+        assert_eq!(validation.status, StudioValidationStatus::Fail);
+        assert!(validation.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.descriptor_shell_mismatch")
+        }));
+    }
+
+    #[test]
+    fn shell_artifact_manifest_validation_rejects_path_traversal() {
+        let root = temp_root("shell-artifact-manifest-path-traversal");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let report = shell_artifacts_for_project(&project, Some(&root));
+        let mut manifest = report.manifest.expect("shell artifact manifest");
+        manifest.artifacts[0].descriptor_path = "../outside.json".to_string();
+
+        let validation = validate_shell_artifact_manifest(&manifest, Some(&root));
+
+        assert_eq!(validation.status, StudioValidationStatus::Fail);
+        assert!(validation.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.invalid_descriptor_path")
+        }));
+    }
+
+    #[test]
+    fn shell_templates_export_manifest_driven_index_and_templates() {
+        let root = temp_root("shell-templates");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let report = shell_artifacts_for_project(&project, Some(&root));
+        let manifest = report.manifest.expect("shell artifact manifest");
+
+        for descriptor in &report.descriptors {
+            let descriptor_path = resolve_manifest_relative_path(
+                &root,
+                &shell_descriptor_artifact_path(&descriptor.graph_id),
+            );
+            save_json(&descriptor_path, descriptor).expect("save descriptor");
+        }
+
+        let template_report = shell_templates_for_artifact_manifest(&manifest, Some(&root));
+        let index = template_report.index.expect("shell template index");
+
+        assert_eq!(template_report.status, StudioShellTemplateStatus::Exported);
+        assert_eq!(template_report.issue_code, None);
+        assert_eq!(index.schema_id, SHELL_TEMPLATE_INDEX_SCHEMA);
+        assert_eq!(index.templates.len(), 3);
+        assert_eq!(template_report.templates.len(), 3);
+        assert!(index
+            .templates
+            .iter()
+            .any(|entry| entry.template_path.starts_with("shells/desktop/")));
+        assert!(index
+            .templates
+            .iter()
+            .any(|entry| entry.template_path.starts_with("shells/phone/")));
+        assert!(index
+            .templates
+            .iter()
+            .any(|entry| entry.template_path.starts_with("shells/quest/")));
+        assert!(template_report.templates.iter().all(|template| {
+            template.schema_id == SHELL_TEMPLATE_MANIFEST_SCHEMA
+                && template.descriptor_path.starts_with("descriptors/")
+                && template.runtime_authority.command_session_authority == "rusty.manifold"
+                && template.runtime_authority.install_launch_evidence_authority == "rusty.hostess"
+                && template.runtime_authority.studio_role == "authoring.export_planning"
+        }));
+    }
+
+    #[test]
+    fn shell_templates_reject_invalid_artifact_manifest() {
+        let root = temp_root("shell-template-invalid-manifest");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let report = shell_artifacts_for_project(&project, Some(&root));
+        let mut manifest = report.manifest.expect("shell artifact manifest");
+        manifest.artifacts[0].descriptor_path = "../outside.json".to_string();
+
+        let template_report = shell_templates_for_artifact_manifest(&manifest, Some(&root));
+
+        assert_eq!(template_report.status, StudioShellTemplateStatus::Rejected);
+        assert_eq!(template_report.index, None);
+        assert!(template_report.templates.is_empty());
+        assert_eq!(
+            template_report.issue_code.as_deref(),
+            Some("studio.issue.invalid_descriptor_path")
+        );
+    }
+
+    #[test]
+    fn shell_artifacts_reject_invalid_graph_descriptor() {
+        let root = temp_root("shell-artifacts-reject");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_multi_shell_project_with_relative_references();
+        for node in &mut project.graphs[1].nodes {
+            if node.kind == StudioNodeKind::OperatorShell {
+                node.kind = StudioNodeKind::ValidationSlot;
+            }
+        }
+
+        let report = shell_artifacts_for_project(&project, Some(&root));
+
+        assert_eq!(report.status, StudioShellArtifactStatus::Rejected);
+        assert_eq!(report.manifest, None);
+        assert!(report.descriptors.is_empty());
+        assert!(report.rejections.iter().any(|rejection| {
+            rejection.graph_id == "studio.graph.phone"
+                && rejection.issue_code.as_deref() == Some("studio.issue.no_operator_shell")
+        }));
+    }
+
+    #[test]
+    fn shell_descriptor_rejects_missing_graph() {
+        let root = temp_root("shell-descriptor-missing-graph");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+
+        let report = shell_descriptor_for_graph(&project, Some(&root), "studio.graph.missing");
+
+        assert_eq!(report.status, StudioShellDescriptorStatus::Rejected);
+        assert_eq!(
+            report.issue_code.as_deref(),
+            Some("studio.issue.graph_missing")
+        );
+        assert_eq!(report.descriptor, None);
+    }
+
+    #[test]
+    fn shell_descriptor_rejects_missing_operator_shell() {
+        let root = temp_root("shell-descriptor-no-shell");
+        write_reference_fixture_tree(&root);
+        let project = valid_project_with_relative_references();
+
+        let report = shell_descriptor_for_graph(&project, Some(&root), "studio.graph.test");
+
+        assert_eq!(report.status, StudioShellDescriptorStatus::Rejected);
+        assert_eq!(
+            report.issue_code.as_deref(),
+            Some("studio.issue.no_operator_shell")
+        );
+        assert_eq!(report.descriptor, None);
+    }
+
+    #[test]
+    fn retarget_host_profile_updates_host_node_and_bumps_revision() {
+        let root = temp_root("retarget-host");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+
+        let report = retarget_graph_host_profile(
+            &mut project,
+            "studio.graph.test",
+            "host_run.profile.headset",
+            Some(&root),
+        );
+
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 2);
+        assert_eq!(project.revision, 2);
+        assert_eq!(
+            project.graphs[0].target_host_profile,
+            "host_run.profile.headset"
+        );
+        assert!(project.graphs[0].nodes.iter().any(|node| {
+            node.kind == StudioNodeKind::HostProfile
+                && node.reference_id == "host_run.profile.headset"
+        }));
+        assert_eq!(report.validation.status, StudioValidationStatus::Pass);
+        assert!(report
+            .changed_fields
+            .iter()
+            .any(|field| field.ends_with("target_host_profile")));
+    }
+
+    #[test]
+    fn retarget_host_profile_rejects_missing_graph_without_mutating() {
+        let root = temp_root("retarget-missing-graph");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+
+        let report = retarget_graph_host_profile(
+            &mut project,
+            "studio.graph.missing",
+            "host_run.profile.headset",
+            Some(&root),
+        );
+
+        assert_eq!(report.status, StudioEditStatus::Rejected);
+        assert_eq!(
+            report.issue_code.as_deref(),
+            Some("studio.issue.graph_missing")
+        );
+        assert_eq!(project.revision, 1);
+        assert_eq!(
+            project.graphs[0].target_host_profile,
+            "host_run.profile.desktop"
+        );
+    }
+
+    #[test]
+    fn retarget_host_profile_rejects_undeclared_profile_without_mutating() {
+        let root = temp_root("retarget-undeclared-profile");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+
+        let report = retarget_graph_host_profile(
+            &mut project,
+            "studio.graph.test",
+            "host_run.profile.missing",
+            Some(&root),
+        );
+
+        assert_eq!(report.status, StudioEditStatus::Rejected);
+        assert_eq!(
+            report.issue_code.as_deref(),
+            Some("studio.issue.host_profile_reference_missing")
+        );
+        assert_eq!(project.revision, 1);
+        assert_eq!(
+            project.graphs[0].target_host_profile,
+            "host_run.profile.desktop"
+        );
+    }
+
+    #[test]
+    fn view_model_projects_graph_rows_for_ui() {
+        let root = temp_root("view-model");
+        write_reference_fixture_tree(&root);
+        let project = valid_project_with_relative_references();
+        let model = view_model(&project, Some(&root));
+        assert_eq!(model.schema_id, VIEW_MODEL_SCHEMA);
+        assert_eq!(model.validation_status, StudioValidationStatus::Pass);
+        assert_eq!(model.validation_fail_count, 0);
+        assert_eq!(model.graph_count, 1);
+        assert_eq!(model.graphs[0].node_rows[0].kind, "package");
+        assert_eq!(
+            model.graphs[0].edge_rows[0].kind,
+            "shell_targets_host_profile"
+        );
+    }
+
+    #[test]
+    fn view_model_selects_requested_graph() {
+        let root = temp_root("view-model-select");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+        let mut second = project.graphs[0].clone();
+        second.graph_id = "studio.graph.second".to_string();
+        second.display_name = "Second Graph".to_string();
+        project.graphs.push(second);
+
+        let model = view_model_for_graph(&project, Some(&root), Some("studio.graph.second"));
+        assert_eq!(model.graph_count, 2);
+        assert_eq!(
+            model.requested_graph_id.as_deref(),
+            Some("studio.graph.second")
+        );
+        assert_eq!(model.selected_graph_index, Some(1));
+        assert_eq!(
+            model.selected_graph_id.as_deref(),
+            Some("studio.graph.second")
+        );
+        assert_eq!(model.selection_issue_code, None);
+    }
+
+    #[test]
+    fn view_model_reports_missing_requested_graph() {
+        let root = temp_root("view-model-missing-select");
+        write_reference_fixture_tree(&root);
+        let project = valid_project_with_relative_references();
+
+        let model = view_model_for_graph(&project, Some(&root), Some("studio.graph.missing"));
+        assert_eq!(
+            model.requested_graph_id.as_deref(),
+            Some("studio.graph.missing")
+        );
+        assert_eq!(model.selected_graph_index, None);
+        assert_eq!(model.selected_graph_id, None);
+        assert_eq!(
+            model.selection_issue_code.as_deref(),
+            Some("studio.issue.graph_selection_missing")
+        );
+    }
+}

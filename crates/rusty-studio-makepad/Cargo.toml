@@ -1,0 +1,11 @@
+[package]
+name = "rusty-studio-makepad"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+makepad-widgets = { path = "../../../makepad-rusty-xr/widgets", version = "2.0.0" }
+rusty-studio-core = { path = "../rusty-studio-core" }
+rusty-studio-model = { path = "../rusty-studio-model" }

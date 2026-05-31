@@ -1,0 +1,203 @@
+{
+  "$schema": "rusty.studio.project.v1",
+  "project_id": "studio.project.synthetic_wave",
+  "revision": 1,
+  "display_name": "Synthetic Wave Studio Project",
+  "package_catalog_path": "../../rusty-manifold-packages/packages/catalog.manifold.json",
+  "host_run_profile_paths": [
+    "../../rusty-manifold/fixtures/host-run/install-profile-desktop.json",
+    "../../rusty-manifold/fixtures/host-run/install-profile-mobile.json",
+    "../../rusty-manifold/fixtures/host-run/install-profile-headset.json"
+  ],
+  "graphs": [
+    {
+      "graph_id": "studio.graph.synthetic_wave_desktop",
+      "display_name": "Synthetic wave desktop shell",
+      "target_host_profile": "host_run.profile.desktop",
+      "nodes": [
+        {
+          "node_id": "node.package.synthetic_wave",
+          "kind": "package",
+          "reference_id": "package.synthetic_wave",
+          "label": "Synthetic Wave Package"
+        },
+        {
+          "node_id": "node.module.synthetic_wave_provider",
+          "kind": "module",
+          "reference_id": "module.synthetic_wave_provider",
+          "label": "Wave Provider"
+        },
+        {
+          "node_id": "node.module.synthetic_wave_processor",
+          "kind": "module",
+          "reference_id": "module.synthetic_wave_processor",
+          "label": "RMS Processor"
+        },
+        {
+          "node_id": "node.host_profile.desktop",
+          "kind": "host_profile",
+          "reference_id": "host_run.profile.desktop",
+          "label": "Desktop Host"
+        },
+        {
+          "node_id": "node.shell.operator",
+          "kind": "operator_shell",
+          "reference_id": "shell.synthetic_wave.desktop_operator",
+          "label": "Desktop Operator Shell"
+        }
+      ],
+      "edges": [
+        {
+          "edge_id": "edge.package_provider",
+          "kind": "package_provides_module",
+          "source_node_id": "node.package.synthetic_wave",
+          "target_node_id": "node.module.synthetic_wave_provider"
+        },
+        {
+          "edge_id": "edge.package_processor",
+          "kind": "package_provides_module",
+          "source_node_id": "node.package.synthetic_wave",
+          "target_node_id": "node.module.synthetic_wave_processor"
+        },
+        {
+          "edge_id": "edge.provider_to_processor",
+          "kind": "stream_binding",
+          "source_node_id": "node.module.synthetic_wave_provider",
+          "target_node_id": "node.module.synthetic_wave_processor"
+        },
+        {
+          "edge_id": "edge.shell_host",
+          "kind": "shell_targets_host_profile",
+          "source_node_id": "node.shell.operator",
+          "target_node_id": "node.host_profile.desktop"
+        }
+      ]
+    },
+    {
+      "graph_id": "studio.graph.synthetic_wave_phone",
+      "display_name": "Synthetic wave phone shell",
+      "target_host_profile": "host_run.profile.mobile",
+      "nodes": [
+        {
+          "node_id": "node.package.synthetic_wave",
+          "kind": "package",
+          "reference_id": "package.synthetic_wave",
+          "label": "Synthetic Wave Package"
+        },
+        {
+          "node_id": "node.module.synthetic_wave_provider",
+          "kind": "module",
+          "reference_id": "module.synthetic_wave_provider",
+          "label": "Wave Provider"
+        },
+        {
+          "node_id": "node.module.synthetic_wave_processor",
+          "kind": "module",
+          "reference_id": "module.synthetic_wave_processor",
+          "label": "RMS Processor"
+        },
+        {
+          "node_id": "node.host_profile.mobile",
+          "kind": "host_profile",
+          "reference_id": "host_run.profile.mobile",
+          "label": "Phone Host"
+        },
+        {
+          "node_id": "node.shell.operator",
+          "kind": "operator_shell",
+          "reference_id": "shell.synthetic_wave.phone_operator",
+          "label": "Phone Operator Shell"
+        }
+      ],
+      "edges": [
+        {
+          "edge_id": "edge.package_provider",
+          "kind": "package_provides_module",
+          "source_node_id": "node.package.synthetic_wave",
+          "target_node_id": "node.module.synthetic_wave_provider"
+        },
+        {
+          "edge_id": "edge.package_processor",
+          "kind": "package_provides_module",
+          "source_node_id": "node.package.synthetic_wave",
+          "target_node_id": "node.module.synthetic_wave_processor"
+        },
+        {
+          "edge_id": "edge.provider_to_processor",
+          "kind": "stream_binding",
+          "source_node_id": "node.module.synthetic_wave_provider",
+          "target_node_id": "node.module.synthetic_wave_processor"
+        },
+        {
+          "edge_id": "edge.shell_host",
+          "kind": "shell_targets_host_profile",
+          "source_node_id": "node.shell.operator",
+          "target_node_id": "node.host_profile.mobile"
+        }
+      ]
+    },
+    {
+      "graph_id": "studio.graph.synthetic_wave_headset",
+      "display_name": "Synthetic wave Quest shell",
+      "target_host_profile": "host_run.profile.headset",
+      "nodes": [
+        {
+          "node_id": "node.package.synthetic_wave",
+          "kind": "package",
+          "reference_id": "package.synthetic_wave",
+          "label": "Synthetic Wave Package"
+        },
+        {
+          "node_id": "node.module.synthetic_wave_provider",
+          "kind": "module",
+          "reference_id": "module.synthetic_wave_provider",
+          "label": "Wave Provider"
+        },
+        {
+          "node_id": "node.module.synthetic_wave_processor",
+          "kind": "module",
+          "reference_id": "module.synthetic_wave_processor",
+          "label": "RMS Processor"
+        },
+        {
+          "node_id": "node.host_profile.headset",
+          "kind": "host_profile",
+          "reference_id": "host_run.profile.headset",
+          "label": "Quest Host"
+        },
+        {
+          "node_id": "node.shell.operator",
+          "kind": "operator_shell",
+          "reference_id": "shell.synthetic_wave.quest_operator",
+          "label": "Quest Operator Shell"
+        }
+      ],
+      "edges": [
+        {
+          "edge_id": "edge.package_provider",
+          "kind": "package_provides_module",
+          "source_node_id": "node.package.synthetic_wave",
+          "target_node_id": "node.module.synthetic_wave_provider"
+        },
+        {
+          "edge_id": "edge.package_processor",
+          "kind": "package_provides_module",
+          "source_node_id": "node.package.synthetic_wave",
+          "target_node_id": "node.module.synthetic_wave_processor"
+        },
+        {
+          "edge_id": "edge.provider_to_processor",
+          "kind": "stream_binding",
+          "source_node_id": "node.module.synthetic_wave_provider",
+          "target_node_id": "node.module.synthetic_wave_processor"
+        },
+        {
+          "edge_id": "edge.shell_host",
+          "kind": "shell_targets_host_profile",
+          "source_node_id": "node.shell.operator",
+          "target_node_id": "node.host_profile.headset"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[package]
+name = "rusty-studio-cli"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+clap.workspace = true
+rusty-studio-core = { path = "../rusty-studio-core" }
+rusty-studio-model = { path = "../rusty-studio-model" }
+serde_json.workspace = true
