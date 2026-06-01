@@ -3558,6 +3558,13 @@ try {
         if ($RouteDriftComparisonView.ready_item_delta -ne 0 -or $RouteDriftComparisonView.blocked_item_delta -ne 0 -or $RouteDriftComparisonView.rejected_item_delta -ne 0) {
             throw "shell Hostess staging acceptance route drift deltas changed unexpectedly"
         }
+        $RouteDriftChangedEntries = @($RouteDriftComparisonView.entries | Where-Object { $_.change -eq "changed" })
+        if ($RouteDriftChangedEntries.Count -gt 0 -and $RouteDriftComparisonView.status -eq "unchanged") {
+            throw "shell Hostess staging acceptance route drift changed entries were reported as unchanged"
+        }
+        if (@($RouteDriftChangedEntries | Where-Object { $_.issue_code -ne "studio.issue.shell_hostess_staging_acceptance_entry_drift" }).Count -ne 0) {
+            throw "shell Hostess staging acceptance route drift changed entries are missing drift issue codes"
+        }
         if (@($RouteDriftComparisonView.entries | Where-Object { $_.change -eq "changed" -and $_.issue_code -eq "studio.issue.shell_hostess_staging_acceptance_entry_drift" }).Count -ne 3) {
             throw "shell Hostess staging acceptance route drift changed-entry count mismatch"
         }

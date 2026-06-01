@@ -12409,7 +12409,7 @@ fn compare_shell_hostess_staging_acceptance_checklists_with_identity(
     let rejected_item_delta =
         count_delta(candidate.rejected_item_count, baseline.rejected_item_count);
 
-    let status = if !comparable {
+    let status = if has_entry_contract_drift || !comparable {
         StudioShellHostessStagingAcceptanceComparisonStatus::Incomparable
     } else if shell_hostess_staging_acceptance_status_score(candidate.status)
         < shell_hostess_staging_acceptance_status_score(baseline.status)
@@ -19888,6 +19888,90 @@ mod tests {
                 == "studio.check.shell_hostess_staging_acceptance_comparison.entry_contracts"
                 && check.status == StudioValidationStatus::Fail
         }));
+
+        let assert_single_entry_contract_drift =
+            |candidate: StudioShellHostessStagingAcceptanceChecklistReport,
+             expected_item_id: &str| {
+                let comparison = compare_shell_hostess_staging_acceptance_against_manifest(
+                    &ready_acceptance,
+                    &staging_acceptance,
+                    &candidate,
+                );
+                assert_eq!(
+                    comparison.status,
+                    StudioShellHostessStagingAcceptanceComparisonStatus::Incomparable
+                );
+                assert_ne!(
+                    comparison.status,
+                    StudioShellHostessStagingAcceptanceComparisonStatus::Unchanged
+                );
+                assert_eq!(
+                    comparison.issue_code.as_deref(),
+                    Some("studio.issue.shell_hostess_staging_acceptance_entry_drift")
+                );
+                let changed_entries = comparison
+                    .entries
+                    .iter()
+                    .filter(|entry| {
+                        entry.change == StudioShellHostessStagingAcceptanceComparisonChange::Changed
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(changed_entries.len(), 1);
+                assert_eq!(changed_entries[0].item_id, expected_item_id);
+                assert_eq!(
+                    changed_entries[0].issue_code.as_deref(),
+                    Some("studio.issue.shell_hostess_staging_acceptance_entry_drift")
+                );
+                assert!(comparison.checks.iter().any(|check| {
+                    check.check_id
+                        == "studio.check.shell_hostess_staging_acceptance_comparison.entry_contracts"
+                        && check.status == StudioValidationStatus::Fail
+                        && check.issue_code.as_deref()
+                            == Some("studio.issue.shell_hostess_staging_acceptance_entry_drift")
+                }));
+            };
+
+        let mut owner_drift_candidate = staging_acceptance.clone();
+        owner_drift_candidate
+            .entries
+            .iter_mut()
+            .find(|entry| entry.item_id == "hostess.accept_staging_handoff")
+            .expect("acceptance row")
+            .owner = "rusty.studio".to_string();
+        assert_single_entry_contract_drift(owner_drift_candidate, "hostess.accept_staging_handoff");
+
+        let mut route_drift_candidate = staging_acceptance.clone();
+        route_drift_candidate
+            .entries
+            .iter_mut()
+            .find(|entry| entry.item_id == "hostess.copy_staging_files")
+            .expect("copy row")
+            .route_kind = "hostess.stage.files_from_drifted_plan".to_string();
+        assert_single_entry_contract_drift(route_drift_candidate, "hostess.copy_staging_files");
+
+        let mut prohibited_drift_candidate = staging_acceptance.clone();
+        prohibited_drift_candidate
+            .entries
+            .iter_mut()
+            .find(|entry| entry.item_id == "hostess.review_staging_file_requests")
+            .expect("review row")
+            .prohibited_in_studio = false;
+        assert_single_entry_contract_drift(
+            prohibited_drift_candidate,
+            "hostess.review_staging_file_requests",
+        );
+
+        let mut expected_input_drift_candidate = staging_acceptance.clone();
+        expected_input_drift_candidate
+            .entries
+            .iter_mut()
+            .find(|entry| entry.item_id == "hostess.review_staging_file_requests")
+            .expect("review row")
+            .expected_input_path = Some("target/drifted-input.json".to_string());
+        assert_single_entry_contract_drift(
+            expected_input_drift_candidate,
+            "hostess.review_staging_file_requests",
+        );
 
         let ready_index_entry = select_shell_hostess_staging_acceptance_index_entry(&index, None)
             .expect("select ready Hostess staging acceptance");
