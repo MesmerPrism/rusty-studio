@@ -14,8 +14,8 @@ use rusty_studio_core::{
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
-    summarize_shell_handoff_acceptance_baseline_index_selection, validate_selected_shell_bundle,
-    view_model_for_graph, view_model_for_graph_issue_node_and_edge,
+    shell_runbook_for_project, summarize_shell_handoff_acceptance_baseline_index_selection,
+    validate_selected_shell_bundle, view_model_for_graph, view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView,
@@ -27,8 +27,8 @@ use rusty_studio_model::{
     StudioShellHandoffAcceptanceChecklistReport, StudioShellHandoffAcceptanceComparisonChange,
     StudioShellHandoffAcceptanceComparisonReport, StudioShellHandoffAcceptanceComparisonStatus,
     StudioShellHandoffAcceptanceStatus, StudioShellHandoffManifest,
-    StudioShellHandoffReadinessReport, StudioShellHandoffReport, StudioShellTargetKind,
-    StudioValidationStatus, StudioViewModel,
+    StudioShellHandoffReadinessReport, StudioShellHandoffReport, StudioShellRunbookReport,
+    StudioShellRunbookStatus, StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
 };
 use std::path::{Path, PathBuf};
 
@@ -193,6 +193,7 @@ script_mod! {
             verify_shell_bundle_button := ActionButton{text: "Verify Preview Files"}
             shell_handoff_button := ActionButton{text: "Prepare Operator Shell"}
             shell_readiness_button := ActionButton{text: "Inspect All Handoffs"}
+            shell_runbook_button := ActionButton{text: "Inspect Runbook"}
             shell_manifest_button := ActionButton{text: "Write Handoff Manifest"}
             shell_acceptance_button := ActionButton{text: "Review Acceptance"}
             shell_acceptance_baseline_button := ActionButton{text: "Write Baseline"}
@@ -1125,6 +1126,25 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn inspect_shell_runbook(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_runbook_for_project_source(&source) {
+            Ok((report, bundle_root)) => {
+                self.last_shell_bundle_status = shell_runbook_status(&report, &bundle_root);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn write_shell_handoff_manifest(&mut self, cx: &mut Cx) {
         let Some(source) = self.project_source.clone() else {
             self.last_shell_bundle_status = "No project source is loaded".to_string();
@@ -1947,6 +1967,13 @@ impl MatchEvent for App {
         }
         if self
             .ui
+            .button(cx, ids!(shell_runbook_button))
+            .clicked(actions)
+        {
+            self.inspect_shell_runbook(cx);
+        }
+        if self
+            .ui
             .button(cx, ids!(shell_manifest_button))
             .clicked(actions)
         {
@@ -2146,6 +2173,16 @@ fn shell_handoff_readiness_for_project_source(
         load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
     let bundle_root = selected_shell_bundle_root_dir(project_path);
     let report = shell_handoff_readiness_for_project(&project, project_path.parent(), &bundle_root);
+    Ok((report, bundle_root))
+}
+
+fn shell_runbook_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellRunbookReport, PathBuf), String> {
+    let project =
+        load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
+    let bundle_root = selected_shell_bundle_root_dir(project_path);
+    let report = shell_runbook_for_project(&project, project_path.parent(), &bundle_root);
     Ok((report, bundle_root))
 }
 
@@ -3421,6 +3458,113 @@ fn shell_handoff_readiness_status(
     )
 }
 
+fn shell_runbook_status(report: &StudioShellRunbookReport, bundle_root: &Path) -> String {
+    let status = shell_runbook_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let prohibited = if report.prohibited_actions.is_empty() {
+        "none".to_string()
+    } else {
+        report.prohibited_actions.join(", ")
+    };
+    let target_rows = report
+        .target_summaries
+        .iter()
+        .map(|target| {
+            let consumers = if target.consumer_ids.is_empty() {
+                "none".to_string()
+            } else {
+                target.consumer_ids.join(", ")
+            };
+            let owners = if target.responsible_owners.is_empty() {
+                "none".to_string()
+            } else {
+                target.responsible_owners.join(", ")
+            };
+            let routes = if target.runtime_route_kinds.is_empty() {
+                "none".to_string()
+            } else {
+                target.runtime_route_kinds.join(", ")
+            };
+            let issues = if target.issue_codes.is_empty() {
+                "none".to_string()
+            } else {
+                target.issue_codes.join(", ")
+            };
+            format!(
+                "{}: ready {}; blocked {}; rejected {}; consumers {}; owners {}; routes {}; issues {}",
+                shell_target_kind_label(target.target_kind),
+                target.ready_count,
+                target.blocked_count,
+                target.rejected_count,
+                consumers,
+                owners,
+                routes,
+                issues
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    let rows = report
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let entry_status = shell_runbook_status_label(entry.status);
+            let issue = entry.issue_code.as_deref().unwrap_or("none");
+            let install = entry.host_routes.install_route.as_deref().unwrap_or("none");
+            let launch = entry.host_routes.launch_route.as_deref().unwrap_or("none");
+            let bridge = entry.host_routes.command_bridge.as_deref().unwrap_or("none");
+            let evidence = entry
+                .host_routes
+                .evidence_pull_route
+                .as_deref()
+                .unwrap_or("none");
+            let cli = if entry.cli_request.is_empty() {
+                "none".to_string()
+            } else {
+                entry.cli_request.join(" ")
+            };
+            format!(
+                "{} [{}] target {}; owner {}; action {}; policy {}; route {}; install {}; launch {}; bridge {}; evidence {}; cli {}; issue {}",
+                entry.graph_id,
+                entry_status,
+                shell_target_kind_label(entry.target_kind),
+                entry.responsible_owner,
+                entry.next_required_action,
+                entry.execution_policy,
+                entry.runtime_route_kind,
+                install,
+                launch,
+                bridge,
+                evidence,
+                cli,
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "shell runbook {status}; ready {}; blocked {}; rejected {}; issue {issue}\n  root: {}\n  bundle root: {}\n  prohibited: {}\n  targets:\n  {}\n  entries:\n  {}",
+        report.ready_count,
+        report.blocked_count,
+        report.rejected_count,
+        report.bundle_root,
+        bundle_root.display(),
+        prohibited,
+        if target_rows.is_empty() {
+            "none".to_string()
+        } else {
+            target_rows
+        },
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
 fn shell_handoff_manifest_status(
     manifest: &StudioShellHandoffManifest,
     output_path: &Path,
@@ -3806,6 +3950,14 @@ fn shell_handoff_acceptance_baseline_selection_status_label(
         StudioShellHandoffAcceptanceBaselineSelectionStatus::Selected => "selected",
         StudioShellHandoffAcceptanceBaselineSelectionStatus::Missing => "missing",
         StudioShellHandoffAcceptanceBaselineSelectionStatus::Empty => "empty",
+    }
+}
+
+fn shell_runbook_status_label(status: StudioShellRunbookStatus) -> &'static str {
+    match status {
+        StudioShellRunbookStatus::Ready => "ready",
+        StudioShellRunbookStatus::Blocked => "blocked",
+        StudioShellRunbookStatus::Rejected => "rejected",
     }
 }
 
@@ -4392,13 +4544,17 @@ mod tests {
             r#"{
   "$schema": "rusty.manifold.host_run.install_launch_profile.v1",
   "profile_id": "host_run.profile.headset",
-  "host_profile": "host.quest",
-  "app_id": "app.host_shell.quest",
-  "install_route": "install.adb_package",
-  "launch_route": "launch.adb_activity",
-  "command_bridge": "bridge.local_cli",
-  "required_permissions": [],
-  "evidence_pull_route": "evidence.filesystem"
+  "host_profile": "host.headset",
+  "app_id": "app.host_shell.headset",
+  "install_route": "install.android_package",
+  "launch_route": "launch.android_intent",
+  "command_bridge": "bridge.adb_intent_file",
+  "required_permissions": [
+    "permission.bluetooth.scan",
+    "permission.bluetooth.connect",
+    "permission.location.fine"
+  ],
+  "evidence_pull_route": "evidence.adb_pull"
 }"#,
         );
     }
@@ -4774,6 +4930,69 @@ mod tests {
         assert!(status.contains("studio.graph.makepad_edit [desktop]"));
         assert!(status.contains("profile host_run.profile.desktop"));
         assert!(status.contains("packages 1; modules 0; shell 1"));
+    }
+
+    #[test]
+    fn shell_runbook_reports_owner_routes_from_makepad_route() {
+        let root = temp_root("shell-runbook");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+
+        let (report, bundle_root) =
+            shell_runbook_for_project_source(&project_path).expect("inspect shell runbook");
+
+        assert_eq!(report.schema_id, "rusty.studio.shell_runbook_report.v1");
+        assert_eq!(report.status, StudioShellRunbookStatus::Ready);
+        assert_eq!(report.ready_count, 1);
+        assert_eq!(report.blocked_count, 0);
+        assert_eq!(report.rejected_count, 0);
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.prohibited_actions.len(), 4);
+        let entry = &report.entries[0];
+        assert_eq!(entry.status, StudioShellRunbookStatus::Ready);
+        assert_eq!(entry.responsible_owner, "rusty.hostess");
+        assert_eq!(entry.execution_policy, "not_executed.request_only");
+        assert_eq!(entry.command_session_authority, "rusty.manifold");
+        assert_eq!(entry.install_launch_evidence_authority, "rusty.hostess");
+        assert_eq!(entry.studio_role, "authoring.export_planning");
+        assert_eq!(entry.consumer_id, "rusty-studio-desktop-shell");
+        assert_eq!(entry.runtime_route_kind, "desktop_operator_shell");
+        assert_eq!(
+            entry.host_routes.install_route.as_deref(),
+            Some("install.local_process")
+        );
+        assert_eq!(
+            entry.host_routes.launch_route.as_deref(),
+            Some("launch.local_process")
+        );
+        assert_eq!(
+            entry.host_routes.command_bridge.as_deref(),
+            Some("bridge.local_cli")
+        );
+        assert_eq!(
+            entry.host_routes.evidence_pull_route.as_deref(),
+            Some("evidence.filesystem")
+        );
+        assert!(entry
+            .cli_request
+            .iter()
+            .any(|arg| arg == "rusty-studio-desktop-shell"));
+        assert!(entry.cli_request.iter().any(|arg| arg == "--templates"));
+
+        let status = shell_runbook_status(&report, &bundle_root);
+        assert!(status.contains("shell runbook ready"));
+        assert!(status.contains("owner rusty.hostess"));
+        assert!(status.contains("not_executed.request_only"));
+        assert!(status.contains("install.local_process"));
+        assert!(status.contains("launch.local_process"));
+        assert!(status.contains("bridge.local_cli"));
+        assert!(status.contains("evidence.filesystem"));
+        assert!(status.contains("rusty-studio-desktop-shell"));
     }
 
     #[test]

@@ -23,22 +23,23 @@ use rusty_studio_model::{
     StudioShellHandoffManifestValidationReport, StudioShellHandoffReadinessEntry,
     StudioShellHandoffReadinessReport, StudioShellHandoffReadinessTargetSummary,
     StudioShellHandoffReport, StudioShellHostProfile, StudioShellHostRoutes,
-    StudioShellRuntimeAuthority, StudioShellTargetKind, StudioShellTemplateIndex,
-    StudioShellTemplateIndexEntry, StudioShellTemplateIndexValidationReport,
-    StudioShellTemplateManifest, StudioShellTemplateReport, StudioShellTemplateStatus,
-    StudioValidationCheck, StudioValidationIssueView, StudioValidationReport,
-    StudioValidationStatus, StudioViewModel, EDIT_REPORT_SCHEMA, EXPORT_PLAN_SCHEMA,
-    PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA, SHELL_ARTIFACT_MANIFEST_SCHEMA,
-    SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
-    SHELL_BUNDLE_REPORT_SCHEMA, SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA,
-    SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
+    StudioShellRunbookEntry, StudioShellRunbookReport, StudioShellRunbookStatus,
+    StudioShellRunbookTargetSummary, StudioShellRuntimeAuthority, StudioShellTargetKind,
+    StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
+    StudioShellTemplateIndexValidationReport, StudioShellTemplateManifest,
+    StudioShellTemplateReport, StudioShellTemplateStatus, StudioValidationCheck,
+    StudioValidationIssueView, StudioValidationReport, StudioValidationStatus, StudioViewModel,
+    EDIT_REPORT_SCHEMA, EXPORT_PLAN_SCHEMA, PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA,
+    SHELL_ARTIFACT_MANIFEST_SCHEMA, SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA,
+    SHELL_ARTIFACT_REPORT_SCHEMA, SHELL_BUNDLE_REPORT_SCHEMA,
+    SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
     SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA,
     SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA,
     SHELL_HANDOFF_ACCEPTANCE_BASELINE_SELECTION_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA,
     SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA,
     SHELL_HANDOFF_INTAKE_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
     SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
-    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
+    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_RUNBOOK_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
     SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
     SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
@@ -3152,6 +3153,253 @@ pub fn shell_handoff_intake_for_manifest(
         entries,
         validation,
     }
+}
+
+pub fn shell_runbook_for_project(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    bundle_root: &Path,
+) -> StudioShellRunbookReport {
+    let manifest = shell_handoff_manifest_for_project(project, base_dir, bundle_root);
+    shell_runbook_for_manifest(&manifest)
+}
+
+pub fn shell_runbook_for_manifest(
+    manifest: &StudioShellHandoffManifest,
+) -> StudioShellRunbookReport {
+    let intake = shell_handoff_intake_for_manifest(manifest);
+    let entries = intake
+        .entries
+        .iter()
+        .map(shell_runbook_entry)
+        .collect::<Vec<_>>();
+    let ready_count = entries
+        .iter()
+        .filter(|entry| entry.status == StudioShellRunbookStatus::Ready)
+        .count();
+    let blocked_count = entries
+        .iter()
+        .filter(|entry| entry.status == StudioShellRunbookStatus::Blocked)
+        .count();
+    let rejected_count = if intake.status == StudioShellHandoffIntakeStatus::Rejected {
+        1
+    } else {
+        entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellRunbookStatus::Rejected)
+            .count()
+    };
+    let status = if intake.status == StudioShellHandoffIntakeStatus::Rejected {
+        StudioShellRunbookStatus::Rejected
+    } else if blocked_count > 0 || entries.is_empty() {
+        StudioShellRunbookStatus::Blocked
+    } else {
+        StudioShellRunbookStatus::Ready
+    };
+    let issue_code = match status {
+        StudioShellRunbookStatus::Ready => None,
+        StudioShellRunbookStatus::Blocked => entries
+            .iter()
+            .find(|entry| entry.status == StudioShellRunbookStatus::Blocked)
+            .and_then(|entry| entry.issue_code.clone()),
+        StudioShellRunbookStatus::Rejected => intake.issue_code.clone(),
+    };
+
+    StudioShellRunbookReport {
+        schema_id: SHELL_RUNBOOK_REPORT_SCHEMA.to_string(),
+        source_manifest_schema: manifest.schema_id.clone(),
+        source_intake_schema: intake.schema_id.clone(),
+        manifest_id: manifest.manifest_id.clone(),
+        project_id: manifest.project_id.clone(),
+        project_revision: manifest.project_revision,
+        bundle_root: manifest.bundle_root.clone(),
+        status,
+        issue_code,
+        ready_count,
+        blocked_count,
+        rejected_count,
+        target_summaries: shell_runbook_target_summaries(&entries),
+        prohibited_actions: shell_handoff_acceptance_prohibited_actions(),
+        entries,
+    }
+}
+
+fn shell_runbook_entry(entry: &StudioShellHandoffIntakeEntry) -> StudioShellRunbookEntry {
+    let (host_routes, route_status, route_issue_code) = shell_runbook_host_routes(entry);
+    let status = if route_status == StudioValidationStatus::Pass
+        && entry.decision == StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner
+    {
+        StudioShellRunbookStatus::Ready
+    } else {
+        StudioShellRunbookStatus::Blocked
+    };
+    let issue_code = match status {
+        StudioShellRunbookStatus::Ready => None,
+        StudioShellRunbookStatus::Blocked => route_issue_code
+            .clone()
+            .or_else(|| entry.issue_code.clone())
+            .or_else(|| Some("studio.issue.shell_runbook_blocked".to_string())),
+        StudioShellRunbookStatus::Rejected => entry.issue_code.clone(),
+    };
+    let responsible_owner = if status == StudioShellRunbookStatus::Ready {
+        entry.install_launch_evidence_authority.clone()
+    } else {
+        "rusty.studio".to_string()
+    };
+    let cli_request =
+        if status == StudioShellRunbookStatus::Ready && !entry.consumer_args.is_empty() {
+            ["cargo", "run", "-p", entry.consumer_id.as_str(), "--"]
+                .into_iter()
+                .map(str::to_string)
+                .chain(entry.consumer_args.iter().cloned())
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+    StudioShellRunbookEntry {
+        export_bundle_id: entry.export_bundle_id.clone(),
+        graph_id: entry.graph_id.clone(),
+        display_name: entry.display_name.clone(),
+        target_host_profile: entry.target_host_profile.clone(),
+        target_kind: entry.target_kind,
+        handoff_kind: entry.handoff_kind,
+        status,
+        issue_code,
+        decision: entry.decision,
+        responsible_owner,
+        handoff_request_kind: entry.handoff_request_kind.clone(),
+        runtime_route_kind: entry.runtime_route_kind.clone(),
+        next_required_action: entry.next_required_action.clone(),
+        execution_policy: "not_executed.request_only".to_string(),
+        command_session_authority: entry.command_session_authority.clone(),
+        install_launch_evidence_authority: entry.install_launch_evidence_authority.clone(),
+        studio_role: entry.studio_role.clone(),
+        consumer_id: entry.consumer_id.clone(),
+        bundle_dir: entry.bundle_dir.clone(),
+        template_index_path: entry.template_index_path.clone(),
+        consumer_args: entry.consumer_args.clone(),
+        cli_request,
+        host_routes,
+        route_status,
+        route_issue_code,
+        package_ids: entry.package_ids.clone(),
+        module_ids: entry.module_ids.clone(),
+        operator_shell_ids: entry.operator_shell_ids.clone(),
+    }
+}
+
+fn shell_runbook_host_routes(
+    entry: &StudioShellHandoffIntakeEntry,
+) -> (
+    StudioShellHostRoutes,
+    StudioValidationStatus,
+    Option<String>,
+) {
+    if entry.decision != StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner {
+        return (
+            empty_shell_host_routes(),
+            StudioValidationStatus::Fail,
+            entry.issue_code.clone(),
+        );
+    }
+
+    let index = match load_shell_template_index(Path::new(&entry.template_index_path)) {
+        Ok(index) => index,
+        Err(_) => {
+            return (
+                empty_shell_host_routes(),
+                StudioValidationStatus::Fail,
+                Some("studio.issue.shell_runbook_template_index_load_failed".to_string()),
+            );
+        }
+    };
+    let Some(template_entry) = index
+        .templates
+        .iter()
+        .find(|template| template.graph_id == entry.graph_id)
+    else {
+        return (
+            empty_shell_host_routes(),
+            StudioValidationStatus::Fail,
+            Some("studio.issue.shell_runbook_template_missing".to_string()),
+        );
+    };
+    let template_path =
+        relative_output_path(Path::new(&entry.bundle_dir), &template_entry.template_path);
+    match load_shell_template_manifest(&template_path) {
+        Ok(template) => (template.host_routes, StudioValidationStatus::Pass, None),
+        Err(_) => (
+            empty_shell_host_routes(),
+            StudioValidationStatus::Fail,
+            Some("studio.issue.shell_runbook_template_manifest_load_failed".to_string()),
+        ),
+    }
+}
+
+fn empty_shell_host_routes() -> StudioShellHostRoutes {
+    StudioShellHostRoutes {
+        app_id: None,
+        install_route: None,
+        launch_route: None,
+        command_bridge: None,
+        evidence_pull_route: None,
+    }
+}
+
+fn shell_runbook_target_summaries(
+    entries: &[StudioShellRunbookEntry],
+) -> Vec<StudioShellRunbookTargetSummary> {
+    shell_target_kinds()
+        .iter()
+        .filter_map(|target_kind| shell_runbook_target_summary(entries, *target_kind))
+        .collect()
+}
+
+fn shell_runbook_target_summary(
+    entries: &[StudioShellRunbookEntry],
+    target_kind: StudioShellTargetKind,
+) -> Option<StudioShellRunbookTargetSummary> {
+    let target_entries = entries
+        .iter()
+        .filter(|entry| entry.target_kind == target_kind)
+        .collect::<Vec<_>>();
+    if target_entries.is_empty() {
+        return None;
+    }
+
+    Some(StudioShellRunbookTargetSummary {
+        target_kind,
+        ready_count: target_entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellRunbookStatus::Ready)
+            .count(),
+        blocked_count: target_entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellRunbookStatus::Blocked)
+            .count(),
+        rejected_count: target_entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellRunbookStatus::Rejected)
+            .count(),
+        graph_ids: unique_strings(target_entries.iter().map(|entry| entry.graph_id.clone())),
+        consumer_ids: unique_strings(target_entries.iter().map(|entry| entry.consumer_id.clone())),
+        responsible_owners: unique_strings(
+            target_entries
+                .iter()
+                .map(|entry| entry.responsible_owner.clone()),
+        ),
+        runtime_route_kinds: unique_strings(
+            target_entries
+                .iter()
+                .map(|entry| entry.runtime_route_kind.clone()),
+        ),
+        issue_codes: unique_strings(
+            target_entries
+                .iter()
+                .filter_map(|entry| entry.issue_code.clone()),
+        ),
+    })
 }
 
 pub fn shell_handoff_acceptance_checklist_for_intake(
@@ -8360,13 +8608,17 @@ mod tests {
             r#"{
   "$schema": "rusty.manifold.host_run.install_launch_profile.v1",
   "profile_id": "host_run.profile.headset",
-  "host_profile": "host.quest",
-  "app_id": "app.host_shell.quest",
-  "install_route": "install.adb_package",
-  "launch_route": "launch.adb_activity",
-  "command_bridge": "bridge.local_cli",
-  "required_permissions": [],
-  "evidence_pull_route": "evidence.filesystem"
+  "host_profile": "host.headset",
+  "app_id": "app.host_shell.headset",
+  "install_route": "install.android_package",
+  "launch_route": "launch.android_intent",
+  "command_bridge": "bridge.adb_intent_file",
+  "required_permissions": [
+    "permission.bluetooth.scan",
+    "permission.bluetooth.connect",
+    "permission.location.fine"
+  ],
+  "evidence_pull_route": "evidence.adb_pull"
 }"#,
         );
         write_fixture(
@@ -9593,6 +9845,199 @@ mod tests {
                 && entry.studio_role == "authoring.export_planning"
                 && entry.consumer_args.iter().any(|arg| arg == "--templates")
         }));
+    }
+
+    #[test]
+    fn shell_runbook_reports_non_executed_owner_routes() {
+        let root = temp_root("shell-runbook");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+
+        let runbook = shell_runbook_for_project(&project, Some(&root), &bundle_root);
+
+        assert_eq!(runbook.schema_id, SHELL_RUNBOOK_REPORT_SCHEMA);
+        assert_eq!(
+            runbook.source_manifest_schema,
+            SHELL_HANDOFF_MANIFEST_SCHEMA
+        );
+        assert_eq!(
+            runbook.source_intake_schema,
+            SHELL_HANDOFF_INTAKE_REPORT_SCHEMA
+        );
+        assert_eq!(runbook.status, StudioShellRunbookStatus::Ready);
+        assert_eq!(runbook.issue_code, None);
+        assert_eq!(runbook.ready_count, 3);
+        assert_eq!(runbook.blocked_count, 0);
+        assert_eq!(runbook.rejected_count, 0);
+        assert_eq!(runbook.target_summaries.len(), 3);
+        assert_eq!(
+            runbook.prohibited_actions,
+            vec![
+                "install".to_string(),
+                "launch".to_string(),
+                "open_command_session".to_string(),
+                "collect_device_evidence".to_string(),
+            ]
+        );
+        for target_kind in [
+            StudioShellTargetKind::Desktop,
+            StudioShellTargetKind::Phone,
+            StudioShellTargetKind::Quest,
+        ] {
+            let summary = runbook
+                .target_summaries
+                .iter()
+                .find(|summary| summary.target_kind == target_kind)
+                .expect("runbook target summary");
+            assert_eq!(summary.ready_count, 1);
+            assert_eq!(summary.blocked_count, 0);
+            assert_eq!(summary.rejected_count, 0);
+            assert_eq!(summary.responsible_owners, vec!["rusty.hostess"]);
+            assert!(summary.runtime_route_kinds[0].ends_with("_operator_shell"));
+            assert!(summary.issue_codes.is_empty());
+        }
+
+        let desktop = runbook
+            .entries
+            .iter()
+            .find(|entry| entry.target_kind == StudioShellTargetKind::Desktop)
+            .expect("desktop runbook row");
+        assert_eq!(desktop.status, StudioShellRunbookStatus::Ready);
+        assert_eq!(desktop.responsible_owner, "rusty.hostess");
+        assert_eq!(desktop.command_session_authority, "rusty.manifold");
+        assert_eq!(desktop.install_launch_evidence_authority, "rusty.hostess");
+        assert_eq!(desktop.execution_policy, "not_executed.request_only");
+        assert_eq!(desktop.runtime_route_kind, "desktop_operator_shell");
+        assert_eq!(desktop.next_required_action, "stage_with_runtime_owner");
+        assert_eq!(
+            desktop.host_routes.install_route.as_deref(),
+            Some("install.local_process")
+        );
+        assert_eq!(
+            desktop.host_routes.launch_route.as_deref(),
+            Some("launch.local_process")
+        );
+        assert_eq!(
+            desktop.host_routes.command_bridge.as_deref(),
+            Some("bridge.local_cli")
+        );
+        assert_eq!(
+            desktop.host_routes.evidence_pull_route.as_deref(),
+            Some("evidence.filesystem")
+        );
+        assert_eq!(
+            desktop.cli_request[..5],
+            ["cargo", "run", "-p", "rusty-studio-desktop-shell", "--"]
+        );
+        assert!(desktop
+            .cli_request
+            .iter()
+            .any(|arg| arg.ends_with("shell-templates.json")));
+
+        let phone = runbook
+            .entries
+            .iter()
+            .find(|entry| entry.target_kind == StudioShellTargetKind::Phone)
+            .expect("phone runbook row");
+        assert_eq!(phone.consumer_id, "rusty-studio-phone-shell");
+        assert_eq!(
+            phone.host_routes.install_route.as_deref(),
+            Some("install.android_package")
+        );
+        assert_eq!(
+            phone.host_routes.evidence_pull_route.as_deref(),
+            Some("evidence.adb_pull")
+        );
+
+        let quest = runbook
+            .entries
+            .iter()
+            .find(|entry| entry.target_kind == StudioShellTargetKind::Quest)
+            .expect("quest runbook row");
+        assert_eq!(quest.consumer_id, "rusty-studio-quest-shell");
+        assert_eq!(
+            quest.host_routes.install_route.as_deref(),
+            Some("install.android_package")
+        );
+        assert_eq!(
+            quest.host_routes.launch_route.as_deref(),
+            Some("launch.android_intent")
+        );
+    }
+
+    #[test]
+    fn shell_runbook_blocks_missing_bundle_requests_without_execution_args() {
+        let root = temp_root("shell-runbook-missing");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("missing-selected-shells");
+
+        let runbook = shell_runbook_for_project(&project, Some(&root), &bundle_root);
+
+        assert_eq!(runbook.status, StudioShellRunbookStatus::Blocked);
+        assert_eq!(
+            runbook.issue_code.as_deref(),
+            Some("studio.issue.shell_bundle_file_missing")
+        );
+        assert_eq!(runbook.ready_count, 0);
+        assert_eq!(runbook.blocked_count, 3);
+        assert_eq!(runbook.rejected_count, 0);
+        assert!(runbook.entries.iter().all(|entry| {
+            entry.status == StudioShellRunbookStatus::Blocked
+                && entry.responsible_owner == "rusty.studio"
+                && entry.cli_request.is_empty()
+                && entry.route_status == StudioValidationStatus::Fail
+                && entry.execution_policy == "not_executed.request_only"
+        }));
+    }
+
+    #[test]
+    fn shell_runbook_blocks_template_index_graph_mismatch() {
+        let root = temp_root("shell-runbook-template-mismatch");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        let index_path = bundle_root
+            .join("studio.graph.test")
+            .join("shell-templates.json");
+        let mut index = load_shell_template_index(&index_path).expect("load template index");
+        index.templates[0].graph_id = "studio.graph.unrelated".to_string();
+        save_json(&index_path, &index).expect("save mismatched template index");
+
+        let runbook = shell_runbook_for_manifest(&manifest);
+
+        assert_eq!(runbook.status, StudioShellRunbookStatus::Blocked);
+        assert_eq!(runbook.ready_count, 2);
+        assert_eq!(runbook.blocked_count, 1);
+        let entry = runbook
+            .entries
+            .iter()
+            .find(|entry| entry.graph_id == "studio.graph.test")
+            .expect("mismatched runbook entry");
+        assert_eq!(entry.status, StudioShellRunbookStatus::Blocked);
+        assert_eq!(entry.responsible_owner, "rusty.studio");
+        assert!(entry.cli_request.is_empty());
+        assert_eq!(entry.route_status, StudioValidationStatus::Fail);
+        assert_eq!(
+            entry.route_issue_code.as_deref(),
+            Some("studio.issue.shell_runbook_template_missing")
+        );
+        assert_eq!(
+            entry.issue_code.as_deref(),
+            Some("studio.issue.shell_runbook_template_missing")
+        );
     }
 
     #[test]
@@ -11738,7 +12183,7 @@ mod tests {
             .iter()
             .find(|profile| profile.profile_id == "host_run.profile.headset")
             .expect("headset profile");
-        assert_eq!(headset.host_profile.as_deref(), Some("host.quest"));
+        assert_eq!(headset.host_profile.as_deref(), Some("host.headset"));
         assert!(!headset.targets_selected_graph);
     }
 

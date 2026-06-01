@@ -29,6 +29,7 @@ pub const SHELL_HANDOFF_MANIFEST_SCHEMA: &str = "rusty.studio.shell_handoff_mani
 pub const SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA: &str =
     "rusty.studio.shell_handoff_manifest_validation_report.v1";
 pub const SHELL_HANDOFF_INTAKE_REPORT_SCHEMA: &str = "rusty.studio.shell_handoff_intake_report.v1";
+pub const SHELL_RUNBOOK_REPORT_SCHEMA: &str = "rusty.studio.shell_runbook_report.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_checklist.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA: &str =
@@ -711,6 +712,79 @@ pub enum StudioShellHandoffIntakeDecision {
     ReadyForRuntimeOwner,
     BlockedByManifestIssue,
     BlockedByHandoffIssue,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellRunbookReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub source_manifest_schema: String,
+    pub source_intake_schema: String,
+    pub manifest_id: String,
+    pub project_id: String,
+    pub project_revision: u64,
+    pub bundle_root: String,
+    pub status: StudioShellRunbookStatus,
+    pub issue_code: Option<String>,
+    pub ready_count: usize,
+    pub blocked_count: usize,
+    pub rejected_count: usize,
+    pub target_summaries: Vec<StudioShellRunbookTargetSummary>,
+    pub prohibited_actions: Vec<String>,
+    pub entries: Vec<StudioShellRunbookEntry>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellRunbookStatus {
+    Ready,
+    Blocked,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellRunbookTargetSummary {
+    pub target_kind: StudioShellTargetKind,
+    pub ready_count: usize,
+    pub blocked_count: usize,
+    pub rejected_count: usize,
+    pub graph_ids: Vec<String>,
+    pub consumer_ids: Vec<String>,
+    pub responsible_owners: Vec<String>,
+    pub runtime_route_kinds: Vec<String>,
+    pub issue_codes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellRunbookEntry {
+    pub export_bundle_id: String,
+    pub graph_id: String,
+    pub display_name: String,
+    pub target_host_profile: String,
+    pub target_kind: StudioShellTargetKind,
+    pub handoff_kind: StudioShellHandoffKind,
+    pub status: StudioShellRunbookStatus,
+    pub issue_code: Option<String>,
+    pub decision: StudioShellHandoffIntakeDecision,
+    pub responsible_owner: String,
+    pub handoff_request_kind: String,
+    pub runtime_route_kind: String,
+    pub next_required_action: String,
+    pub execution_policy: String,
+    pub command_session_authority: String,
+    pub install_launch_evidence_authority: String,
+    pub studio_role: String,
+    pub consumer_id: String,
+    pub bundle_dir: String,
+    pub template_index_path: String,
+    pub consumer_args: Vec<String>,
+    pub cli_request: Vec<String>,
+    pub host_routes: StudioShellHostRoutes,
+    pub route_status: StudioValidationStatus,
+    pub route_issue_code: Option<String>,
+    pub package_ids: Vec<String>,
+    pub module_ids: Vec<String>,
+    pub operator_shell_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

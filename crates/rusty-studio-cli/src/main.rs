@@ -18,7 +18,7 @@ use rusty_studio_core::{
     shell_handoff_acceptance_checklist_for_intake, shell_handoff_acceptance_checklist_for_project,
     shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
-    shell_templates_for_artifact_manifest,
+    shell_runbook_for_project, shell_templates_for_artifact_manifest,
     summarize_shell_handoff_acceptance_baseline_index_selection,
     summarize_shell_handoff_acceptance_checklist, validate_project_with_base,
     validate_selected_shell_bundle, validate_shell_artifact_manifest, validate_shell_descriptor,
@@ -66,6 +66,7 @@ enum Command {
     ShellHandoffManifest(ShellHandoffManifestArgs),
     ValidateShellHandoffManifest(HandoffManifestArgs),
     ShellHandoffIntake(ShellHandoffIntakeArgs),
+    ShellRunbook(ShellRunbookArgs),
     ShellHandoffAcceptanceChecklist(ShellHandoffAcceptanceChecklistArgs),
     ShellHandoffAcceptanceSnapshot(ShellHandoffAcceptanceSnapshotArgs),
     ShellHandoffAcceptanceSummary(ShellHandoffAcceptanceSummaryArgs),
@@ -282,6 +283,16 @@ struct HandoffManifestArgs {
 struct ShellHandoffIntakeArgs {
     #[arg(long)]
     manifest: PathBuf,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellRunbookArgs {
+    #[arg(long)]
+    project: PathBuf,
+    #[arg(long)]
+    bundle_root: PathBuf,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -745,6 +756,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::ShellHandoffIntake(args) => {
             let manifest = load_shell_handoff_manifest(&args.manifest)?;
             let report = shell_handoff_intake_for_manifest(&manifest);
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellRunbook(args) => {
+            let project = load_project(&args.project)?;
+            let report =
+                shell_runbook_for_project(&project, args.project.parent(), &args.bundle_root);
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }

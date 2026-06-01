@@ -72,6 +72,7 @@ try {
     $SelectedShellBundleRoot = Join-Path $RepoRoot "target\studio-selected-shell"
     $ShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs.json"
     $ShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake.json"
+    $ShellRunbookPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-runbook.json"
     $ShellHandoffAcceptanceChecklistPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json"
     $ShellHandoffAcceptanceSnapshotPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json"
     $ShellHandoffAcceptanceSummaryPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-summary.json"
@@ -92,7 +93,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -1594,6 +1595,113 @@ try {
             }
             if ($IntakeEntry.studio_role -ne "authoring.export_planning") {
                 throw "shell handoff intake entry Studio role mismatch for $($RequiredIntake.Graph)"
+            }
+        }
+    }
+    $ShellRunbookOutput = & cargo run --quiet -p rusty-studio-cli -- shell-runbook --project $SourceProjectPath --bundle-root $SelectedShellBundleRoot --output $ShellRunbookPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell runbook failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellRunbookPath)) {
+        throw "shell runbook was not written"
+    }
+    $ShellRunbook = ($ShellRunbookOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellRunbook = Get-Content -Raw $ShellRunbookPath | ConvertFrom-Json
+    foreach ($RunbookView in @($ShellRunbook, $WrittenShellRunbook)) {
+        if ($RunbookView.'$schema' -ne "rusty.studio.shell_runbook_report.v1") {
+            throw "shell runbook schema mismatch"
+        }
+        if ($RunbookView.source_manifest_schema -ne "rusty.studio.shell_handoff_manifest.v1") {
+            throw "shell runbook source manifest schema mismatch"
+        }
+        if ($RunbookView.source_intake_schema -ne "rusty.studio.shell_handoff_intake_report.v1") {
+            throw "shell runbook source intake schema mismatch"
+        }
+        if ($RunbookView.manifest_id -ne $HandoffManifest.manifest_id -or $RunbookView.project_id -ne $HandoffManifest.project_id -or $RunbookView.project_revision -ne $HandoffManifest.project_revision) {
+            throw "shell runbook source manifest metadata mismatch"
+        }
+        if ($RunbookView.status -ne "ready") {
+            throw "shell runbook was not ready"
+        }
+        if ($null -ne $RunbookView.issue_code) {
+            throw "shell runbook should not carry a top-level issue"
+        }
+        if ($RunbookView.ready_count -ne 3 -or $RunbookView.blocked_count -ne 0 -or $RunbookView.rejected_count -ne 0) {
+            throw "shell runbook counts mismatch"
+        }
+        if (@($RunbookView.target_summaries).Count -ne 3) {
+            throw "shell runbook target summary count mismatch"
+        }
+        if (@($RunbookView.entries).Count -ne 3) {
+            throw "shell runbook entry count mismatch"
+        }
+        foreach ($RequiredAction in @("install", "launch", "open_command_session", "collect_device_evidence")) {
+            if (@($RunbookView.prohibited_actions) -notcontains $RequiredAction) {
+                throw "shell runbook missing prohibited action $RequiredAction"
+            }
+        }
+        foreach ($RequiredRunbook in @(
+            @{ Graph = "studio.graph.synthetic_wave_desktop"; TargetKind = "desktop"; TargetProfile = "host_run.profile.desktop"; RouteKind = "desktop_operator_shell"; Consumer = "rusty-studio-desktop-shell"; Install = "install.local_process"; Launch = "launch.local_process"; Bridge = "bridge.local_cli"; Evidence = "evidence.filesystem" },
+            @{ Graph = "studio.graph.synthetic_wave_phone"; TargetKind = "phone"; TargetProfile = "host_run.profile.mobile"; RouteKind = "phone_operator_shell"; Consumer = "rusty-studio-phone-shell"; Install = "install.android_package"; Launch = "launch.android_intent"; Bridge = "bridge.adb_intent_file"; Evidence = "evidence.adb_pull" },
+            @{ Graph = "studio.graph.synthetic_wave_headset"; TargetKind = "quest"; TargetProfile = "host_run.profile.headset"; RouteKind = "quest_operator_shell"; Consumer = "rusty-studio-quest-shell"; Install = "install.android_package"; Launch = "launch.android_intent"; Bridge = "bridge.adb_intent_file"; Evidence = "evidence.adb_pull" }
+        )) {
+            $RunbookTarget = @($RunbookView.target_summaries | Where-Object { $_.target_kind -eq $RequiredRunbook.TargetKind }) | Select-Object -First 1
+            if ($null -eq $RunbookTarget) {
+                throw "shell runbook missing target $($RequiredRunbook.TargetKind)"
+            }
+            if ($RunbookTarget.ready_count -ne 1 -or $RunbookTarget.blocked_count -ne 0 -or $RunbookTarget.rejected_count -ne 0) {
+                throw "shell runbook target counts mismatch for $($RequiredRunbook.TargetKind)"
+            }
+            if (-not (@($RunbookTarget.graph_ids) -contains $RequiredRunbook.Graph)) {
+                throw "shell runbook target graph id mismatch for $($RequiredRunbook.TargetKind)"
+            }
+            if (-not (@($RunbookTarget.consumer_ids) -contains $RequiredRunbook.Consumer)) {
+                throw "shell runbook target consumer mismatch for $($RequiredRunbook.TargetKind)"
+            }
+            if (-not (@($RunbookTarget.responsible_owners) -contains "rusty.hostess")) {
+                throw "shell runbook target owner mismatch for $($RequiredRunbook.TargetKind)"
+            }
+            if (-not (@($RunbookTarget.runtime_route_kinds) -contains $RequiredRunbook.RouteKind)) {
+                throw "shell runbook target route mismatch for $($RequiredRunbook.TargetKind)"
+            }
+            if (@($RunbookTarget.issue_codes).Count -ne 0) {
+                throw "shell runbook target issue codes mismatch for $($RequiredRunbook.TargetKind)"
+            }
+
+            $RunbookEntry = @($RunbookView.entries | Where-Object { $_.graph_id -eq $RequiredRunbook.Graph }) | Select-Object -First 1
+            if ($null -eq $RunbookEntry) {
+                throw "shell runbook missing graph $($RequiredRunbook.Graph)"
+            }
+            if ($RunbookEntry.status -ne "ready" -or $RunbookEntry.decision -ne "ready_for_runtime_owner") {
+                throw "shell runbook entry status mismatch for $($RequiredRunbook.Graph)"
+            }
+            if ($null -ne $RunbookEntry.issue_code -or $RunbookEntry.route_status -ne "pass" -or $null -ne $RunbookEntry.route_issue_code) {
+                throw "shell runbook entry route status mismatch for $($RequiredRunbook.Graph)"
+            }
+            if ($RunbookEntry.responsible_owner -ne "rusty.hostess" -or $RunbookEntry.execution_policy -ne "not_executed.request_only") {
+                throw "shell runbook owner or execution policy mismatch for $($RequiredRunbook.Graph)"
+            }
+            if ($RunbookEntry.command_session_authority -ne "rusty.manifold" -or $RunbookEntry.install_launch_evidence_authority -ne "rusty.hostess" -or $RunbookEntry.studio_role -ne "authoring.export_planning") {
+                throw "shell runbook authority mismatch for $($RequiredRunbook.Graph)"
+            }
+            if ($RunbookEntry.handoff_request_kind -ne "operator_shell_handoff" -or $RunbookEntry.runtime_route_kind -ne $RequiredRunbook.RouteKind -or $RunbookEntry.next_required_action -ne "stage_with_runtime_owner") {
+                throw "shell runbook handoff route mismatch for $($RequiredRunbook.Graph)"
+            }
+            if ($RunbookEntry.consumer_id -ne $RequiredRunbook.Consumer -or $RunbookEntry.target_kind -ne $RequiredRunbook.TargetKind -or $RunbookEntry.target_host_profile -ne $RequiredRunbook.TargetProfile) {
+                throw "shell runbook target metadata mismatch for $($RequiredRunbook.Graph)"
+            }
+            if ($RunbookEntry.host_routes.install_route -ne $RequiredRunbook.Install -or $RunbookEntry.host_routes.launch_route -ne $RequiredRunbook.Launch -or $RunbookEntry.host_routes.command_bridge -ne $RequiredRunbook.Bridge -or $RunbookEntry.host_routes.evidence_pull_route -ne $RequiredRunbook.Evidence) {
+                throw "shell runbook host route mismatch for $($RequiredRunbook.Graph)"
+            }
+            $CliRequest = @($RunbookEntry.cli_request)
+            if ($CliRequest.Count -lt 7 -or $CliRequest[0] -ne "cargo" -or $CliRequest[1] -ne "run" -or $CliRequest[2] -ne "-p" -or $CliRequest[3] -ne $RequiredRunbook.Consumer -or $CliRequest[4] -ne "--") {
+                throw "shell runbook CLI request prefix mismatch for $($RequiredRunbook.Graph)"
+            }
+            if ($CliRequest -notcontains "--templates") {
+                throw "shell runbook CLI request missing --templates for $($RequiredRunbook.Graph)"
+            }
+            if (-not ($CliRequest | Where-Object { $_ -like "*$($RequiredRunbook.Graph)*shell-templates.json" } | Select-Object -First 1)) {
+                throw "shell runbook CLI request template path mismatch for $($RequiredRunbook.Graph)"
             }
         }
     }
