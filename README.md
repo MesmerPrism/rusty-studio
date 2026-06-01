@@ -17,6 +17,8 @@ Current scope:
   through the shared view model and Makepad surface;
 - expose validation issue counts on graph, node, and edge rows for future
   issue-to-row canvas focus;
+- expose a deterministic focused validation issue for inspector and future
+  canvas selection;
 - add the next available catalog module from that palette through a shared
   core/CLI/Makepad mutation path;
 - render the resolved synthetic project in a Makepad desktop authoring surface;

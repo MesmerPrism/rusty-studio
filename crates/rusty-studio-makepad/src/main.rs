@@ -170,6 +170,7 @@ script_mod! {
         SectionTitle{text: "Inspector"}
         Row{FieldLabel{text: "selected node"} selected_node := FieldValue{text: ""}}
         Row{FieldLabel{text: "selected ref"} selected_reference := SmallValue{text: ""}}
+        Row{FieldLabel{text: "issue focus"} focused_issue := SmallValue{text: ""}}
         Row{FieldLabel{text: "authority"} authority_note := SmallValue{text: ""}}
     }
 
@@ -347,6 +348,58 @@ impl App {
         self.ui
             .label(cx, ids!(graph_edges))
             .set_text(cx, &edge_lines(graph));
+        self.sync_inspector(cx, model, graph);
+    }
+
+    fn sync_inspector(&mut self, cx: &mut Cx, model: &StudioViewModel, graph: &StudioGraphView) {
+        self.ui
+            .label(cx, ids!(focused_issue))
+            .set_text(cx, &issue_focus_line(model));
+        if let Some(focus) = model
+            .focused_issue
+            .as_ref()
+            .filter(|focus| focus.graph_id == graph.graph_id)
+        {
+            if let Some(node_id) = focus.node_id.as_deref() {
+                if let Some(node) = graph.node_rows.iter().find(|node| node.node_id == node_id) {
+                    self.ui
+                        .label(cx, ids!(selected_node))
+                        .set_text(cx, &format!("issue: {} / {}", node.label, node.kind));
+                    self.ui.label(cx, ids!(selected_reference)).set_text(
+                        cx,
+                        focus
+                            .reference_id
+                            .as_deref()
+                            .unwrap_or(node.reference_id.as_str()),
+                    );
+                    return;
+                }
+                self.ui
+                    .label(cx, ids!(selected_node))
+                    .set_text(cx, &format!("issue node: {node_id}"));
+                self.ui.label(cx, ids!(selected_reference)).set_text(
+                    cx,
+                    focus
+                        .reference_id
+                        .as_deref()
+                        .unwrap_or("no reference target"),
+                );
+                return;
+            }
+            if let Some(edge_id) = focus.edge_id.as_deref() {
+                self.ui
+                    .label(cx, ids!(selected_node))
+                    .set_text(cx, &format!("issue edge: {edge_id}"));
+                self.ui.label(cx, ids!(selected_reference)).set_text(
+                    cx,
+                    focus
+                        .reference_id
+                        .as_deref()
+                        .unwrap_or("no reference target"),
+                );
+                return;
+            }
+        }
         if let Some(node) = graph.node_rows.first() {
             self.ui
                 .label(cx, ids!(selected_node))
@@ -610,6 +663,7 @@ impl App {
         self.ui.label(cx, ids!(graph_edges)).set_text(cx, "");
         self.ui.label(cx, ids!(selected_node)).set_text(cx, "");
         self.ui.label(cx, ids!(selected_reference)).set_text(cx, "");
+        self.ui.label(cx, ids!(focused_issue)).set_text(cx, "");
     }
 
     fn select_previous_graph(&mut self, cx: &mut Cx) {
@@ -1005,6 +1059,26 @@ fn validation_issue_lines(model: &StudioViewModel) -> String {
         .join("\n")
 }
 
+fn issue_focus_line(model: &StudioViewModel) -> String {
+    let Some(focus) = model.focused_issue.as_ref() else {
+        return "none".to_string();
+    };
+    let issue_code = focus.issue_code.as_deref().unwrap_or("unknown_issue");
+    let mut lines = vec![format!("{} [{}]", focus.check_id, issue_code)];
+    lines.push(format!("  graph: {}", focus.graph_id));
+    if let Some(node_id) = focus.node_id.as_deref() {
+        lines.push(format!("  node: {node_id}"));
+    }
+    if let Some(edge_id) = focus.edge_id.as_deref() {
+        lines.push(format!("  edge: {edge_id}"));
+    }
+    if let Some(reference_id) = focus.reference_id.as_deref() {
+        lines.push(format!("  ref: {reference_id}"));
+    }
+    lines.push(format!("  {}", focus.evidence));
+    lines.join("\n")
+}
+
 fn catalog_package_lines(model: &StudioViewModel) -> String {
     if model.catalog_packages.is_empty() {
         return "none".to_string();
@@ -1334,6 +1408,11 @@ mod tests {
         assert!(issue_lines.contains("selected graph: studio.graph.makepad_edit"));
         assert!(issue_lines.contains("refs: package.missing"));
         assert!(issue_lines.contains("package references missing from catalog"));
+
+        let focus_line = issue_focus_line(&model);
+        assert!(focus_line.contains("studio.check.graph.studio.graph.makepad_edit.package_refs"));
+        assert!(focus_line.contains("node: node.package.synthetic"));
+        assert!(focus_line.contains("ref: package.missing"));
 
         let node_lines = node_lines(&model.graphs[0]);
         assert!(node_lines.contains("Package [package]"));

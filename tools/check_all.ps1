@@ -113,6 +113,9 @@ try {
     if ($ViewModel.validation_issues.Count -ne 0) {
         throw "valid view model should not expose validation issues"
     }
+    if ($null -ne $ViewModel.focused_issue) {
+        throw "valid view model should not expose focused issue"
+    }
     $ViewModelDesktopGraph = $ViewModel.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $ViewModelDesktopGraph) {
         throw "view model missing desktop graph row"
@@ -188,6 +191,21 @@ try {
     }
     if ($PackageReferenceIssue.evidence -notlike "*package references missing from catalog*") {
         throw "diagnostic view model package issue evidence mismatch"
+    }
+    if ($null -eq $DiagnosticView.focused_issue) {
+        throw "diagnostic view model missing focused issue"
+    }
+    if ($DiagnosticView.focused_issue.check_id -ne "studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs") {
+        throw "diagnostic focused issue check id mismatch"
+    }
+    if ($DiagnosticView.focused_issue.graph_id -ne "studio.graph.synthetic_wave_desktop") {
+        throw "diagnostic focused issue graph id mismatch"
+    }
+    if ($DiagnosticView.focused_issue.node_id -ne "node.package.synthetic_wave") {
+        throw "diagnostic focused issue node id mismatch"
+    }
+    if ($DiagnosticView.focused_issue.reference_id -ne "package.missing") {
+        throw "diagnostic focused issue reference id mismatch"
     }
     $DiagnosticGraph = $DiagnosticView.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $DiagnosticGraph) {

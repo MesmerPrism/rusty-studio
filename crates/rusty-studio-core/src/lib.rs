@@ -1,19 +1,20 @@
 use rusty_studio_model::{
     StudioBindingKind, StudioEdge, StudioEdgeKind, StudioEditOperation, StudioEditReport,
     StudioEditStatus, StudioExportBundle, StudioExportPlan, StudioGraph, StudioHostProfileView,
-    StudioNode, StudioNodeKind, StudioProject, StudioResolvedGraph, StudioResolvedProject,
-    StudioShellArtifact, StudioShellArtifactManifest, StudioShellArtifactManifestValidationReport,
-    StudioShellArtifactRejection, StudioShellArtifactReport, StudioShellArtifactStatus,
-    StudioShellBinding, StudioShellDescriptor, StudioShellDescriptorReport,
-    StudioShellDescriptorStatus, StudioShellDescriptorValidationReport, StudioShellHostProfile,
-    StudioShellHostRoutes, StudioShellRuntimeAuthority, StudioShellTargetKind,
-    StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
-    StudioShellTemplateIndexValidationReport, StudioShellTemplateManifest,
-    StudioShellTemplateReport, StudioShellTemplateStatus, StudioValidationCheck,
-    StudioValidationIssueView, StudioValidationReport, StudioValidationStatus, StudioViewModel,
-    EDIT_REPORT_SCHEMA, EXPORT_PLAN_SCHEMA, PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA,
-    SHELL_ARTIFACT_MANIFEST_SCHEMA, SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA,
-    SHELL_ARTIFACT_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
+    StudioIssueFocusView, StudioNode, StudioNodeKind, StudioProject, StudioResolvedGraph,
+    StudioResolvedProject, StudioShellArtifact, StudioShellArtifactManifest,
+    StudioShellArtifactManifestValidationReport, StudioShellArtifactRejection,
+    StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
+    StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
+    StudioShellDescriptorValidationReport, StudioShellHostProfile, StudioShellHostRoutes,
+    StudioShellRuntimeAuthority, StudioShellTargetKind, StudioShellTemplateIndex,
+    StudioShellTemplateIndexEntry, StudioShellTemplateIndexValidationReport,
+    StudioShellTemplateManifest, StudioShellTemplateReport, StudioShellTemplateStatus,
+    StudioValidationCheck, StudioValidationIssueView, StudioValidationReport,
+    StudioValidationStatus, StudioViewModel, EDIT_REPORT_SCHEMA, EXPORT_PLAN_SCHEMA,
+    PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA, SHELL_ARTIFACT_MANIFEST_SCHEMA,
+    SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
+    SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
     SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
     SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
     SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
@@ -301,6 +302,7 @@ pub fn view_model_for_graph(
         .and_then(|index| graphs.get(index))
         .map(|graph| graph.graph_id.clone());
     let validation_issues = validation_issue_views(&validation, selected_graph_id.as_deref());
+    let focused_issue = focused_issue_view(&validation_issues);
     let selected_graph = selected_graph_index.and_then(|index| project.graphs.get(index));
     let reference_index = reference_index_for_project(project, base_dir);
     let catalog_packages = catalog_package_views(reference_index.as_ref(), selected_graph);
@@ -322,6 +324,7 @@ pub fn view_model_for_graph(
         validation_pass_count,
         validation_fail_count,
         validation_issues,
+        focused_issue,
         graph_count: project.graphs.len(),
         requested_graph_id: requested_graph_id.map(str::to_string),
         selected_graph_index,
@@ -3954,6 +3957,23 @@ fn validation_issue_views(
         .collect()
 }
 
+fn focused_issue_view(issues: &[StudioValidationIssueView]) -> Option<StudioIssueFocusView> {
+    let issue = issues
+        .iter()
+        .find(|issue| issue.targets_selected_graph)
+        .or_else(|| issues.first())?;
+    let graph_id = issue.graph_id.clone()?;
+    Some(StudioIssueFocusView {
+        check_id: issue.check_id.clone(),
+        issue_code: issue.issue_code.clone(),
+        evidence: issue.evidence.clone(),
+        graph_id,
+        node_id: issue.node_ids.first().cloned(),
+        edge_id: issue.edge_ids.first().cloned(),
+        reference_id: issue.reference_ids.first().cloned(),
+    })
+}
+
 fn selected_graph_index(
     graphs: &[StudioGraphView],
     requested_graph_id: Option<&str>,
@@ -5527,6 +5547,7 @@ mod tests {
         assert_eq!(model.validation_status, StudioValidationStatus::Pass);
         assert_eq!(model.validation_fail_count, 0);
         assert!(model.validation_issues.is_empty());
+        assert!(model.focused_issue.is_none());
         assert_eq!(model.graph_count, 1);
         assert_eq!(model.graphs[0].validation_issue_count, 0);
         assert_eq!(model.graphs[0].node_rows[0].kind, "package");
@@ -5618,6 +5639,25 @@ mod tests {
             .find(|node| node.node_id == "node.package.synthetic")
             .expect("package node row");
         assert_eq!(package_row.validation_issue_count, 1);
+        let focused_issue = model.focused_issue.expect("focused issue");
+        assert_eq!(
+            focused_issue.check_id,
+            "studio.check.graph.studio.graph.test.package_refs"
+        );
+        assert_eq!(
+            focused_issue.issue_code.as_deref(),
+            Some("studio.issue.package_reference_missing")
+        );
+        assert_eq!(focused_issue.graph_id, "studio.graph.test");
+        assert_eq!(
+            focused_issue.node_id.as_deref(),
+            Some("node.package.synthetic")
+        );
+        assert_eq!(focused_issue.edge_id, None);
+        assert_eq!(
+            focused_issue.reference_id.as_deref(),
+            Some("package.missing")
+        );
     }
 
     #[test]

@@ -434,6 +434,7 @@ pub struct StudioViewModel {
     pub validation_pass_count: usize,
     pub validation_fail_count: usize,
     pub validation_issues: Vec<StudioValidationIssueView>,
+    pub focused_issue: Option<StudioIssueFocusView>,
     pub graph_count: usize,
     pub requested_graph_id: Option<String>,
     pub selected_graph_index: Option<usize>,
@@ -461,6 +462,17 @@ pub struct StudioValidationIssueView {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub reference_ids: Vec<String>,
     pub targets_selected_graph: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioIssueFocusView {
+    pub check_id: String,
+    pub issue_code: Option<String>,
+    pub evidence: String,
+    pub graph_id: String,
+    pub node_id: Option<String>,
+    pub edge_id: Option<String>,
+    pub reference_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
