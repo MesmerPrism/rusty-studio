@@ -7,7 +7,9 @@ use rusty_studio_model::{
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
-    StudioShellDescriptorValidationReport, StudioShellHandoffIntakeDecision,
+    StudioShellDescriptorValidationReport, StudioShellHandoffAcceptanceCheck,
+    StudioShellHandoffAcceptanceChecklistEntry, StudioShellHandoffAcceptanceChecklistReport,
+    StudioShellHandoffAcceptanceStatus, StudioShellHandoffIntakeDecision,
     StudioShellHandoffIntakeEntry, StudioShellHandoffIntakeReport, StudioShellHandoffIntakeStatus,
     StudioShellHandoffIntakeTargetSummary, StudioShellHandoffKind, StudioShellHandoffManifest,
     StudioShellHandoffManifestEntry, StudioShellHandoffManifestTarget,
@@ -23,12 +25,12 @@ use rusty_studio_model::{
     SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
     SHELL_BUNDLE_REPORT_SCHEMA, SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA,
     SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
-    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
-    SHELL_HANDOFF_MANIFEST_SCHEMA, SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA,
-    SHELL_HANDOFF_READINESS_REPORT_SCHEMA, SHELL_HANDOFF_REPORT_SCHEMA,
-    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
-    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
-    VIEW_MODEL_SCHEMA,
+    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA,
+    SHELL_HANDOFF_INTAKE_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
+    SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
+    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
+    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
+    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -83,6 +85,12 @@ pub enum StudioCoreError {
     },
     #[error("{path}: {source}")]
     ParseShellHandoffManifest {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellHandoffIntakeReport {
         path: String,
         #[source]
         source: serde_json::Error,
@@ -172,6 +180,19 @@ pub fn load_shell_handoff_manifest(
         source,
     })?;
     serde_json::from_str(&text).map_err(|source| StudioCoreError::ParseShellHandoffManifest {
+        path: path.display().to_string(),
+        source,
+    })
+}
+
+pub fn load_shell_handoff_intake_report(
+    path: &Path,
+) -> Result<StudioShellHandoffIntakeReport, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| StudioCoreError::ParseShellHandoffIntakeReport {
         path: path.display().to_string(),
         source,
     })
@@ -2992,7 +3013,7 @@ pub fn validate_shell_handoff_manifest(
     }
 
     StudioShellHandoffManifestValidationReport {
-        schema_id: SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA,
+        schema_id: SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA.to_string(),
         manifest_id: manifest.manifest_id.clone(),
         status: if checks
             .iter()
@@ -3013,7 +3034,7 @@ pub fn shell_handoff_intake_for_manifest(
     let authority = shell_runtime_authority();
     if validation.status == StudioValidationStatus::Fail {
         return StudioShellHandoffIntakeReport {
-            schema_id: SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+            schema_id: SHELL_HANDOFF_INTAKE_REPORT_SCHEMA.to_string(),
             manifest_id: manifest.manifest_id.clone(),
             project_id: manifest.project_id.clone(),
             project_revision: manifest.project_revision,
@@ -3043,7 +3064,7 @@ pub fn shell_handoff_intake_for_manifest(
     let target_summaries = shell_handoff_intake_target_summaries(&entries);
 
     StudioShellHandoffIntakeReport {
-        schema_id: SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+        schema_id: SHELL_HANDOFF_INTAKE_REPORT_SCHEMA.to_string(),
         manifest_id: manifest.manifest_id.clone(),
         project_id: manifest.project_id.clone(),
         project_revision: manifest.project_revision,
@@ -3057,6 +3078,75 @@ pub fn shell_handoff_intake_for_manifest(
         target_summaries,
         entries,
         validation,
+    }
+}
+
+pub fn shell_handoff_acceptance_checklist_for_intake(
+    intake: &StudioShellHandoffIntakeReport,
+) -> StudioShellHandoffAcceptanceChecklistReport {
+    let intake_checks = shell_handoff_acceptance_intake_checks(intake);
+    let intake_is_accepted = intake_checks
+        .iter()
+        .all(|check| check.status == StudioValidationStatus::Pass);
+
+    let entries = if intake_is_accepted {
+        intake
+            .entries
+            .iter()
+            .map(shell_handoff_acceptance_checklist_entry)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let ready_count = entries
+        .iter()
+        .filter(|entry| entry.status == StudioShellHandoffAcceptanceStatus::Ready)
+        .count();
+    let blocked_count = entries
+        .iter()
+        .filter(|entry| entry.status == StudioShellHandoffAcceptanceStatus::Blocked)
+        .count();
+    let rejected_count = entries
+        .iter()
+        .filter(|entry| entry.status == StudioShellHandoffAcceptanceStatus::Rejected)
+        .count();
+    let status = if !intake_is_accepted || rejected_count > 0 {
+        StudioShellHandoffAcceptanceStatus::Rejected
+    } else if blocked_count > 0 {
+        StudioShellHandoffAcceptanceStatus::Blocked
+    } else {
+        StudioShellHandoffAcceptanceStatus::Ready
+    };
+    let issue_code = match status {
+        StudioShellHandoffAcceptanceStatus::Ready => None,
+        StudioShellHandoffAcceptanceStatus::Blocked => entries
+            .iter()
+            .find(|entry| entry.status == StudioShellHandoffAcceptanceStatus::Blocked)
+            .and_then(|entry| entry.issue_code.clone()),
+        StudioShellHandoffAcceptanceStatus::Rejected => intake.issue_code.clone().or_else(|| {
+            first_failed_validation_check_issue_code(&intake_checks).or_else(|| {
+                entries
+                    .iter()
+                    .find(|entry| entry.status == StudioShellHandoffAcceptanceStatus::Rejected)
+                    .and_then(|entry| entry.issue_code.clone())
+            })
+        }),
+    };
+
+    StudioShellHandoffAcceptanceChecklistReport {
+        schema_id: SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA.to_string(),
+        source_intake_schema: intake.schema_id.clone(),
+        manifest_id: intake.manifest_id.clone(),
+        project_id: intake.project_id.clone(),
+        project_revision: intake.project_revision,
+        status,
+        issue_code,
+        prohibited_actions: shell_handoff_acceptance_prohibited_actions(),
+        ready_count,
+        blocked_count,
+        rejected_count,
+        intake_checks,
+        entries,
     }
 }
 
@@ -4958,6 +5048,256 @@ fn shell_handoff_intake_target_summary(
                 .map(|entry| entry.template_index_path.clone()),
         ),
     })
+}
+
+fn shell_handoff_acceptance_intake_checks(
+    intake: &StudioShellHandoffIntakeReport,
+) -> Vec<StudioValidationCheck> {
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance.intake_schema",
+        intake.schema_id == SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+        "source intake schema id is supported",
+        "source intake schema id is unsupported",
+        "studio.issue.shell_handoff_intake_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance.intake_status",
+        intake.status == StudioShellHandoffIntakeStatus::Accepted,
+        "source intake was accepted",
+        "source intake was rejected",
+        "studio.issue.shell_handoff_intake_rejected",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance.intake_validation",
+        intake.validation.status == StudioValidationStatus::Pass,
+        "source intake validation passed",
+        "source intake validation failed",
+        "studio.issue.shell_handoff_intake_validation_failed",
+    );
+    let authority = StudioShellRuntimeAuthority {
+        command_session_authority: intake.command_session_authority.clone(),
+        install_launch_evidence_authority: intake.install_launch_evidence_authority.clone(),
+        studio_role: intake.studio_role.clone(),
+    };
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance.authority",
+        runtime_authority_matches(&authority),
+        "source intake preserves Manifold/Hostess/Studio authority boundaries",
+        "source intake authority does not preserve Manifold/Hostess/Studio boundaries",
+        "studio.issue.runtime_authority_mismatch",
+    );
+    let accepted_count = intake
+        .entries
+        .iter()
+        .filter(|entry| entry.decision == StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner)
+        .count();
+    let blocked_count = intake.entries.len().saturating_sub(accepted_count);
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance.counts",
+        intake.accepted_count == accepted_count
+            && intake.blocked_count == blocked_count
+            && intake.entries.len() == intake.accepted_count + intake.blocked_count,
+        "source intake counts match entry decisions",
+        "source intake counts do not match entry decisions",
+        "studio.issue.shell_handoff_intake_count_mismatch",
+    );
+    checks
+}
+
+fn shell_handoff_acceptance_checklist_entry(
+    entry: &StudioShellHandoffIntakeEntry,
+) -> StudioShellHandoffAcceptanceChecklistEntry {
+    let checks = shell_handoff_acceptance_entry_checks(entry);
+    let has_failed_check = checks
+        .iter()
+        .any(|check| check.status == StudioValidationStatus::Fail);
+    let status = if entry.decision == StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner
+        && !has_failed_check
+    {
+        StudioShellHandoffAcceptanceStatus::Ready
+    } else if entry.decision == StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner {
+        StudioShellHandoffAcceptanceStatus::Rejected
+    } else {
+        StudioShellHandoffAcceptanceStatus::Blocked
+    };
+    let issue_code = match status {
+        StudioShellHandoffAcceptanceStatus::Ready => None,
+        StudioShellHandoffAcceptanceStatus::Blocked => entry
+            .issue_code
+            .clone()
+            .or_else(|| first_failed_acceptance_check_issue_code(&checks)),
+        StudioShellHandoffAcceptanceStatus::Rejected => {
+            first_failed_acceptance_check_issue_code(&checks)
+        }
+    };
+
+    StudioShellHandoffAcceptanceChecklistEntry {
+        graph_id: entry.graph_id.clone(),
+        target_kind: entry.target_kind,
+        consumer_id: entry.consumer_id.clone(),
+        runtime_route_kind: entry.runtime_route_kind.clone(),
+        source_decision: entry.decision,
+        status,
+        issue_code,
+        next_required_action: entry.next_required_action.clone(),
+        command_session_authority: entry.command_session_authority.clone(),
+        install_launch_evidence_authority: entry.install_launch_evidence_authority.clone(),
+        studio_role: entry.studio_role.clone(),
+        checks,
+    }
+}
+
+fn shell_handoff_acceptance_entry_checks(
+    entry: &StudioShellHandoffIntakeEntry,
+) -> Vec<StudioShellHandoffAcceptanceCheck> {
+    let mut checks = Vec::new();
+    let prefix = if entry.graph_id.is_empty() {
+        "unknown".to_string()
+    } else {
+        entry.graph_id.clone()
+    };
+    push_acceptance_check(
+        &mut checks,
+        &format!("studio.check.shell_handoff_acceptance.entry.{prefix}.decision"),
+        "rusty.studio",
+        entry.decision == StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner,
+        "intake entry is ready for runtime owner staging",
+        "intake entry is blocked before runtime owner staging",
+        "studio.issue.shell_handoff_acceptance_blocked",
+    );
+    push_acceptance_check(
+        &mut checks,
+        &format!("studio.check.shell_handoff_acceptance.entry.{prefix}.command_session_authority"),
+        "rusty.manifold",
+        entry.command_session_authority == "rusty.manifold",
+        "Manifold remains command/session authority",
+        "command/session authority is not Manifold",
+        "studio.issue.runtime_authority_mismatch",
+    );
+    push_acceptance_check(
+        &mut checks,
+        &format!(
+            "studio.check.shell_handoff_acceptance.entry.{prefix}.install_launch_evidence_authority"
+        ),
+        "rusty.hostess",
+        entry.install_launch_evidence_authority == "rusty.hostess",
+        "Hostess remains install/launch/evidence authority",
+        "install/launch/evidence authority is not Hostess",
+        "studio.issue.runtime_authority_mismatch",
+    );
+    push_acceptance_check(
+        &mut checks,
+        &format!("studio.check.shell_handoff_acceptance.entry.{prefix}.studio_role"),
+        "rusty.studio",
+        entry.studio_role == "authoring.export_planning",
+        "Studio role remains authoring/export planning",
+        "Studio role exceeds authoring/export planning",
+        "studio.issue.runtime_authority_mismatch",
+    );
+    push_acceptance_check(
+        &mut checks,
+        &format!("studio.check.shell_handoff_acceptance.entry.{prefix}.route_kind"),
+        "rusty.manifold",
+        entry.runtime_route_kind
+            == format!(
+                "{}_operator_shell",
+                shell_target_kind_label(entry.target_kind)
+            ),
+        "runtime route kind matches target kind",
+        "runtime route kind does not match target kind",
+        "studio.issue.shell_handoff_route_mismatch",
+    );
+    push_acceptance_check(
+        &mut checks,
+        &format!("studio.check.shell_handoff_acceptance.entry.{prefix}.bundle_dir"),
+        "rusty.hostess",
+        !entry.bundle_dir.trim().is_empty(),
+        "bundle dir is available for downstream staging",
+        "bundle dir is missing",
+        "studio.issue.handoff_path_missing",
+    );
+    push_acceptance_check(
+        &mut checks,
+        &format!("studio.check.shell_handoff_acceptance.entry.{prefix}.template_index_path"),
+        "rusty.hostess",
+        path_ends_with_shell_templates(&entry.template_index_path),
+        "template index path points to shell-templates.json",
+        "template index path does not point to shell-templates.json",
+        "studio.issue.handoff_template_index_path_mismatch",
+    );
+    let consumer_args_ready = entry.consumer_args.iter().any(|arg| arg == "--templates")
+        && entry
+            .consumer_args
+            .iter()
+            .any(|arg| arg == &entry.template_index_path);
+    push_acceptance_check(
+        &mut checks,
+        &format!("studio.check.shell_handoff_acceptance.entry.{prefix}.consumer_args"),
+        "rusty.manifold",
+        consumer_args_ready,
+        "consumer args identify the template index",
+        "consumer args do not identify the template index",
+        "studio.issue.handoff_consumer_args_mismatch",
+    );
+    push_acceptance_check(
+        &mut checks,
+        &format!("studio.check.shell_handoff_acceptance.entry.{prefix}.operator_shell"),
+        "rusty.studio",
+        !entry.operator_shell_ids.is_empty(),
+        "operator shell ids are present",
+        "operator shell ids are missing",
+        "studio.issue.no_operator_shell",
+    );
+    checks
+}
+
+fn push_acceptance_check(
+    checks: &mut Vec<StudioShellHandoffAcceptanceCheck>,
+    check_id: &str,
+    owner: &str,
+    passed: bool,
+    pass_evidence: &str,
+    fail_evidence: &str,
+    issue_code: &str,
+) {
+    checks.push(StudioShellHandoffAcceptanceCheck {
+        check_id: check_id.to_string(),
+        owner: owner.to_string(),
+        status: if passed {
+            StudioValidationStatus::Pass
+        } else {
+            StudioValidationStatus::Fail
+        },
+        evidence: if passed { pass_evidence } else { fail_evidence }.to_string(),
+        issue_code: (!passed).then(|| issue_code.to_string()),
+    });
+}
+
+fn shell_handoff_acceptance_prohibited_actions() -> Vec<String> {
+    [
+        "install",
+        "launch",
+        "open_command_session",
+        "collect_device_evidence",
+    ]
+    .iter()
+    .map(|action| action.to_string())
+    .collect()
+}
+
+fn first_failed_acceptance_check_issue_code(
+    checks: &[StudioShellHandoffAcceptanceCheck],
+) -> Option<String> {
+    checks
+        .iter()
+        .find(|check| check.status == StudioValidationStatus::Fail)
+        .and_then(|check| check.issue_code.clone())
 }
 
 fn first_failed_validation_check_issue_code(checks: &[StudioValidationCheck]) -> Option<String> {
@@ -6971,9 +7311,10 @@ mod tests {
         StudioBindingKind, StudioEdgeKind, StudioEdgeLayout, StudioEdgeRouteKind,
         StudioEditOperation, StudioEditStatus, StudioGraphLayout, StudioNode, StudioNodeKind,
         StudioNodeLayout, StudioShellArtifactStatus, StudioShellBundleStatus,
-        StudioShellDescriptorStatus, StudioShellHandoffIntakeDecision,
-        StudioShellHandoffIntakeStatus, StudioShellHandoffKind, StudioShellTargetKind,
-        StudioShellTemplateStatus, SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+        StudioShellDescriptorStatus, StudioShellHandoffAcceptanceStatus,
+        StudioShellHandoffIntakeDecision, StudioShellHandoffIntakeStatus, StudioShellHandoffKind,
+        StudioShellTargetKind, StudioShellTemplateStatus,
+        SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA, SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
         SHELL_HANDOFF_MANIFEST_SCHEMA, SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA,
         SHELL_HANDOFF_READINESS_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
     };
@@ -8399,6 +8740,137 @@ mod tests {
                 && entry.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
                 && entry.next_required_action == "repair_export_bundle"
                 && entry.consumer_args.is_empty()
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_checklist_reports_ready_entries() {
+        let root = temp_root("shell-handoff-acceptance");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        let intake = shell_handoff_intake_for_manifest(&manifest);
+
+        let checklist = shell_handoff_acceptance_checklist_for_intake(&intake);
+
+        assert_eq!(
+            checklist.schema_id,
+            SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA
+        );
+        assert_eq!(
+            checklist.source_intake_schema,
+            SHELL_HANDOFF_INTAKE_REPORT_SCHEMA
+        );
+        assert_eq!(checklist.status, StudioShellHandoffAcceptanceStatus::Ready);
+        assert_eq!(checklist.issue_code, None);
+        assert_eq!(checklist.ready_count, 3);
+        assert_eq!(checklist.blocked_count, 0);
+        assert_eq!(checklist.rejected_count, 0);
+        assert_eq!(checklist.entries.len(), 3);
+        assert_eq!(
+            checklist.prohibited_actions,
+            vec![
+                "install".to_string(),
+                "launch".to_string(),
+                "open_command_session".to_string(),
+                "collect_device_evidence".to_string()
+            ]
+        );
+        assert!(checklist
+            .intake_checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+        assert!(checklist.entries.iter().all(|entry| {
+            entry.status == StudioShellHandoffAcceptanceStatus::Ready
+                && entry.issue_code.is_none()
+                && entry.next_required_action == "stage_with_runtime_owner"
+                && entry.command_session_authority == "rusty.manifold"
+                && entry.install_launch_evidence_authority == "rusty.hostess"
+                && entry.studio_role == "authoring.export_planning"
+                && entry
+                    .checks
+                    .iter()
+                    .all(|check| check.status == StudioValidationStatus::Pass)
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_checklist_rejects_invalid_intake() {
+        let root = temp_root("shell-handoff-acceptance-invalid");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let mut manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        manifest.runtime_authority.command_session_authority = "rusty.studio".to_string();
+        let intake = shell_handoff_intake_for_manifest(&manifest);
+
+        let checklist = shell_handoff_acceptance_checklist_for_intake(&intake);
+
+        assert_eq!(
+            checklist.status,
+            StudioShellHandoffAcceptanceStatus::Rejected
+        );
+        assert_eq!(
+            checklist.issue_code.as_deref(),
+            Some("studio.issue.runtime_authority_mismatch")
+        );
+        assert_eq!(checklist.ready_count, 0);
+        assert_eq!(checklist.blocked_count, 0);
+        assert_eq!(checklist.rejected_count, 0);
+        assert!(checklist.entries.is_empty());
+        assert!(checklist.intake_checks.iter().any(|check| {
+            check.status == StudioValidationStatus::Fail
+                && check.issue_code.as_deref() == Some("studio.issue.shell_handoff_intake_rejected")
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_checklist_blocks_missing_bundles() {
+        let root = temp_root("shell-handoff-acceptance-missing");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("missing-selected-shells");
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        let intake = shell_handoff_intake_for_manifest(&manifest);
+
+        let checklist = shell_handoff_acceptance_checklist_for_intake(&intake);
+
+        assert_eq!(
+            checklist.status,
+            StudioShellHandoffAcceptanceStatus::Blocked
+        );
+        assert_eq!(
+            checklist.issue_code.as_deref(),
+            Some("studio.issue.shell_bundle_file_missing")
+        );
+        assert_eq!(checklist.ready_count, 0);
+        assert_eq!(checklist.blocked_count, 3);
+        assert_eq!(checklist.rejected_count, 0);
+        assert_eq!(checklist.entries.len(), 3);
+        assert!(checklist
+            .intake_checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+        assert!(checklist.entries.iter().all(|entry| {
+            entry.status == StudioShellHandoffAcceptanceStatus::Blocked
+                && entry.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
+                && entry.next_required_action == "repair_export_bundle"
+                && entry.checks.iter().any(|check| {
+                    check.status == StudioValidationStatus::Fail
+                        && check.issue_code.as_deref()
+                            == Some("studio.issue.shell_handoff_acceptance_blocked")
+                })
         }));
     }
 

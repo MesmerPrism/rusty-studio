@@ -29,6 +29,8 @@ pub const SHELL_HANDOFF_MANIFEST_SCHEMA: &str = "rusty.studio.shell_handoff_mani
 pub const SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA: &str =
     "rusty.studio.shell_handoff_manifest_validation_report.v1";
 pub const SHELL_HANDOFF_INTAKE_REPORT_SCHEMA: &str = "rusty.studio.shell_handoff_intake_report.v1";
+pub const SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA: &str =
+    "rusty.studio.shell_handoff_acceptance_checklist.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -136,7 +138,7 @@ pub struct StudioValidationReport {
     pub checks: Vec<StudioValidationCheck>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StudioValidationCheck {
     pub check_id: String,
     pub status: StudioValidationStatus,
@@ -144,11 +146,11 @@ pub struct StudioValidationCheck {
     pub issue_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graph_id: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub node_ids: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub edge_ids: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reference_ids: Vec<String>,
 }
 
@@ -621,19 +623,19 @@ pub struct StudioShellHandoffManifestEntry {
     pub failed_check_count: usize,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StudioShellHandoffManifestValidationReport {
     #[serde(rename = "$schema")]
-    pub schema_id: &'static str,
+    pub schema_id: String,
     pub manifest_id: String,
     pub status: StudioValidationStatus,
     pub checks: Vec<StudioValidationCheck>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StudioShellHandoffIntakeReport {
     #[serde(rename = "$schema")]
-    pub schema_id: &'static str,
+    pub schema_id: String,
     pub manifest_id: String,
     pub project_id: String,
     pub project_revision: u64,
@@ -649,14 +651,14 @@ pub struct StudioShellHandoffIntakeReport {
     pub validation: StudioShellHandoffManifestValidationReport,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StudioShellHandoffIntakeStatus {
     Accepted,
     Rejected,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StudioShellHandoffIntakeTargetSummary {
     pub target_kind: StudioShellTargetKind,
     pub accepted_count: usize,
@@ -667,7 +669,7 @@ pub struct StudioShellHandoffIntakeTargetSummary {
     pub template_index_paths: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StudioShellHandoffIntakeEntry {
     pub export_bundle_id: String,
     pub graph_id: String,
@@ -693,12 +695,63 @@ pub struct StudioShellHandoffIntakeEntry {
     pub operator_shell_ids: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StudioShellHandoffIntakeDecision {
     ReadyForRuntimeOwner,
     BlockedByManifestIssue,
     BlockedByHandoffIssue,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffAcceptanceChecklistReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub source_intake_schema: String,
+    pub manifest_id: String,
+    pub project_id: String,
+    pub project_revision: u64,
+    pub status: StudioShellHandoffAcceptanceStatus,
+    pub issue_code: Option<String>,
+    pub prohibited_actions: Vec<String>,
+    pub ready_count: usize,
+    pub blocked_count: usize,
+    pub rejected_count: usize,
+    pub intake_checks: Vec<StudioValidationCheck>,
+    pub entries: Vec<StudioShellHandoffAcceptanceChecklistEntry>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHandoffAcceptanceStatus {
+    Ready,
+    Blocked,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffAcceptanceChecklistEntry {
+    pub graph_id: String,
+    pub target_kind: StudioShellTargetKind,
+    pub consumer_id: String,
+    pub runtime_route_kind: String,
+    pub source_decision: StudioShellHandoffIntakeDecision,
+    pub status: StudioShellHandoffAcceptanceStatus,
+    pub issue_code: Option<String>,
+    pub next_required_action: String,
+    pub command_session_authority: String,
+    pub install_launch_evidence_authority: String,
+    pub studio_role: String,
+    pub checks: Vec<StudioShellHandoffAcceptanceCheck>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffAcceptanceCheck {
+    pub check_id: String,
+    pub owner: String,
+    pub status: StudioValidationStatus,
+    pub evidence: String,
+    pub issue_code: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
