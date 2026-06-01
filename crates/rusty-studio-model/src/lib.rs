@@ -19,6 +19,7 @@ pub const SHELL_TEMPLATE_MANIFEST_SCHEMA: &str = "rusty.studio.shell_template_ma
 pub const SHELL_TEMPLATE_REPORT_SCHEMA: &str = "rusty.studio.shell_template_report.v1";
 pub const SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA: &str =
     "rusty.studio.shell_template_index_validation_report.v1";
+pub const SHELL_BUNDLE_REPORT_SCHEMA: &str = "rusty.studio.shell_bundle_report.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -414,6 +415,33 @@ pub struct StudioShellTemplateIndexValidationReport {
     pub index_id: String,
     pub status: StudioValidationStatus,
     pub checks: Vec<StudioValidationCheck>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellBundleReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: &'static str,
+    pub project_id: String,
+    pub revision: u64,
+    pub graph_id: String,
+    pub status: StudioShellBundleStatus,
+    pub issue_code: Option<String>,
+    pub message: String,
+    pub bundle_files: Vec<String>,
+    pub descriptor_validation: Option<StudioShellDescriptorValidationReport>,
+    pub artifact_validation: Option<StudioShellArtifactManifestValidationReport>,
+    pub template_validation: Option<StudioShellTemplateIndexValidationReport>,
+    pub descriptor: Option<StudioShellDescriptor>,
+    pub artifact_manifest: Option<StudioShellArtifactManifest>,
+    pub template_index: Option<StudioShellTemplateIndex>,
+    pub template_manifest: Option<StudioShellTemplateManifest>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellBundleStatus {
+    Exported,
+    Rejected,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

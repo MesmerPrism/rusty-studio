@@ -4,14 +4,15 @@ use rusty_studio_core::{
     add_next_catalog_module_to_graph, export_plan, load_project, load_shell_artifact_manifest,
     load_shell_descriptor, load_shell_template_index, remove_binding_from_graph,
     remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
-    save_project, shell_artifacts_for_project, shell_descriptor_artifact_path,
-    shell_descriptor_for_graph, shell_templates_for_artifact_manifest, validate_project_with_base,
+    save_project, save_shell_bundle, selected_shell_bundle_for_graph, shell_artifacts_for_project,
+    shell_descriptor_artifact_path, shell_descriptor_for_graph,
+    shell_templates_for_artifact_manifest, validate_project_with_base,
     validate_shell_artifact_manifest, validate_shell_descriptor, validate_shell_template_index,
     view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
-    StudioBindingKind, StudioEditStatus, StudioShellArtifactStatus, StudioShellDescriptorStatus,
-    StudioShellTemplateStatus,
+    StudioBindingKind, StudioEditStatus, StudioShellArtifactStatus, StudioShellBundleStatus,
+    StudioShellDescriptorStatus, StudioShellTemplateStatus,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -42,6 +43,7 @@ enum Command {
     ValidateShellArtifacts(ManifestArgs),
     ShellTemplates(ShellTemplatesArgs),
     ValidateShellTemplates(TemplateIndexArgs),
+    ShellBundle(ShellBundleArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -199,6 +201,16 @@ struct ShellTemplatesArgs {
 struct TemplateIndexArgs {
     #[arg(long)]
     index: PathBuf,
+}
+
+#[derive(Debug, Parser)]
+struct ShellBundleArgs {
+    #[arg(long)]
+    project: PathBuf,
+    #[arg(long)]
+    graph: String,
+    #[arg(long)]
+    output_dir: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
@@ -484,6 +496,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::ValidateShellTemplates(args) => {
             let index = load_shell_template_index(&args.index)?;
             let report = validate_shell_template_index(&index, args.index.parent());
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellBundle(args) => {
+            let project = load_project(&args.project)?;
+            let report =
+                selected_shell_bundle_for_graph(&project, args.project.parent(), &args.graph);
+            if report.status == StudioShellBundleStatus::Exported {
+                if let Some(output_dir) = args.output_dir.as_ref() {
+                    save_shell_bundle(output_dir, &report)?;
+                }
+            }
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }

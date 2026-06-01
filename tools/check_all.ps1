@@ -30,13 +30,14 @@ try {
     $ShellOutput = Join-Path $RepoRoot "target\studio-shell-descriptor-desktop.json"
     $ShellArtifactsDir = Join-Path $RepoRoot "target\studio-shells"
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
+    $SelectedShellBundleDir = Join-Path $RepoRoot "target\studio-selected-shell\studio.graph.synthetic_wave_desktop"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
     foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
     }
-    foreach ($GeneratedDir in @($ShellArtifactsDir, $ShellTemplatesDir)) {
+    foreach ($GeneratedDir in @($ShellArtifactsDir, $ShellTemplatesDir, $SelectedShellBundleDir)) {
         if (Test-Path $GeneratedDir) {
             Remove-Item -Recurse -Force -LiteralPath $GeneratedDir
         }
@@ -972,6 +973,80 @@ try {
         if ($StagedDescriptorValidation.status -ne "pass") {
             throw "shell template staged descriptor validation did not pass: $($TemplateEntry.descriptor_path)"
         }
+    }
+    $SelectedShellBundleOutput = & cargo run --quiet -p rusty-studio-cli -- shell-bundle --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --output-dir $SelectedShellBundleDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio selected shell bundle report failed with exit code $LASTEXITCODE"
+    }
+    $SelectedShellBundleText = $SelectedShellBundleOutput -join [Environment]::NewLine
+    $SelectedShellBundle = $SelectedShellBundleText | ConvertFrom-Json
+    if ($SelectedShellBundle.'$schema' -ne "rusty.studio.shell_bundle_report.v1") {
+        throw "selected shell bundle schema mismatch"
+    }
+    if ($SelectedShellBundle.status -ne "exported") {
+        throw "selected shell bundle was not exported"
+    }
+    if ($SelectedShellBundle.graph_id -ne "studio.graph.synthetic_wave_desktop") {
+        throw "selected shell bundle graph id mismatch"
+    }
+    if ($SelectedShellBundle.artifact_manifest.artifacts.Count -ne 1) {
+        throw "selected shell bundle should contain one artifact"
+    }
+    if ($SelectedShellBundle.template_index.templates.Count -ne 1) {
+        throw "selected shell bundle should contain one template"
+    }
+    if (@($SelectedShellBundle.bundle_files) -notcontains "descriptors/studio.graph.synthetic_wave_desktop.shell-descriptor.json") {
+        throw "selected shell bundle missing descriptor path"
+    }
+    if (@($SelectedShellBundle.bundle_files) -notcontains "shell-artifacts.json") {
+        throw "selected shell bundle missing artifact manifest path"
+    }
+    if (@($SelectedShellBundle.bundle_files) -notcontains "shell-templates.json") {
+        throw "selected shell bundle missing template index path"
+    }
+    if (@($SelectedShellBundle.bundle_files) -notcontains "shells/desktop/studio.graph.synthetic_wave_desktop.shell-template.json") {
+        throw "selected shell bundle missing template manifest path"
+    }
+    if ($SelectedShellBundle.template_manifest.runtime_authority.command_session_authority -ne "rusty.manifold") {
+        throw "selected shell bundle command/session authority mismatch"
+    }
+    if ($SelectedShellBundle.template_manifest.runtime_authority.install_launch_evidence_authority -ne "rusty.hostess") {
+        throw "selected shell bundle install/launch/evidence authority mismatch"
+    }
+    if ($SelectedShellBundle.template_manifest.runtime_authority.studio_role -ne "authoring.export_planning") {
+        throw "selected shell bundle Studio role mismatch"
+    }
+    $SelectedBundleDescriptorPath = Join-Path $SelectedShellBundleDir "descriptors\studio.graph.synthetic_wave_desktop.shell-descriptor.json"
+    if (-not (Test-Path $SelectedBundleDescriptorPath)) {
+        throw "selected shell bundle descriptor was not written"
+    }
+    $SelectedBundleManifestPath = Join-Path $SelectedShellBundleDir "shell-artifacts.json"
+    if (-not (Test-Path $SelectedBundleManifestPath)) {
+        throw "selected shell bundle artifact manifest was not written"
+    }
+    $SelectedBundleIndexPath = Join-Path $SelectedShellBundleDir "shell-templates.json"
+    if (-not (Test-Path $SelectedBundleIndexPath)) {
+        throw "selected shell bundle template index was not written"
+    }
+    $SelectedBundleTemplatePath = Join-Path $SelectedShellBundleDir "shells\desktop\studio.graph.synthetic_wave_desktop.shell-template.json"
+    if (-not (Test-Path $SelectedBundleTemplatePath)) {
+        throw "selected shell bundle template manifest was not written"
+    }
+    $SelectedBundleArtifactValidationOutput = & cargo run --quiet -p rusty-studio-cli -- validate-shell-artifacts --manifest $SelectedBundleManifestPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio validate selected shell bundle artifacts failed with exit code $LASTEXITCODE"
+    }
+    $SelectedBundleArtifactValidation = ($SelectedBundleArtifactValidationOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($SelectedBundleArtifactValidation.status -ne "pass") {
+        throw "selected shell bundle artifact validation did not pass"
+    }
+    $SelectedBundleTemplateValidationOutput = & cargo run --quiet -p rusty-studio-cli -- validate-shell-templates --index $SelectedBundleIndexPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio validate selected shell bundle templates failed with exit code $LASTEXITCODE"
+    }
+    $SelectedBundleTemplateValidation = ($SelectedBundleTemplateValidationOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($SelectedBundleTemplateValidation.status -ne "pass") {
+        throw "selected shell bundle template validation did not pass"
     }
 } finally {
     Pop-Location

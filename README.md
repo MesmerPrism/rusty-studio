@@ -53,6 +53,8 @@ Current scope:
 - validate generated shell template indexes and manifests;
 - expose a selected-graph shell descriptor/template preview through the shared
   view model and Makepad surface;
+- export a selected-graph schema-only shell bundle from shared core logic,
+  CLI, and Makepad preview action;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -89,6 +91,7 @@ cargo run -p rusty-studio-cli -- shell-artifacts --project examples\synthetic-st
 cargo run -p rusty-studio-cli -- validate-shell-artifacts --manifest target\studio-shells\shell-artifacts.json
 cargo run -p rusty-studio-cli -- shell-templates --manifest target\studio-shells\shell-artifacts.json --output-dir target\studio-shell-templates
 cargo run -p rusty-studio-cli -- validate-shell-templates --index target\studio-shell-templates\shell-templates.json
+cargo run -p rusty-studio-cli -- shell-bundle --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --output-dir target\studio-selected-shell\studio.graph.synthetic_wave_desktop
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json

@@ -4,12 +4,14 @@ use makepad_widgets::*;
 use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
     add_next_catalog_module_to_graph, load_project, remove_binding_from_graph,
-    remove_module_from_graph, retarget_graph_host_profile, save_project, view_model_for_graph,
+    remove_module_from_graph, retarget_graph_host_profile, save_project, save_shell_bundle,
+    selected_shell_bundle_for_graph, view_model_for_graph,
     view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView,
-    StudioShellDescriptorStatus, StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
+    StudioShellBundleReport, StudioShellBundleStatus, StudioShellDescriptorStatus,
+    StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
 };
 use std::path::{Path, PathBuf};
 
@@ -169,11 +171,16 @@ script_mod! {
 
     let ShellPreviewPanel = Panel{
         SectionTitle{text: "Shell Preview"}
+        ButtonRow{
+            export_shell_bundle_button := ActionButton{text: "Export Preview Files"}
+        }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
         Row{FieldLabel{text: "routes"} shell_routes := SmallValue{text: ""}}
         Rule{}
         Row{FieldLabel{text: "template"} shell_template := SmallValue{text: ""}}
+        Rule{}
+        Row{FieldLabel{text: "bundle"} shell_bundle_status := SmallValue{text: ""}}
     }
 
     let PalettePanel = Panel{
@@ -752,6 +759,8 @@ pub struct App {
     last_edit_report: Option<StudioEditReport>,
     #[rust]
     last_edit_save_issue: String,
+    #[rust]
+    last_shell_bundle_status: String,
 }
 
 impl App {
@@ -864,6 +873,10 @@ impl App {
         self.ui
             .label(cx, ids!(shell_template))
             .set_text(cx, &shell_template_lines(model));
+        self.ui.label(cx, ids!(shell_bundle_status)).set_text(
+            cx,
+            &shell_bundle_status_line(&self.last_shell_bundle_status),
+        );
         self.ui
             .label(cx, ids!(graph_layout))
             .set_text(cx, &layout_lines(graph));
@@ -982,6 +995,31 @@ impl App {
             Err(error) => {
                 self.last_edit_report = None;
                 self.last_edit_save_issue = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn export_shell_bundle_for_selected_graph(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        let Some(model) = self.model.clone() else {
+            self.last_shell_bundle_status = "No view model is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match export_shell_bundle_for_project_source(&source, &model, self.selected_graph_index) {
+            Ok((report, output_dir)) => {
+                self.last_shell_bundle_status = shell_bundle_export_status(&report, &output_dir);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
             }
         }
         self.sync_loaded_model(cx);
@@ -1237,6 +1275,9 @@ impl App {
         self.ui.label(cx, ids!(shell_preview)).set_text(cx, "");
         self.ui.label(cx, ids!(shell_routes)).set_text(cx, "");
         self.ui.label(cx, ids!(shell_template)).set_text(cx, "");
+        self.ui
+            .label(cx, ids!(shell_bundle_status))
+            .set_text(cx, "");
         self.ui.label(cx, ids!(graph_layout)).set_text(cx, "");
         if let Some(mut canvas) = self
             .ui
@@ -1574,6 +1615,13 @@ impl MatchEvent for App {
         }
         if self
             .ui
+            .button(cx, ids!(export_shell_bundle_button))
+            .clicked(actions)
+        {
+            self.export_shell_bundle_for_selected_graph(cx);
+        }
+        if self
+            .ui
             .button(cx, ids!(remove_selected_module_button))
             .clicked(actions)
         {
@@ -1661,6 +1709,24 @@ fn canvas_selection_view_model_for_project_source(
         requested_node_id,
         requested_edge_id,
     )
+}
+
+fn export_shell_bundle_for_project_source(
+    project_path: &Path,
+    model: &StudioViewModel,
+    selected_graph_index: usize,
+) -> Result<(StudioShellBundleReport, PathBuf), String> {
+    let graph_id = selected_graph_id_for_model(model, selected_graph_index)
+        .ok_or_else(|| "No graph is selected".to_string())?;
+    let project =
+        load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
+    let report = selected_shell_bundle_for_graph(&project, project_path.parent(), &graph_id);
+    let output_dir = selected_shell_bundle_output_dir(project_path, &graph_id);
+    if report.status == StudioShellBundleStatus::Exported {
+        save_shell_bundle(&output_dir, &report)
+            .map_err(|error| format!("Shell bundle save failed: {error}"))?;
+    }
+    Ok((report, output_dir))
 }
 
 fn retarget_project_source(
@@ -1841,6 +1907,15 @@ fn selected_graph_id_for_model(
         .graphs
         .get(selected_graph_index)
         .map(|graph| graph.graph_id.clone())
+}
+
+fn selected_shell_bundle_output_dir(project_path: &Path, graph_id: &str) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-selected-shell")
+        .join(graph_id)
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -2336,6 +2411,43 @@ fn shell_template_lines(model: &StudioViewModel) -> String {
         preview.studio_role.as_deref().unwrap_or("unknown")
     ));
     lines.join("\n")
+}
+
+fn shell_bundle_status_line(status: &str) -> String {
+    if status.is_empty() {
+        "not exported".to_string()
+    } else {
+        status.to_string()
+    }
+}
+
+fn shell_bundle_export_status(report: &StudioShellBundleReport, output_dir: &Path) -> String {
+    let status = shell_bundle_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    if report.status != StudioShellBundleStatus::Exported {
+        return format!(
+            "{status}; issue {issue}\n  graph: {}\n  {}",
+            report.graph_id, report.message
+        );
+    }
+    let files = if report.bundle_files.is_empty() {
+        "none".to_string()
+    } else {
+        report.bundle_files.join("\n  ")
+    };
+    format!(
+        "{status}; issue {issue}\n  graph: {}\n  output: {}\n  files:\n  {}",
+        report.graph_id,
+        output_dir.display(),
+        files
+    )
+}
+
+fn shell_bundle_status_label(status: StudioShellBundleStatus) -> &'static str {
+    match status {
+        StudioShellBundleStatus::Exported => "exported",
+        StudioShellBundleStatus::Rejected => "rejected",
+    }
 }
 
 fn shell_descriptor_status_label(status: StudioShellDescriptorStatus) -> &'static str {
@@ -2980,6 +3092,56 @@ mod tests {
         assert!(edge_details.contains("status: endpoints_resolved"));
         assert!(edge_details.contains("source: node.shell.operator / operator_shell"));
         assert!(edge_details.contains("target: node.host.profile / host_profile"));
+    }
+
+    #[test]
+    fn selected_shell_bundle_export_writes_preview_files() {
+        let root = temp_root("selected-shell-bundle-export");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+
+        let (report, output_dir) = export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+
+        assert_eq!(report.status, StudioShellBundleStatus::Exported);
+        assert_eq!(
+            report.bundle_files,
+            vec![
+                "descriptors/studio.graph.makepad_edit.shell-descriptor.json".to_string(),
+                "shell-artifacts.json".to_string(),
+                "shell-templates.json".to_string(),
+                "shells/desktop/studio.graph.makepad_edit.shell-template.json".to_string(),
+            ]
+        );
+        for relative_path in &report.bundle_files {
+            let path = relative_path
+                .split('/')
+                .fold(output_dir.clone(), |path, segment| path.join(segment));
+            assert!(path.is_file(), "missing {}", path.display());
+        }
+        let manifest = rusty_studio_core::load_shell_artifact_manifest(
+            &output_dir.join("shell-artifacts.json"),
+        )
+        .expect("load shell artifacts manifest");
+        assert_eq!(
+            rusty_studio_core::validate_shell_artifact_manifest(&manifest, Some(&output_dir))
+                .status,
+            StudioValidationStatus::Pass
+        );
+        let index =
+            rusty_studio_core::load_shell_template_index(&output_dir.join("shell-templates.json"))
+                .expect("load shell template index");
+        assert_eq!(
+            rusty_studio_core::validate_shell_template_index(&index, Some(&output_dir)).status,
+            StudioValidationStatus::Pass
+        );
+        let status = shell_bundle_export_status(&report, &output_dir);
+        assert!(status.contains("exported; issue none"));
+        assert!(status.contains("studio.graph.makepad_edit"));
+        assert!(status.contains("shells/desktop/studio.graph.makepad_edit.shell-template.json"));
     }
 
     #[test]

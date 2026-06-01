@@ -5,7 +5,8 @@ use rusty_studio_model::{
     StudioResolvedGraph, StudioResolvedProject, StudioShellArtifact, StudioShellArtifactManifest,
     StudioShellArtifactManifestValidationReport, StudioShellArtifactRejection,
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
-    StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
+    StudioShellBundleReport, StudioShellBundleStatus, StudioShellDescriptor,
+    StudioShellDescriptorReport, StudioShellDescriptorStatus,
     StudioShellDescriptorValidationReport, StudioShellHostProfile, StudioShellHostRoutes,
     StudioShellRuntimeAuthority, StudioShellTargetKind, StudioShellTemplateIndex,
     StudioShellTemplateIndexEntry, StudioShellTemplateIndexValidationReport,
@@ -14,7 +15,7 @@ use rusty_studio_model::{
     StudioValidationStatus, StudioViewModel, EDIT_REPORT_SCHEMA, EXPORT_PLAN_SCHEMA,
     PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA, SHELL_ARTIFACT_MANIFEST_SCHEMA,
     SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
-    SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
+    SHELL_BUNDLE_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
     SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
     SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
     SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
@@ -2224,6 +2225,184 @@ pub fn shell_templates_for_artifact_manifest(
     )
 }
 
+pub fn selected_shell_bundle_for_graph(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    graph_id: &str,
+) -> StudioShellBundleReport {
+    let descriptor_report = shell_descriptor_for_graph(project, base_dir, graph_id);
+    let (StudioShellDescriptorStatus::Exported, Some(descriptor)) =
+        (descriptor_report.status, descriptor_report.descriptor)
+    else {
+        return shell_bundle_report(
+            project,
+            graph_id,
+            StudioShellBundleStatus::Rejected,
+            descriptor_report.issue_code,
+            descriptor_report.message,
+            Vec::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+    };
+
+    let descriptor_validation = validate_shell_descriptor(&descriptor);
+    if descriptor_validation.status == StudioValidationStatus::Fail {
+        let issue_code = first_failed_check_issue_code(&descriptor_validation)
+            .unwrap_or_else(|| "studio.issue.shell_descriptor_invalid".to_string());
+        return shell_bundle_report(
+            project,
+            graph_id,
+            StudioShellBundleStatus::Rejected,
+            Some(issue_code),
+            "Generated shell descriptor failed validation".to_string(),
+            Vec::new(),
+            Some(descriptor_validation),
+            None,
+            None,
+            Some(descriptor),
+            None,
+            None,
+            None,
+        );
+    }
+
+    let artifact = shell_artifact_for_descriptor(&descriptor);
+    let artifact_manifest = StudioShellArtifactManifest {
+        schema_id: SHELL_ARTIFACT_MANIFEST_SCHEMA.to_string(),
+        manifest_id: selected_shell_bundle_manifest_id(&project.project_id, &descriptor.graph_id),
+        project_id: project.project_id.clone(),
+        project_revision: project.revision,
+        artifacts: vec![artifact.clone()],
+    };
+    let artifact_validation = validate_shell_artifact_manifest(&artifact_manifest, None);
+    if artifact_validation.status == StudioValidationStatus::Fail {
+        let issue_code = first_failed_shell_artifact_manifest_issue_code(&artifact_validation)
+            .unwrap_or_else(|| "studio.issue.shell_artifact_manifest_invalid".to_string());
+        return shell_bundle_report(
+            project,
+            graph_id,
+            StudioShellBundleStatus::Rejected,
+            Some(issue_code),
+            "Generated selected shell artifact manifest failed validation".to_string(),
+            Vec::new(),
+            Some(descriptor_validation),
+            Some(artifact_validation),
+            None,
+            Some(descriptor),
+            Some(artifact_manifest),
+            None,
+            None,
+        );
+    }
+
+    let template_manifest = shell_template_for_artifact(&artifact);
+    let template_entry = shell_template_index_entry(&artifact);
+    let template_index = StudioShellTemplateIndex {
+        schema_id: SHELL_TEMPLATE_INDEX_SCHEMA.to_string(),
+        index_id: selected_shell_bundle_template_index_id(
+            &project.project_id,
+            &descriptor.graph_id,
+        ),
+        manifest_id: artifact_manifest.manifest_id.clone(),
+        project_id: project.project_id.clone(),
+        project_revision: project.revision,
+        templates: vec![template_entry.clone()],
+    };
+    let template_validation = validate_shell_template_index(&template_index, None);
+    if template_validation.status == StudioValidationStatus::Fail {
+        let issue_code = first_failed_shell_template_index_issue_code(&template_validation)
+            .unwrap_or_else(|| "studio.issue.shell_template_index_invalid".to_string());
+        return shell_bundle_report(
+            project,
+            graph_id,
+            StudioShellBundleStatus::Rejected,
+            Some(issue_code),
+            "Generated selected shell template index failed validation".to_string(),
+            Vec::new(),
+            Some(descriptor_validation),
+            Some(artifact_validation),
+            Some(template_validation),
+            Some(descriptor),
+            Some(artifact_manifest),
+            Some(template_index),
+            Some(template_manifest),
+        );
+    }
+
+    let bundle_files = selected_shell_bundle_files(&artifact, &template_entry);
+    shell_bundle_report(
+        project,
+        graph_id,
+        StudioShellBundleStatus::Exported,
+        None,
+        "Selected shell bundle exported".to_string(),
+        bundle_files,
+        Some(descriptor_validation),
+        Some(artifact_validation),
+        Some(template_validation),
+        Some(descriptor),
+        Some(artifact_manifest),
+        Some(template_index),
+        Some(template_manifest),
+    )
+}
+
+pub fn save_shell_bundle(
+    output_dir: &Path,
+    report: &StudioShellBundleReport,
+) -> Result<Vec<String>, StudioCoreError> {
+    if report.status != StudioShellBundleStatus::Exported {
+        return Ok(Vec::new());
+    }
+    let Some(descriptor) = report.descriptor.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let Some(artifact_manifest) = report.artifact_manifest.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let Some(template_index) = report.template_index.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let Some(template_manifest) = report.template_manifest.as_ref() else {
+        return Ok(Vec::new());
+    };
+
+    let mut written_files = BTreeSet::new();
+    for relative_path in descriptor_bundle_paths(report) {
+        save_json(
+            &relative_output_path(output_dir, &relative_path),
+            descriptor,
+        )?;
+        written_files.insert(relative_path);
+    }
+    save_json(
+        &relative_output_path(output_dir, "shell-artifacts.json"),
+        artifact_manifest,
+    )?;
+    written_files.insert("shell-artifacts.json".to_string());
+    save_json(
+        &relative_output_path(output_dir, "shell-templates.json"),
+        template_index,
+    )?;
+    written_files.insert("shell-templates.json".to_string());
+    for entry in &template_index.templates {
+        if entry.template_id == template_manifest.template_id {
+            save_json(
+                &relative_output_path(output_dir, &entry.template_path),
+                template_manifest,
+            )?;
+            written_files.insert(entry.template_path.clone());
+        }
+    }
+    Ok(written_files.into_iter().collect())
+}
+
 pub fn validate_shell_template_index(
     index: &StudioShellTemplateIndex,
     base_dir: Option<&Path>,
@@ -3694,6 +3873,82 @@ fn shell_template_report(
     }
 }
 
+fn shell_bundle_report(
+    project: &StudioProject,
+    graph_id: &str,
+    status: StudioShellBundleStatus,
+    issue_code: Option<String>,
+    message: String,
+    bundle_files: Vec<String>,
+    descriptor_validation: Option<StudioShellDescriptorValidationReport>,
+    artifact_validation: Option<StudioShellArtifactManifestValidationReport>,
+    template_validation: Option<StudioShellTemplateIndexValidationReport>,
+    descriptor: Option<StudioShellDescriptor>,
+    artifact_manifest: Option<StudioShellArtifactManifest>,
+    template_index: Option<StudioShellTemplateIndex>,
+    template_manifest: Option<StudioShellTemplateManifest>,
+) -> StudioShellBundleReport {
+    StudioShellBundleReport {
+        schema_id: SHELL_BUNDLE_REPORT_SCHEMA,
+        project_id: project.project_id.clone(),
+        revision: project.revision,
+        graph_id: graph_id.to_string(),
+        status,
+        issue_code,
+        message,
+        bundle_files,
+        descriptor_validation,
+        artifact_validation,
+        template_validation,
+        descriptor,
+        artifact_manifest,
+        template_index,
+        template_manifest,
+    }
+}
+
+fn selected_shell_bundle_manifest_id(project_id: &str, graph_id: &str) -> String {
+    format!("studio.shell_artifacts.{project_id}.{graph_id}")
+}
+
+fn selected_shell_bundle_template_index_id(project_id: &str, graph_id: &str) -> String {
+    format!("studio.shell_templates.{project_id}.{graph_id}")
+}
+
+fn selected_shell_bundle_files(
+    artifact: &StudioShellArtifact,
+    template_entry: &StudioShellTemplateIndexEntry,
+) -> Vec<String> {
+    let mut files = BTreeSet::new();
+    files.insert(artifact.descriptor_path.clone());
+    files.insert(template_entry.descriptor_path.clone());
+    files.insert(template_entry.template_path.clone());
+    files.insert("shell-artifacts.json".to_string());
+    files.insert("shell-templates.json".to_string());
+    files.into_iter().collect()
+}
+
+fn descriptor_bundle_paths(report: &StudioShellBundleReport) -> Vec<String> {
+    let mut paths = BTreeSet::new();
+    if let Some(manifest) = report.artifact_manifest.as_ref() {
+        for artifact in &manifest.artifacts {
+            paths.insert(artifact.descriptor_path.clone());
+        }
+    }
+    if let Some(index) = report.template_index.as_ref() {
+        for entry in &index.templates {
+            paths.insert(entry.descriptor_path.clone());
+        }
+    }
+    paths.into_iter().collect()
+}
+
+fn relative_output_path(output_dir: &Path, relative_path: &str) -> PathBuf {
+    relative_path
+        .split('/')
+        .fold(output_dir.to_path_buf(), |path, segment| path.join(segment))
+}
+
 fn duplicate_artifact_field<F>(artifacts: &[StudioShellArtifact], field: F) -> Vec<String>
 where
     F: Fn(&StudioShellArtifact) -> &str,
@@ -5040,6 +5295,16 @@ fn first_failed_shell_artifact_manifest_issue_code(
     })
 }
 
+fn first_failed_shell_template_index_issue_code(
+    report: &StudioShellTemplateIndexValidationReport,
+) -> Option<String> {
+    report.checks.iter().find_map(|check| {
+        (check.status == StudioValidationStatus::Fail)
+            .then(|| check.issue_code.clone())
+            .flatten()
+    })
+}
+
 fn optional_dotted_id(value: Option<&str>) -> bool {
     match value {
         Some(value) => is_dotted_id(value),
@@ -5081,8 +5346,8 @@ mod tests {
     use rusty_studio_model::{
         StudioBindingKind, StudioEdgeKind, StudioEdgeLayout, StudioEdgeRouteKind,
         StudioEditOperation, StudioEditStatus, StudioGraphLayout, StudioNode, StudioNodeKind,
-        StudioNodeLayout, StudioShellArtifactStatus, StudioShellDescriptorStatus,
-        StudioShellTargetKind, StudioShellTemplateStatus,
+        StudioNodeLayout, StudioShellArtifactStatus, StudioShellBundleStatus,
+        StudioShellDescriptorStatus, StudioShellTargetKind, StudioShellTemplateStatus,
         SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
     };
 
@@ -5777,6 +6042,123 @@ mod tests {
                 && template.runtime_authority.install_launch_evidence_authority == "rusty.hostess"
                 && template.runtime_authority.studio_role == "authoring.export_planning"
         }));
+    }
+
+    #[test]
+    fn selected_shell_bundle_exports_single_graph_contract() {
+        let root = temp_root("selected-shell-bundle");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+
+        let report = selected_shell_bundle_for_graph(&project, Some(&root), "studio.graph.test");
+
+        assert_eq!(report.status, StudioShellBundleStatus::Exported);
+        assert_eq!(report.issue_code, None);
+        assert_eq!(report.graph_id, "studio.graph.test");
+        assert_eq!(
+            report.bundle_files,
+            vec![
+                "descriptors/studio.graph.test.shell-descriptor.json".to_string(),
+                "shell-artifacts.json".to_string(),
+                "shell-templates.json".to_string(),
+                "shells/desktop/studio.graph.test.shell-template.json".to_string(),
+            ]
+        );
+        assert_eq!(
+            report
+                .descriptor_validation
+                .as_ref()
+                .expect("descriptor validation")
+                .status,
+            StudioValidationStatus::Pass
+        );
+        assert_eq!(
+            report
+                .artifact_validation
+                .as_ref()
+                .expect("artifact validation")
+                .status,
+            StudioValidationStatus::Pass
+        );
+        assert_eq!(
+            report
+                .template_validation
+                .as_ref()
+                .expect("template validation")
+                .status,
+            StudioValidationStatus::Pass
+        );
+        let manifest = report
+            .artifact_manifest
+            .as_ref()
+            .expect("artifact manifest");
+        assert_eq!(manifest.artifacts.len(), 1);
+        assert_eq!(
+            manifest.manifest_id,
+            "studio.shell_artifacts.studio.project.test.studio.graph.test"
+        );
+        let index = report.template_index.as_ref().expect("template index");
+        assert_eq!(index.templates.len(), 1);
+        assert_eq!(
+            index.index_id,
+            "studio.shell_templates.studio.project.test.studio.graph.test"
+        );
+        assert_eq!(
+            report
+                .template_manifest
+                .as_ref()
+                .expect("template manifest")
+                .runtime_authority
+                .install_launch_evidence_authority,
+            "rusty.hostess"
+        );
+    }
+
+    #[test]
+    fn selected_shell_bundle_writes_valid_files() {
+        let root = temp_root("selected-shell-bundle-write");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+        let report = selected_shell_bundle_for_graph(&project, Some(&root), "studio.graph.test");
+        let output_dir = root.join("selected-shell");
+
+        let written_files = save_shell_bundle(&output_dir, &report).expect("save shell bundle");
+
+        assert_eq!(written_files, report.bundle_files);
+        assert!(output_dir
+            .join("descriptors/studio.graph.test.shell-descriptor.json")
+            .is_file());
+        assert!(output_dir.join("shell-artifacts.json").is_file());
+        assert!(output_dir.join("shell-templates.json").is_file());
+        assert!(output_dir
+            .join("shells/desktop/studio.graph.test.shell-template.json")
+            .is_file());
+
+        let manifest =
+            load_shell_artifact_manifest(&output_dir.join("shell-artifacts.json")).unwrap();
+        let artifact_validation = validate_shell_artifact_manifest(&manifest, Some(&output_dir));
+        assert_eq!(artifact_validation.status, StudioValidationStatus::Pass);
+        let index = load_shell_template_index(&output_dir.join("shell-templates.json")).unwrap();
+        let template_validation = validate_shell_template_index(&index, Some(&output_dir));
+        assert_eq!(template_validation.status, StudioValidationStatus::Pass);
+    }
+
+    #[test]
+    fn selected_shell_bundle_reports_descriptor_rejection() {
+        let root = temp_root("selected-shell-bundle-reject");
+        write_reference_fixture_tree(&root);
+        let project = valid_project_with_relative_references();
+
+        let report = selected_shell_bundle_for_graph(&project, Some(&root), "studio.graph.test");
+
+        assert_eq!(report.status, StudioShellBundleStatus::Rejected);
+        assert_eq!(
+            report.issue_code.as_deref(),
+            Some("studio.issue.no_operator_shell")
+        );
+        assert!(report.bundle_files.is_empty());
+        assert_eq!(report.descriptor, None);
+        assert_eq!(report.template_index, None);
     }
 
     #[test]
