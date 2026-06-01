@@ -1082,6 +1082,44 @@ try {
             throw "selected shell bundle current validation missing check $RequiredSelectedBundleCheck"
         }
     }
+    $DesktopHandoffOutput = & cargo run --quiet -p rusty-studio-cli -- desktop-shell-handoff --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --bundle-dir $SelectedShellBundleDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio desktop shell handoff failed with exit code $LASTEXITCODE"
+    }
+    $DesktopHandoff = ($DesktopHandoffOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($DesktopHandoff.'$schema' -ne "rusty.studio.shell_handoff_report.v1") {
+        throw "desktop shell handoff schema mismatch"
+    }
+    if ($DesktopHandoff.status -ne "pass") {
+        throw "desktop shell handoff did not pass"
+    }
+    if ($DesktopHandoff.handoff_kind -ne "desktop_shell") {
+        throw "desktop shell handoff kind mismatch"
+    }
+    if ($DesktopHandoff.consumer_id -ne "rusty-studio-desktop-shell") {
+        throw "desktop shell handoff consumer mismatch"
+    }
+    if ($DesktopHandoff.target_kind -ne "desktop") {
+        throw "desktop shell handoff target mismatch"
+    }
+    if (@($DesktopHandoff.consumer_args) -notcontains "--templates") {
+        throw "desktop shell handoff missing --templates arg"
+    }
+    if (@($DesktopHandoff.consumer_args) -notcontains (Join-Path $SelectedShellBundleDir "shell-templates.json")) {
+        throw "desktop shell handoff missing template index arg"
+    }
+    if ($DesktopHandoff.validation.status -ne "pass") {
+        throw "desktop shell handoff validation did not pass"
+    }
+    if ($DesktopHandoff.runtime_authority.command_session_authority -ne "rusty.manifold") {
+        throw "desktop shell handoff command/session authority mismatch"
+    }
+    if ($DesktopHandoff.runtime_authority.install_launch_evidence_authority -ne "rusty.hostess") {
+        throw "desktop shell handoff install/launch/evidence authority mismatch"
+    }
+    if ($DesktopHandoff.runtime_authority.studio_role -ne "authoring.export_planning") {
+        throw "desktop shell handoff Studio role mismatch"
+    }
 } finally {
     Pop-Location
 }

@@ -22,6 +22,7 @@ pub const SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA: &str =
 pub const SHELL_BUNDLE_REPORT_SCHEMA: &str = "rusty.studio.shell_bundle_report.v1";
 pub const SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA: &str =
     "rusty.studio.shell_bundle_validation_report.v1";
+pub const SHELL_HANDOFF_REPORT_SCHEMA: &str = "rusty.studio.shell_handoff_report.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -456,6 +457,35 @@ pub struct StudioShellBundleValidationReport {
     pub status: StudioValidationStatus,
     pub expected_bundle_files: Vec<String>,
     pub checks: Vec<StudioValidationCheck>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: &'static str,
+    pub project_id: String,
+    pub revision: u64,
+    pub graph_id: String,
+    pub status: StudioValidationStatus,
+    pub issue_code: Option<String>,
+    pub message: String,
+    pub handoff_kind: StudioShellHandoffKind,
+    pub consumer_id: String,
+    pub target_kind: StudioShellTargetKind,
+    pub bundle_dir: String,
+    pub descriptor_path: String,
+    pub artifact_manifest_path: String,
+    pub template_index_path: String,
+    pub template_manifest_path: String,
+    pub consumer_args: Vec<String>,
+    pub runtime_authority: Option<StudioShellRuntimeAuthority>,
+    pub validation: StudioShellBundleValidationReport,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHandoffKind {
+    DesktopShell,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

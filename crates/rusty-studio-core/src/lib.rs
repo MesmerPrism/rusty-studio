@@ -7,19 +7,20 @@ use rusty_studio_model::{
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
-    StudioShellDescriptorValidationReport, StudioShellHostProfile, StudioShellHostRoutes,
-    StudioShellRuntimeAuthority, StudioShellTargetKind, StudioShellTemplateIndex,
-    StudioShellTemplateIndexEntry, StudioShellTemplateIndexValidationReport,
-    StudioShellTemplateManifest, StudioShellTemplateReport, StudioShellTemplateStatus,
-    StudioValidationCheck, StudioValidationIssueView, StudioValidationReport,
-    StudioValidationStatus, StudioViewModel, EDIT_REPORT_SCHEMA, EXPORT_PLAN_SCHEMA,
-    PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA, SHELL_ARTIFACT_MANIFEST_SCHEMA,
-    SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
-    SHELL_BUNDLE_REPORT_SCHEMA, SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA,
-    SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
-    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
-    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
-    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
+    StudioShellDescriptorValidationReport, StudioShellHandoffKind, StudioShellHandoffReport,
+    StudioShellHostProfile, StudioShellHostRoutes, StudioShellRuntimeAuthority,
+    StudioShellTargetKind, StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
+    StudioShellTemplateIndexValidationReport, StudioShellTemplateManifest,
+    StudioShellTemplateReport, StudioShellTemplateStatus, StudioValidationCheck,
+    StudioValidationIssueView, StudioValidationReport, StudioValidationStatus, StudioViewModel,
+    EDIT_REPORT_SCHEMA, EXPORT_PLAN_SCHEMA, PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA,
+    SHELL_ARTIFACT_MANIFEST_SCHEMA, SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA,
+    SHELL_ARTIFACT_REPORT_SCHEMA, SHELL_BUNDLE_REPORT_SCHEMA,
+    SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
+    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_REPORT_SCHEMA,
+    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
+    VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -2656,6 +2657,126 @@ pub fn validate_selected_shell_bundle(
     shell_bundle_validation_report(project, graph_id, expected_bundle_files, checks)
 }
 
+pub fn desktop_shell_handoff_for_bundle(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    graph_id: &str,
+    bundle_dir: &Path,
+) -> StudioShellHandoffReport {
+    let validation = validate_selected_shell_bundle(project, base_dir, graph_id, bundle_dir);
+    let artifact_manifest_path = relative_output_path(bundle_dir, "shell-artifacts.json");
+    let template_index_path = relative_output_path(bundle_dir, "shell-templates.json");
+    if validation.status == StudioValidationStatus::Fail {
+        let issue_code = first_failed_shell_bundle_validation_issue_code(&validation)
+            .unwrap_or_else(|| "studio.issue.shell_bundle_validation_failed".to_string());
+        return shell_handoff_report(
+            project,
+            graph_id,
+            StudioValidationStatus::Fail,
+            Some(issue_code),
+            "Selected shell bundle validation failed".to_string(),
+            bundle_dir,
+            String::new(),
+            artifact_manifest_path.display().to_string(),
+            template_index_path.display().to_string(),
+            String::new(),
+            Vec::new(),
+            StudioShellTargetKind::Unknown,
+            None,
+            validation,
+        );
+    }
+
+    let index = match load_shell_template_index(&template_index_path) {
+        Ok(index) => index,
+        Err(error) => {
+            return shell_handoff_report(
+                project,
+                graph_id,
+                StudioValidationStatus::Fail,
+                Some("studio.issue.shell_template_index_parse_failed".to_string()),
+                error.to_string(),
+                bundle_dir,
+                String::new(),
+                artifact_manifest_path.display().to_string(),
+                template_index_path.display().to_string(),
+                String::new(),
+                Vec::new(),
+                StudioShellTargetKind::Unknown,
+                None,
+                validation,
+            );
+        }
+    };
+    let Some(entry) = index
+        .templates
+        .iter()
+        .find(|entry| entry.target_kind == StudioShellTargetKind::Desktop)
+        .or_else(|| index.templates.first())
+    else {
+        return shell_handoff_report(
+            project,
+            graph_id,
+            StudioValidationStatus::Fail,
+            Some("studio.issue.shell_template_missing".to_string()),
+            "Shell template index does not declare a loadable template".to_string(),
+            bundle_dir,
+            String::new(),
+            artifact_manifest_path.display().to_string(),
+            template_index_path.display().to_string(),
+            String::new(),
+            Vec::new(),
+            StudioShellTargetKind::Unknown,
+            None,
+            validation,
+        );
+    };
+
+    let descriptor_path = relative_output_path(bundle_dir, &entry.descriptor_path);
+    let template_manifest_path = relative_output_path(bundle_dir, &entry.template_path);
+    let template_manifest = match load_shell_template_manifest(&template_manifest_path) {
+        Ok(template_manifest) => template_manifest,
+        Err(error) => {
+            return shell_handoff_report(
+                project,
+                graph_id,
+                StudioValidationStatus::Fail,
+                Some("studio.issue.shell_template_manifest_parse_failed".to_string()),
+                error.to_string(),
+                bundle_dir,
+                descriptor_path.display().to_string(),
+                artifact_manifest_path.display().to_string(),
+                template_index_path.display().to_string(),
+                template_manifest_path.display().to_string(),
+                Vec::new(),
+                entry.target_kind,
+                None,
+                validation,
+            );
+        }
+    };
+
+    shell_handoff_report(
+        project,
+        graph_id,
+        StudioValidationStatus::Pass,
+        None,
+        "Desktop shell handoff ready".to_string(),
+        bundle_dir,
+        descriptor_path.display().to_string(),
+        artifact_manifest_path.display().to_string(),
+        template_index_path.display().to_string(),
+        template_manifest_path.display().to_string(),
+        vec![
+            "--templates".to_string(),
+            template_index_path.display().to_string(),
+        ],
+        entry.target_kind,
+        Some(template_manifest.runtime_authority),
+        validation,
+    )
+}
+
 pub fn validate_shell_template_index(
     index: &StudioShellTemplateIndex,
     base_dir: Option<&Path>,
@@ -4184,6 +4305,44 @@ fn shell_bundle_validation_report(
     }
 }
 
+fn shell_handoff_report(
+    project: &StudioProject,
+    graph_id: &str,
+    status: StudioValidationStatus,
+    issue_code: Option<String>,
+    message: String,
+    bundle_dir: &Path,
+    descriptor_path: String,
+    artifact_manifest_path: String,
+    template_index_path: String,
+    template_manifest_path: String,
+    consumer_args: Vec<String>,
+    target_kind: StudioShellTargetKind,
+    runtime_authority: Option<StudioShellRuntimeAuthority>,
+    validation: StudioShellBundleValidationReport,
+) -> StudioShellHandoffReport {
+    StudioShellHandoffReport {
+        schema_id: SHELL_HANDOFF_REPORT_SCHEMA,
+        project_id: project.project_id.clone(),
+        revision: project.revision,
+        graph_id: graph_id.to_string(),
+        status,
+        issue_code,
+        message,
+        handoff_kind: StudioShellHandoffKind::DesktopShell,
+        consumer_id: "rusty-studio-desktop-shell".to_string(),
+        target_kind,
+        bundle_dir: bundle_dir.display().to_string(),
+        descriptor_path,
+        artifact_manifest_path,
+        template_index_path,
+        template_manifest_path,
+        consumer_args,
+        runtime_authority,
+        validation,
+    }
+}
+
 fn push_bundle_check(
     checks: &mut Vec<StudioValidationCheck>,
     graph_id: &str,
@@ -5605,6 +5764,16 @@ fn first_failed_shell_template_index_issue_code(
     })
 }
 
+fn first_failed_shell_bundle_validation_issue_code(
+    report: &StudioShellBundleValidationReport,
+) -> Option<String> {
+    report.checks.iter().find_map(|check| {
+        (check.status == StudioValidationStatus::Fail)
+            .then(|| check.issue_code.clone())
+            .flatten()
+    })
+}
+
 fn optional_dotted_id(value: Option<&str>) -> bool {
     match value {
         Some(value) => is_dotted_id(value),
@@ -5647,8 +5816,8 @@ mod tests {
         StudioBindingKind, StudioEdgeKind, StudioEdgeLayout, StudioEdgeRouteKind,
         StudioEditOperation, StudioEditStatus, StudioGraphLayout, StudioNode, StudioNodeKind,
         StudioNodeLayout, StudioShellArtifactStatus, StudioShellBundleStatus,
-        StudioShellDescriptorStatus, StudioShellTargetKind, StudioShellTemplateStatus,
-        SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+        StudioShellDescriptorStatus, StudioShellHandoffKind, StudioShellTargetKind,
+        StudioShellTemplateStatus, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
     };
 
     fn valid_project() -> StudioProject {
@@ -6487,6 +6656,87 @@ mod tests {
         assert!(validation.checks.iter().any(|check| {
             check.issue_code.as_deref() == Some("studio.issue.shell_artifact_manifest_invalid")
         }));
+    }
+
+    #[test]
+    fn desktop_shell_handoff_reports_validated_schema_file_entrypoint() {
+        let root = temp_root("desktop-shell-handoff");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+        let report = selected_shell_bundle_for_graph(&project, Some(&root), "studio.graph.test");
+        let output_dir = root.join("selected-shell");
+        save_shell_bundle(&output_dir, &report).expect("save shell bundle");
+
+        let handoff = desktop_shell_handoff_for_bundle(
+            &project,
+            Some(&root),
+            "studio.graph.test",
+            &output_dir,
+        );
+
+        assert_eq!(handoff.status, StudioValidationStatus::Pass);
+        assert_eq!(handoff.handoff_kind, StudioShellHandoffKind::DesktopShell);
+        assert_eq!(handoff.consumer_id, "rusty-studio-desktop-shell");
+        assert_eq!(handoff.target_kind, StudioShellTargetKind::Desktop);
+        assert_eq!(handoff.validation.status, StudioValidationStatus::Pass);
+        assert!(
+            handoff
+                .descriptor_path
+                .ends_with("descriptors\\studio.graph.test.shell-descriptor.json")
+                || handoff
+                    .descriptor_path
+                    .ends_with("descriptors/studio.graph.test.shell-descriptor.json")
+        );
+        assert!(handoff
+            .template_index_path
+            .ends_with("shell-templates.json"));
+        assert!(
+            handoff
+                .template_manifest_path
+                .ends_with("shells\\desktop\\studio.graph.test.shell-template.json")
+                || handoff
+                    .template_manifest_path
+                    .ends_with("shells/desktop/studio.graph.test.shell-template.json")
+        );
+        assert_eq!(
+            handoff.consumer_args,
+            vec![
+                "--templates".to_string(),
+                output_dir
+                    .join("shell-templates.json")
+                    .display()
+                    .to_string(),
+            ]
+        );
+        let authority = handoff
+            .runtime_authority
+            .expect("handoff carries runtime authority summary");
+        assert_eq!(authority.command_session_authority, "rusty.manifold");
+        assert_eq!(authority.install_launch_evidence_authority, "rusty.hostess");
+        assert_eq!(authority.studio_role, "authoring.export_planning");
+    }
+
+    #[test]
+    fn desktop_shell_handoff_rejects_unvalidated_bundle() {
+        let root = temp_root("desktop-shell-handoff-reject");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+        let output_dir = root.join("missing-selected-shell");
+
+        let handoff = desktop_shell_handoff_for_bundle(
+            &project,
+            Some(&root),
+            "studio.graph.test",
+            &output_dir,
+        );
+
+        assert_eq!(handoff.status, StudioValidationStatus::Fail);
+        assert_eq!(
+            handoff.issue_code.as_deref(),
+            Some("studio.issue.shell_bundle_file_missing")
+        );
+        assert!(handoff.consumer_args.is_empty());
+        assert_eq!(handoff.validation.status, StudioValidationStatus::Fail);
     }
 
     #[test]

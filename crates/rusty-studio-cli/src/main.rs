@@ -1,12 +1,12 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rusty_studio_core::{
     add_binding_to_graph, add_module_to_graph, add_next_catalog_module_from_package_to_graph,
-    add_next_catalog_module_to_graph, export_plan, load_project, load_shell_artifact_manifest,
-    load_shell_descriptor, load_shell_template_index, remove_binding_from_graph,
-    remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
-    save_project, save_shell_bundle, selected_shell_bundle_for_graph, shell_artifacts_for_project,
-    shell_descriptor_artifact_path, shell_descriptor_for_graph,
-    shell_templates_for_artifact_manifest, validate_project_with_base,
+    add_next_catalog_module_to_graph, desktop_shell_handoff_for_bundle, export_plan, load_project,
+    load_shell_artifact_manifest, load_shell_descriptor, load_shell_template_index,
+    remove_binding_from_graph, remove_module_from_graph, resolve_project,
+    retarget_graph_host_profile, save_json, save_project, save_shell_bundle,
+    selected_shell_bundle_for_graph, shell_artifacts_for_project, shell_descriptor_artifact_path,
+    shell_descriptor_for_graph, shell_templates_for_artifact_manifest, validate_project_with_base,
     validate_selected_shell_bundle, validate_shell_artifact_manifest, validate_shell_descriptor,
     validate_shell_template_index, view_model_for_graph_issue_node_and_edge,
 };
@@ -45,6 +45,7 @@ enum Command {
     ValidateShellTemplates(TemplateIndexArgs),
     ShellBundle(ShellBundleArgs),
     ValidateShellBundle(ShellBundleValidationArgs),
+    DesktopShellHandoff(ShellBundleValidationArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -525,6 +526,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::ValidateShellBundle(args) => {
             let project = load_project(&args.project)?;
             let report = validate_selected_shell_bundle(
+                &project,
+                args.project.parent(),
+                &args.graph,
+                &args.bundle_dir,
+            );
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::DesktopShellHandoff(args) => {
+            let project = load_project(&args.project)?;
+            let report = desktop_shell_handoff_for_bundle(
                 &project,
                 args.project.parent(),
                 &args.graph,
