@@ -113,6 +113,13 @@ try {
     if ($ViewModel.validation_issues.Count -ne 0) {
         throw "valid view model should not expose validation issues"
     }
+    $ViewModelDesktopGraph = $ViewModel.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
+    if ($null -eq $ViewModelDesktopGraph) {
+        throw "view model missing desktop graph row"
+    }
+    if ($ViewModelDesktopGraph.validation_issue_count -ne 0) {
+        throw "valid desktop graph row should have no validation issues"
+    }
     if ($ViewModel.catalog_package_count -lt 4) {
         throw "view model should expose at least four catalog packages"
     }
@@ -181,6 +188,20 @@ try {
     }
     if ($PackageReferenceIssue.evidence -notlike "*package references missing from catalog*") {
         throw "diagnostic view model package issue evidence mismatch"
+    }
+    $DiagnosticGraph = $DiagnosticView.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
+    if ($null -eq $DiagnosticGraph) {
+        throw "diagnostic view model missing desktop graph row"
+    }
+    if ($DiagnosticGraph.validation_issue_count -lt 1) {
+        throw "diagnostic desktop graph row should expose validation issue count"
+    }
+    $DiagnosticPackageNode = $DiagnosticGraph.node_rows | Where-Object { $_.node_id -eq "node.package.synthetic_wave" } | Select-Object -First 1
+    if ($null -eq $DiagnosticPackageNode) {
+        throw "diagnostic view model missing package node row"
+    }
+    if ($DiagnosticPackageNode.validation_issue_count -lt 1) {
+        throw "diagnostic package node row should expose validation issue count"
     }
     Invoke-Checked "studio view model selected graph" "cargo" @(
         "run",

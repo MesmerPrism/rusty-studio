@@ -1104,8 +1104,11 @@ fn node_lines(graph: &StudioGraphView) -> String {
         .iter()
         .map(|node| {
             format!(
-                "{} [{}]\n  ref: {}",
-                node.label, node.kind, node.reference_id
+                "{} [{}]\n  ref: {}{}",
+                node.label,
+                node.kind,
+                node.reference_id,
+                issue_count_line(node.validation_issue_count)
             )
         })
         .collect::<Vec<_>>()
@@ -1118,12 +1121,24 @@ fn edge_lines(graph: &StudioGraphView) -> String {
         .iter()
         .map(|edge| {
             format!(
-                "{} [{}]\n  {} -> {}",
-                edge.edge_id, edge.kind, edge.source_node_id, edge.target_node_id
+                "{} [{}]\n  {} -> {}{}",
+                edge.edge_id,
+                edge.kind,
+                edge.source_node_id,
+                edge.target_node_id,
+                issue_count_line(edge.validation_issue_count)
             )
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn issue_count_line(count: usize) -> String {
+    match count {
+        0 => String::new(),
+        1 => "\n  issues: 1".to_string(),
+        _ => format!("\n  issues: {count}"),
+    }
 }
 
 #[cfg(test)]
@@ -1319,6 +1334,10 @@ mod tests {
         assert!(issue_lines.contains("selected graph: studio.graph.makepad_edit"));
         assert!(issue_lines.contains("refs: package.missing"));
         assert!(issue_lines.contains("package references missing from catalog"));
+
+        let node_lines = node_lines(&model.graphs[0]);
+        assert!(node_lines.contains("Package [package]"));
+        assert!(node_lines.contains("issues: 1"));
     }
 
     #[test]

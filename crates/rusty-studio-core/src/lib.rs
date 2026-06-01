@@ -290,7 +290,12 @@ pub fn view_model_for_graph(
         .filter(|check| check.status == StudioValidationStatus::Pass)
         .count();
     let validation_fail_count = validation.checks.len() - validation_pass_count;
-    let graphs = project.graphs.iter().map(graph_view).collect::<Vec<_>>();
+    let issue_target_index = validation_issue_target_index(&validation);
+    let graphs = project
+        .graphs
+        .iter()
+        .map(|graph| graph_view(graph, &issue_target_index))
+        .collect::<Vec<_>>();
     let selected_graph_index = selected_graph_index(&graphs, requested_graph_id);
     let selected_graph_id = selected_graph_index
         .and_then(|index| graphs.get(index))
@@ -3514,12 +3519,20 @@ fn validate_graph_references(
     reference_index: &ReferenceIndex,
     checks: &mut Vec<StudioValidationCheck>,
 ) {
-    let missing_packages = graph
+    let missing_package_targets = graph
         .nodes
         .iter()
         .filter(|node| node.kind == StudioNodeKind::Package)
         .filter(|node| !reference_index.package_ids.contains(&node.reference_id))
-        .map(|node| node.reference_id.clone())
+        .map(|node| (node.node_id.clone(), node.reference_id.clone()))
+        .collect::<Vec<_>>();
+    let missing_package_nodes = missing_package_targets
+        .iter()
+        .map(|(node_id, _)| node_id.clone())
+        .collect::<Vec<_>>();
+    let missing_packages = missing_package_targets
+        .iter()
+        .map(|(_, reference_id)| reference_id.clone())
         .collect::<Vec<_>>();
     push_contextual_check(
         checks,
@@ -3532,17 +3545,25 @@ fn validate_graph_references(
         ),
         "studio.issue.package_reference_missing",
         Some(&graph.graph_id),
-        Vec::new(),
+        missing_package_nodes,
         Vec::new(),
         missing_packages.clone(),
     );
 
-    let missing_modules = graph
+    let missing_module_targets = graph
         .nodes
         .iter()
         .filter(|node| node.kind == StudioNodeKind::Module)
         .filter(|node| !reference_index.module_ids.contains(&node.reference_id))
-        .map(|node| node.reference_id.clone())
+        .map(|node| (node.node_id.clone(), node.reference_id.clone()))
+        .collect::<Vec<_>>();
+    let missing_module_nodes = missing_module_targets
+        .iter()
+        .map(|(node_id, _)| node_id.clone())
+        .collect::<Vec<_>>();
+    let missing_modules = missing_module_targets
+        .iter()
+        .map(|(_, reference_id)| reference_id.clone())
         .collect::<Vec<_>>();
     push_contextual_check(
         checks,
@@ -3555,12 +3576,12 @@ fn validate_graph_references(
         ),
         "studio.issue.module_reference_missing",
         Some(&graph.graph_id),
-        Vec::new(),
+        missing_module_nodes,
         Vec::new(),
         missing_modules.clone(),
     );
 
-    let missing_host_profiles = graph
+    let missing_host_profile_targets = graph
         .nodes
         .iter()
         .filter(|node| node.kind == StudioNodeKind::HostProfile)
@@ -3569,7 +3590,15 @@ fn validate_graph_references(
                 .host_profiles
                 .contains_key(&node.reference_id)
         })
-        .map(|node| node.reference_id.clone())
+        .map(|node| (node.node_id.clone(), node.reference_id.clone()))
+        .collect::<Vec<_>>();
+    let missing_host_profile_nodes = missing_host_profile_targets
+        .iter()
+        .map(|(node_id, _)| node_id.clone())
+        .collect::<Vec<_>>();
+    let missing_host_profiles = missing_host_profile_targets
+        .iter()
+        .map(|(_, reference_id)| reference_id.clone())
         .collect::<Vec<_>>();
     push_contextual_check(
         checks,
@@ -3582,7 +3611,7 @@ fn validate_graph_references(
         ),
         "studio.issue.host_profile_reference_missing",
         Some(&graph.graph_id),
-        Vec::new(),
+        missing_host_profile_nodes,
         Vec::new(),
         missing_host_profiles.clone(),
     );
@@ -3805,12 +3834,70 @@ fn resolve_graph(graph: &StudioGraph) -> StudioResolvedGraph {
     }
 }
 
-fn graph_view(graph: &StudioGraph) -> StudioGraphView {
+#[derive(Default)]
+struct ValidationIssueTargetIndex {
+    graph_counts: BTreeMap<String, usize>,
+    node_counts: BTreeMap<(String, String), usize>,
+    edge_counts: BTreeMap<(String, String), usize>,
+}
+
+impl ValidationIssueTargetIndex {
+    fn graph_issue_count(&self, graph_id: &str) -> usize {
+        self.graph_counts.get(graph_id).copied().unwrap_or(0)
+    }
+
+    fn node_issue_count(&self, graph_id: &str, node_id: &str) -> usize {
+        self.node_counts
+            .get(&(graph_id.to_string(), node_id.to_string()))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn edge_issue_count(&self, graph_id: &str, edge_id: &str) -> usize {
+        self.edge_counts
+            .get(&(graph_id.to_string(), edge_id.to_string()))
+            .copied()
+            .unwrap_or(0)
+    }
+}
+
+fn validation_issue_target_index(report: &StudioValidationReport) -> ValidationIssueTargetIndex {
+    let mut index = ValidationIssueTargetIndex::default();
+    for check in report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+    {
+        let Some(graph_id) = check.graph_id.as_deref() else {
+            continue;
+        };
+        *index.graph_counts.entry(graph_id.to_string()).or_insert(0) += 1;
+        for node_id in &check.node_ids {
+            *index
+                .node_counts
+                .entry((graph_id.to_string(), node_id.clone()))
+                .or_insert(0) += 1;
+        }
+        for edge_id in &check.edge_ids {
+            *index
+                .edge_counts
+                .entry((graph_id.to_string(), edge_id.clone()))
+                .or_insert(0) += 1;
+        }
+    }
+    index
+}
+
+fn graph_view(
+    graph: &StudioGraph,
+    issue_target_index: &ValidationIssueTargetIndex,
+) -> StudioGraphView {
     let resolved = resolve_graph(graph);
     StudioGraphView {
         graph_id: graph.graph_id.clone(),
         display_name: graph.display_name.clone(),
         target_host_profile: graph.target_host_profile.clone(),
+        validation_issue_count: issue_target_index.graph_issue_count(&graph.graph_id),
         node_count: resolved.node_count,
         edge_count: resolved.edge_count,
         package_count: resolved.package_count,
@@ -3824,6 +3911,8 @@ fn graph_view(graph: &StudioGraph) -> StudioGraphView {
                 kind: node_kind_label(node.kind).to_string(),
                 reference_id: node.reference_id.clone(),
                 label: node.label.clone(),
+                validation_issue_count: issue_target_index
+                    .node_issue_count(&graph.graph_id, &node.node_id),
             })
             .collect(),
         edge_rows: graph
@@ -3834,6 +3923,8 @@ fn graph_view(graph: &StudioGraph) -> StudioGraphView {
                 kind: edge_kind_label(edge.kind).to_string(),
                 source_node_id: edge.source_node_id.clone(),
                 target_node_id: edge.target_node_id.clone(),
+                validation_issue_count: issue_target_index
+                    .edge_issue_count(&graph.graph_id, &edge.edge_id),
             })
             .collect(),
     }
@@ -4518,6 +4609,7 @@ mod tests {
             })
             .expect("package reference issue");
         assert_eq!(issue.graph_id.as_deref(), Some("studio.graph.test"));
+        assert_eq!(issue.node_ids, vec!["node.package.synthetic".to_string()]);
         assert_eq!(issue.reference_ids, vec!["package.missing".to_string()]);
     }
 
@@ -5436,11 +5528,14 @@ mod tests {
         assert_eq!(model.validation_fail_count, 0);
         assert!(model.validation_issues.is_empty());
         assert_eq!(model.graph_count, 1);
+        assert_eq!(model.graphs[0].validation_issue_count, 0);
         assert_eq!(model.graphs[0].node_rows[0].kind, "package");
+        assert_eq!(model.graphs[0].node_rows[0].validation_issue_count, 0);
         assert_eq!(
             model.graphs[0].edge_rows[0].kind,
             "shell_targets_host_profile"
         );
+        assert_eq!(model.graphs[0].edge_rows[0].validation_issue_count, 0);
     }
 
     #[test]
@@ -5513,8 +5608,16 @@ mod tests {
             .evidence
             .contains("package references missing from catalog"));
         assert_eq!(issue.graph_id.as_deref(), Some("studio.graph.test"));
+        assert_eq!(issue.node_ids, vec!["node.package.synthetic".to_string()]);
         assert_eq!(issue.reference_ids, vec!["package.missing".to_string()]);
         assert!(issue.targets_selected_graph);
+        assert_eq!(model.graphs[0].validation_issue_count, 1);
+        let package_row = model.graphs[0]
+            .node_rows
+            .iter()
+            .find(|node| node.node_id == "node.package.synthetic")
+            .expect("package node row");
+        assert_eq!(package_row.validation_issue_count, 1);
     }
 
     #[test]

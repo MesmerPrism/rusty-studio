@@ -490,6 +490,7 @@ pub struct StudioGraphView {
     pub graph_id: String,
     pub display_name: String,
     pub target_host_profile: String,
+    pub validation_issue_count: usize,
     pub node_count: usize,
     pub edge_count: usize,
     pub package_count: usize,
@@ -505,6 +506,7 @@ pub struct StudioNodeView {
     pub kind: String,
     pub reference_id: String,
     pub label: String,
+    pub validation_issue_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -513,4 +515,5 @@ pub struct StudioEdgeView {
     pub kind: String,
     pub source_node_id: String,
     pub target_node_id: String,
+    pub validation_issue_count: usize,
 }
