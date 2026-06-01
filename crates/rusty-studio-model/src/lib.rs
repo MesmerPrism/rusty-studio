@@ -31,6 +31,8 @@ pub const SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA: &str =
 pub const SHELL_HANDOFF_INTAKE_REPORT_SCHEMA: &str = "rusty.studio.shell_handoff_intake_report.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_checklist.v1";
+pub const SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA: &str =
+    "rusty.studio.shell_handoff_acceptance_comparison.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -752,6 +754,72 @@ pub struct StudioShellHandoffAcceptanceCheck {
     pub status: StudioValidationStatus,
     pub evidence: String,
     pub issue_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffAcceptanceComparisonReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub baseline_schema: String,
+    pub candidate_schema: String,
+    pub baseline_manifest_id: String,
+    pub candidate_manifest_id: String,
+    pub baseline_project_id: String,
+    pub candidate_project_id: String,
+    pub baseline_project_revision: u64,
+    pub candidate_project_revision: u64,
+    pub baseline_status: StudioShellHandoffAcceptanceStatus,
+    pub candidate_status: StudioShellHandoffAcceptanceStatus,
+    pub status: StudioShellHandoffAcceptanceComparisonStatus,
+    pub issue_code: Option<String>,
+    pub baseline_ready_count: usize,
+    pub candidate_ready_count: usize,
+    pub ready_delta: isize,
+    pub baseline_blocked_count: usize,
+    pub candidate_blocked_count: usize,
+    pub blocked_delta: isize,
+    pub baseline_rejected_count: usize,
+    pub candidate_rejected_count: usize,
+    pub rejected_delta: isize,
+    pub checks: Vec<StudioValidationCheck>,
+    pub entries: Vec<StudioShellHandoffAcceptanceComparisonEntry>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHandoffAcceptanceComparisonStatus {
+    Improved,
+    Unchanged,
+    Regressed,
+    Incomparable,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffAcceptanceComparisonEntry {
+    pub graph_id: String,
+    pub target_kind: Option<StudioShellTargetKind>,
+    pub baseline_status: Option<StudioShellHandoffAcceptanceStatus>,
+    pub candidate_status: Option<StudioShellHandoffAcceptanceStatus>,
+    pub change: StudioShellHandoffAcceptanceComparisonChange,
+    pub score_delta: isize,
+    pub baseline_consumer_id: Option<String>,
+    pub candidate_consumer_id: Option<String>,
+    pub baseline_route_kind: Option<String>,
+    pub candidate_route_kind: Option<String>,
+    pub baseline_issue_code: Option<String>,
+    pub candidate_issue_code: Option<String>,
+    pub issue_code: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHandoffAcceptanceComparisonChange {
+    Added,
+    Removed,
+    Improved,
+    Unchanged,
+    Regressed,
+    Changed,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

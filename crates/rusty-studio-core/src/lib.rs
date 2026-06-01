@@ -9,6 +9,8 @@ use rusty_studio_model::{
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
     StudioShellDescriptorValidationReport, StudioShellHandoffAcceptanceCheck,
     StudioShellHandoffAcceptanceChecklistEntry, StudioShellHandoffAcceptanceChecklistReport,
+    StudioShellHandoffAcceptanceComparisonChange, StudioShellHandoffAcceptanceComparisonEntry,
+    StudioShellHandoffAcceptanceComparisonReport, StudioShellHandoffAcceptanceComparisonStatus,
     StudioShellHandoffAcceptanceStatus, StudioShellHandoffIntakeDecision,
     StudioShellHandoffIntakeEntry, StudioShellHandoffIntakeReport, StudioShellHandoffIntakeStatus,
     StudioShellHandoffIntakeTargetSummary, StudioShellHandoffKind, StudioShellHandoffManifest,
@@ -26,11 +28,12 @@ use rusty_studio_model::{
     SHELL_BUNDLE_REPORT_SCHEMA, SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA,
     SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
     SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA,
-    SHELL_HANDOFF_INTAKE_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
-    SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
-    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
-    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
-    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
+    SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA, SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+    SHELL_HANDOFF_MANIFEST_SCHEMA, SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA,
+    SHELL_HANDOFF_READINESS_REPORT_SCHEMA, SHELL_HANDOFF_REPORT_SCHEMA,
+    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
+    VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -91,6 +94,12 @@ pub enum StudioCoreError {
     },
     #[error("{path}: {source}")]
     ParseShellHandoffIntakeReport {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellHandoffAcceptanceChecklist {
         path: String,
         #[source]
         source: serde_json::Error,
@@ -195,6 +204,21 @@ pub fn load_shell_handoff_intake_report(
     serde_json::from_str(&text).map_err(|source| StudioCoreError::ParseShellHandoffIntakeReport {
         path: path.display().to_string(),
         source,
+    })
+}
+
+pub fn load_shell_handoff_acceptance_checklist(
+    path: &Path,
+) -> Result<StudioShellHandoffAcceptanceChecklistReport, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseShellHandoffAcceptanceChecklist {
+            path: path.display().to_string(),
+            source,
+        }
     })
 }
 
@@ -3150,6 +3174,90 @@ pub fn shell_handoff_acceptance_checklist_for_intake(
     }
 }
 
+pub fn compare_shell_handoff_acceptance_checklists(
+    baseline: &StudioShellHandoffAcceptanceChecklistReport,
+    candidate: &StudioShellHandoffAcceptanceChecklistReport,
+) -> StudioShellHandoffAcceptanceComparisonReport {
+    let checks = shell_handoff_acceptance_comparison_checks(baseline, candidate);
+    let comparable = checks
+        .iter()
+        .all(|check| check.status == StudioValidationStatus::Pass);
+
+    let entries = if comparable {
+        shell_handoff_acceptance_comparison_entries(baseline, candidate)
+    } else {
+        Vec::new()
+    };
+
+    let ready_delta = count_delta(candidate.ready_count, baseline.ready_count);
+    let blocked_delta = count_delta(candidate.blocked_count, baseline.blocked_count);
+    let rejected_delta = count_delta(candidate.rejected_count, baseline.rejected_count);
+
+    let status = if !comparable {
+        StudioShellHandoffAcceptanceComparisonStatus::Incomparable
+    } else if acceptance_status_score(candidate.status) < acceptance_status_score(baseline.status)
+        || ready_delta < 0
+        || blocked_delta > 0
+        || rejected_delta > 0
+        || entries
+            .iter()
+            .any(|entry| entry.change == StudioShellHandoffAcceptanceComparisonChange::Regressed)
+    {
+        StudioShellHandoffAcceptanceComparisonStatus::Regressed
+    } else if acceptance_status_score(candidate.status) > acceptance_status_score(baseline.status)
+        || ready_delta > 0
+        || blocked_delta < 0
+        || rejected_delta < 0
+        || entries
+            .iter()
+            .any(|entry| entry.change == StudioShellHandoffAcceptanceComparisonChange::Improved)
+    {
+        StudioShellHandoffAcceptanceComparisonStatus::Improved
+    } else {
+        StudioShellHandoffAcceptanceComparisonStatus::Unchanged
+    };
+
+    let issue_code = match status {
+        StudioShellHandoffAcceptanceComparisonStatus::Incomparable => {
+            first_failed_validation_check_issue_code(&checks)
+        }
+        StudioShellHandoffAcceptanceComparisonStatus::Regressed => entries
+            .iter()
+            .find(|entry| entry.change == StudioShellHandoffAcceptanceComparisonChange::Regressed)
+            .and_then(|entry| entry.issue_code.clone())
+            .or_else(|| Some("studio.issue.shell_handoff_acceptance_regressed".to_string())),
+        StudioShellHandoffAcceptanceComparisonStatus::Improved
+        | StudioShellHandoffAcceptanceComparisonStatus::Unchanged => None,
+    };
+
+    StudioShellHandoffAcceptanceComparisonReport {
+        schema_id: SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA.to_string(),
+        baseline_schema: baseline.schema_id.clone(),
+        candidate_schema: candidate.schema_id.clone(),
+        baseline_manifest_id: baseline.manifest_id.clone(),
+        candidate_manifest_id: candidate.manifest_id.clone(),
+        baseline_project_id: baseline.project_id.clone(),
+        candidate_project_id: candidate.project_id.clone(),
+        baseline_project_revision: baseline.project_revision,
+        candidate_project_revision: candidate.project_revision,
+        baseline_status: baseline.status,
+        candidate_status: candidate.status,
+        status,
+        issue_code,
+        baseline_ready_count: baseline.ready_count,
+        candidate_ready_count: candidate.ready_count,
+        ready_delta,
+        baseline_blocked_count: baseline.blocked_count,
+        candidate_blocked_count: candidate.blocked_count,
+        blocked_delta,
+        baseline_rejected_count: baseline.rejected_count,
+        candidate_rejected_count: candidate.rejected_count,
+        rejected_delta,
+        checks,
+        entries,
+    }
+}
+
 pub fn validate_shell_template_index(
     index: &StudioShellTemplateIndex,
     base_dir: Option<&Path>,
@@ -5307,6 +5415,168 @@ fn first_failed_validation_check_issue_code(checks: &[StudioValidationCheck]) ->
         .and_then(|check| check.issue_code.clone())
 }
 
+fn shell_handoff_acceptance_comparison_checks(
+    baseline: &StudioShellHandoffAcceptanceChecklistReport,
+    candidate: &StudioShellHandoffAcceptanceChecklistReport,
+) -> Vec<StudioValidationCheck> {
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.baseline_schema",
+        baseline.schema_id == SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA,
+        "baseline checklist schema id is supported",
+        "baseline checklist schema id is unsupported",
+        "studio.issue.shell_handoff_acceptance_checklist_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.candidate_schema",
+        candidate.schema_id == SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA,
+        "candidate checklist schema id is supported",
+        "candidate checklist schema id is unsupported",
+        "studio.issue.shell_handoff_acceptance_checklist_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.baseline_source_schema",
+        baseline.source_intake_schema == SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+        "baseline source intake schema id is supported",
+        "baseline source intake schema id is unsupported",
+        "studio.issue.shell_handoff_intake_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.candidate_source_schema",
+        candidate.source_intake_schema == SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+        "candidate source intake schema id is supported",
+        "candidate source intake schema id is unsupported",
+        "studio.issue.shell_handoff_intake_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.project_id",
+        baseline.project_id == candidate.project_id,
+        "baseline and candidate project ids match",
+        "baseline and candidate project ids differ",
+        "studio.issue.shell_handoff_acceptance_project_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.prohibited_actions",
+        string_set(&baseline.prohibited_actions) == string_set(&candidate.prohibited_actions),
+        "baseline and candidate prohibited actions match",
+        "baseline and candidate prohibited actions differ",
+        "studio.issue.shell_handoff_acceptance_prohibited_actions_mismatch",
+    );
+    checks
+}
+
+fn shell_handoff_acceptance_comparison_entries(
+    baseline: &StudioShellHandoffAcceptanceChecklistReport,
+    candidate: &StudioShellHandoffAcceptanceChecklistReport,
+) -> Vec<StudioShellHandoffAcceptanceComparisonEntry> {
+    let baseline_entries = baseline
+        .entries
+        .iter()
+        .map(|entry| (entry.graph_id.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+    let candidate_entries = candidate
+        .entries
+        .iter()
+        .map(|entry| (entry.graph_id.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+    let graph_ids = baseline_entries
+        .keys()
+        .chain(candidate_entries.keys())
+        .map(|graph_id| (*graph_id).to_string())
+        .collect::<BTreeSet<_>>();
+
+    graph_ids
+        .into_iter()
+        .map(|graph_id| {
+            shell_handoff_acceptance_comparison_entry(
+                &graph_id,
+                baseline_entries.get(graph_id.as_str()).copied(),
+                candidate_entries.get(graph_id.as_str()).copied(),
+            )
+        })
+        .collect()
+}
+
+fn shell_handoff_acceptance_comparison_entry(
+    graph_id: &str,
+    baseline: Option<&StudioShellHandoffAcceptanceChecklistEntry>,
+    candidate: Option<&StudioShellHandoffAcceptanceChecklistEntry>,
+) -> StudioShellHandoffAcceptanceComparisonEntry {
+    let baseline_score = baseline.map(|entry| acceptance_status_score(entry.status));
+    let candidate_score = candidate.map(|entry| acceptance_status_score(entry.status));
+    let score_delta = candidate_score.unwrap_or(0) - baseline_score.unwrap_or(0);
+    let change = match (baseline, candidate) {
+        (None, Some(_)) => StudioShellHandoffAcceptanceComparisonChange::Added,
+        (Some(_), None) => StudioShellHandoffAcceptanceComparisonChange::Removed,
+        (Some(_), Some(_)) if score_delta > 0 => {
+            StudioShellHandoffAcceptanceComparisonChange::Improved
+        }
+        (Some(_), Some(_)) if score_delta < 0 => {
+            StudioShellHandoffAcceptanceComparisonChange::Regressed
+        }
+        (Some(baseline), Some(candidate))
+            if baseline.consumer_id != candidate.consumer_id
+                || baseline.runtime_route_kind != candidate.runtime_route_kind
+                || baseline.issue_code != candidate.issue_code =>
+        {
+            StudioShellHandoffAcceptanceComparisonChange::Changed
+        }
+        (Some(_), Some(_)) => StudioShellHandoffAcceptanceComparisonChange::Unchanged,
+        (None, None) => StudioShellHandoffAcceptanceComparisonChange::Unchanged,
+    };
+    let issue_code = match change {
+        StudioShellHandoffAcceptanceComparisonChange::Regressed
+        | StudioShellHandoffAcceptanceComparisonChange::Removed => candidate
+            .and_then(|entry| entry.issue_code.clone())
+            .or_else(|| baseline.and_then(|entry| entry.issue_code.clone()))
+            .or_else(|| Some("studio.issue.shell_handoff_acceptance_regressed".to_string())),
+        StudioShellHandoffAcceptanceComparisonChange::Added
+        | StudioShellHandoffAcceptanceComparisonChange::Improved
+        | StudioShellHandoffAcceptanceComparisonChange::Unchanged
+        | StudioShellHandoffAcceptanceComparisonChange::Changed => None,
+    };
+
+    StudioShellHandoffAcceptanceComparisonEntry {
+        graph_id: graph_id.to_string(),
+        target_kind: candidate
+            .map(|entry| entry.target_kind)
+            .or_else(|| baseline.map(|entry| entry.target_kind)),
+        baseline_status: baseline.map(|entry| entry.status),
+        candidate_status: candidate.map(|entry| entry.status),
+        change,
+        score_delta,
+        baseline_consumer_id: baseline.map(|entry| entry.consumer_id.clone()),
+        candidate_consumer_id: candidate.map(|entry| entry.consumer_id.clone()),
+        baseline_route_kind: baseline.map(|entry| entry.runtime_route_kind.clone()),
+        candidate_route_kind: candidate.map(|entry| entry.runtime_route_kind.clone()),
+        baseline_issue_code: baseline.and_then(|entry| entry.issue_code.clone()),
+        candidate_issue_code: candidate.and_then(|entry| entry.issue_code.clone()),
+        issue_code,
+    }
+}
+
+fn acceptance_status_score(status: StudioShellHandoffAcceptanceStatus) -> isize {
+    match status {
+        StudioShellHandoffAcceptanceStatus::Rejected => 0,
+        StudioShellHandoffAcceptanceStatus::Blocked => 1,
+        StudioShellHandoffAcceptanceStatus::Ready => 2,
+    }
+}
+
+fn count_delta(candidate: usize, baseline: usize) -> isize {
+    candidate as isize - baseline as isize
+}
+
+fn string_set(values: &[String]) -> BTreeSet<String> {
+    values.iter().cloned().collect()
+}
+
 fn validate_shell_handoff_manifest_counts(
     manifest: &StudioShellHandoffManifest,
     checks: &mut Vec<StudioValidationCheck>,
@@ -7311,12 +7581,14 @@ mod tests {
         StudioBindingKind, StudioEdgeKind, StudioEdgeLayout, StudioEdgeRouteKind,
         StudioEditOperation, StudioEditStatus, StudioGraphLayout, StudioNode, StudioNodeKind,
         StudioNodeLayout, StudioShellArtifactStatus, StudioShellBundleStatus,
-        StudioShellDescriptorStatus, StudioShellHandoffAcceptanceStatus,
+        StudioShellDescriptorStatus, StudioShellHandoffAcceptanceComparisonChange,
+        StudioShellHandoffAcceptanceComparisonStatus, StudioShellHandoffAcceptanceStatus,
         StudioShellHandoffIntakeDecision, StudioShellHandoffIntakeStatus, StudioShellHandoffKind,
         StudioShellTargetKind, StudioShellTemplateStatus,
-        SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA, SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
-        SHELL_HANDOFF_MANIFEST_SCHEMA, SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA,
-        SHELL_HANDOFF_READINESS_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+        SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA,
+        SHELL_HANDOFF_INTAKE_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
+        SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
+        SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
     };
 
     fn valid_project() -> StudioProject {
@@ -8871,6 +9143,160 @@ mod tests {
                         && check.issue_code.as_deref()
                             == Some("studio.issue.shell_handoff_acceptance_blocked")
                 })
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_comparison_reports_unchanged_ready_checklists() {
+        let root = temp_root("shell-handoff-acceptance-compare-unchanged");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        let intake = shell_handoff_intake_for_manifest(&manifest);
+        let checklist = shell_handoff_acceptance_checklist_for_intake(&intake);
+
+        let comparison = compare_shell_handoff_acceptance_checklists(&checklist, &checklist);
+
+        assert_eq!(
+            comparison.schema_id,
+            SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA
+        );
+        assert_eq!(
+            comparison.status,
+            StudioShellHandoffAcceptanceComparisonStatus::Unchanged
+        );
+        assert_eq!(comparison.issue_code, None);
+        assert_eq!(comparison.ready_delta, 0);
+        assert_eq!(comparison.blocked_delta, 0);
+        assert_eq!(comparison.rejected_delta, 0);
+        assert_eq!(comparison.entries.len(), 3);
+        assert!(comparison.entries.iter().all(|entry| entry.change
+            == StudioShellHandoffAcceptanceComparisonChange::Unchanged
+            && entry.score_delta == 0));
+        assert!(comparison
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_comparison_reports_regression_to_missing_bundles() {
+        let root = temp_root("shell-handoff-acceptance-compare-regressed");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let ready_bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&ready_bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let ready_manifest =
+            shell_handoff_manifest_for_project(&project, Some(&root), &ready_bundle_root);
+        let ready_intake = shell_handoff_intake_for_manifest(&ready_manifest);
+        let ready_checklist = shell_handoff_acceptance_checklist_for_intake(&ready_intake);
+        let missing_manifest =
+            shell_handoff_manifest_for_project(&project, Some(&root), &root.join("missing"));
+        let missing_intake = shell_handoff_intake_for_manifest(&missing_manifest);
+        let missing_checklist = shell_handoff_acceptance_checklist_for_intake(&missing_intake);
+
+        let comparison =
+            compare_shell_handoff_acceptance_checklists(&ready_checklist, &missing_checklist);
+
+        assert_eq!(
+            comparison.status,
+            StudioShellHandoffAcceptanceComparisonStatus::Regressed
+        );
+        assert_eq!(
+            comparison.issue_code.as_deref(),
+            Some("studio.issue.shell_bundle_file_missing")
+        );
+        assert_eq!(comparison.ready_delta, -3);
+        assert_eq!(comparison.blocked_delta, 3);
+        assert_eq!(comparison.rejected_delta, 0);
+        assert_eq!(comparison.entries.len(), 3);
+        assert!(comparison.entries.iter().all(|entry| {
+            entry.change == StudioShellHandoffAcceptanceComparisonChange::Regressed
+                && entry.score_delta == -1
+                && entry.candidate_issue_code.as_deref()
+                    == Some("studio.issue.shell_bundle_file_missing")
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_comparison_reports_improvement_from_missing_bundles() {
+        let root = temp_root("shell-handoff-acceptance-compare-improved");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let ready_bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&ready_bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let ready_manifest =
+            shell_handoff_manifest_for_project(&project, Some(&root), &ready_bundle_root);
+        let ready_intake = shell_handoff_intake_for_manifest(&ready_manifest);
+        let ready_checklist = shell_handoff_acceptance_checklist_for_intake(&ready_intake);
+        let missing_manifest =
+            shell_handoff_manifest_for_project(&project, Some(&root), &root.join("missing"));
+        let missing_intake = shell_handoff_intake_for_manifest(&missing_manifest);
+        let missing_checklist = shell_handoff_acceptance_checklist_for_intake(&missing_intake);
+
+        let comparison =
+            compare_shell_handoff_acceptance_checklists(&missing_checklist, &ready_checklist);
+
+        assert_eq!(
+            comparison.status,
+            StudioShellHandoffAcceptanceComparisonStatus::Improved
+        );
+        assert_eq!(comparison.issue_code, None);
+        assert_eq!(comparison.ready_delta, 3);
+        assert_eq!(comparison.blocked_delta, -3);
+        assert_eq!(comparison.rejected_delta, 0);
+        assert!(comparison.entries.iter().all(|entry| {
+            entry.change == StudioShellHandoffAcceptanceComparisonChange::Improved
+                && entry.score_delta == 1
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_comparison_rejects_mismatched_projects() {
+        let root = temp_root("shell-handoff-acceptance-compare-mismatch");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        let intake = shell_handoff_intake_for_manifest(&manifest);
+        let baseline = shell_handoff_acceptance_checklist_for_intake(&intake);
+        let mut candidate = baseline.clone();
+        candidate.project_id = "studio.project.other".to_string();
+
+        let comparison = compare_shell_handoff_acceptance_checklists(&baseline, &candidate);
+
+        assert_eq!(
+            comparison.status,
+            StudioShellHandoffAcceptanceComparisonStatus::Incomparable
+        );
+        assert_eq!(
+            comparison.issue_code.as_deref(),
+            Some("studio.issue.shell_handoff_acceptance_project_mismatch")
+        );
+        assert!(comparison.entries.is_empty());
+        assert!(comparison.checks.iter().any(|check| {
+            check.status == StudioValidationStatus::Fail
+                && check.issue_code.as_deref()
+                    == Some("studio.issue.shell_handoff_acceptance_project_mismatch")
         }));
     }
 

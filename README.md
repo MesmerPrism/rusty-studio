@@ -75,6 +75,8 @@ Current scope:
   granting Studio install, launch, command-session, or evidence authority;
 - review shell handoff acceptance checklists from Makepad through the same
   manifest-to-intake-to-checklist core route used by CLI validation;
+- compare acceptance checklist artifacts across revisions to detect improved,
+  unchanged, regressed, or incomparable downstream handoff readiness;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -124,6 +126,7 @@ cargo run -p rusty-studio-cli -- shell-handoff-manifest --project examples\synth
 cargo run -p rusty-studio-cli -- validate-shell-handoff-manifest --manifest target\studio-shell-handoffs\shell-handoffs.json
 cargo run -p rusty-studio-cli -- shell-handoff-intake --manifest target\studio-shell-handoffs\shell-handoffs.json --output target\studio-shell-handoffs\shell-handoff-intake.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake target\studio-shell-handoffs\shell-handoff-intake.json --output target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json
+cargo run -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --candidate target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -140,4 +143,6 @@ launch, open command sessions, or collect device evidence. Shell handoff
 acceptance checklists are also declarative: they enumerate downstream readiness
 checks and explicitly prohibit install, launch, command-session opening, and
 device-evidence collection inside Studio. Makepad can review the same checklist
-in memory; it does not write or execute downstream runtime actions.
+in memory; it does not write or execute downstream runtime actions. Acceptance
+comparison reports are revision-review artifacts only: they compare checklist
+readiness and issue transitions without granting runtime authority.

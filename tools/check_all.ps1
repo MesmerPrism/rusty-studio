@@ -34,18 +34,23 @@ try {
     $ShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs.json"
     $ShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake.json"
     $ShellHandoffAcceptanceChecklistPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json"
+    $ShellHandoffAcceptanceComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json"
+    $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
+    $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
+    $MissingShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake-missing-bundles.json"
+    $MissingShellHandoffAcceptanceChecklistPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-checklist-missing-bundles.json"
     $InvalidShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-invalid-authority.json"
     $InvalidShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake-invalid-authority.json"
     $SelectedShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_desktop"
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
     }
-    foreach ($GeneratedDir in @($ShellArtifactsDir, $ShellTemplatesDir, $SelectedShellBundleDir, $SelectedPhoneShellBundleDir, $SelectedQuestShellBundleDir)) {
+    foreach ($GeneratedDir in @($ShellArtifactsDir, $ShellTemplatesDir, $MissingShellBundleRoot, $SelectedShellBundleDir, $SelectedPhoneShellBundleDir, $SelectedQuestShellBundleDir)) {
         if (Test-Path $GeneratedDir) {
             Remove-Item -Recurse -Force -LiteralPath $GeneratedDir
         }
@@ -1624,6 +1629,77 @@ try {
                 }
             }
         }
+    }
+    $HandoffAcceptanceComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline $ShellHandoffAcceptanceChecklistPath --candidate $ShellHandoffAcceptanceChecklistPath --output $ShellHandoffAcceptanceComparisonPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell handoff acceptance comparison failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellHandoffAcceptanceComparisonPath)) {
+        throw "shell handoff acceptance comparison was not written"
+    }
+    $HandoffAcceptanceComparison = ($HandoffAcceptanceComparisonOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenHandoffAcceptanceComparison = Get-Content -Raw $ShellHandoffAcceptanceComparisonPath | ConvertFrom-Json
+    foreach ($ComparisonView in @($HandoffAcceptanceComparison, $WrittenHandoffAcceptanceComparison)) {
+        if ($ComparisonView.'$schema' -ne "rusty.studio.shell_handoff_acceptance_comparison.v1") {
+            throw "shell handoff acceptance comparison schema mismatch"
+        }
+        if ($ComparisonView.status -ne "unchanged") {
+            throw "shell handoff acceptance comparison should be unchanged"
+        }
+        if ($null -ne $ComparisonView.issue_code) {
+            throw "unchanged shell handoff acceptance comparison should not carry an issue"
+        }
+        if ($ComparisonView.baseline_status -ne "ready" -or $ComparisonView.candidate_status -ne "ready") {
+            throw "shell handoff acceptance comparison status inputs mismatch"
+        }
+        if ($ComparisonView.ready_delta -ne 0 -or $ComparisonView.blocked_delta -ne 0 -or $ComparisonView.rejected_delta -ne 0) {
+            throw "shell handoff acceptance comparison deltas should be zero"
+        }
+        if (@($ComparisonView.entries).Count -ne 3) {
+            throw "shell handoff acceptance comparison entry count mismatch"
+        }
+        if (@($ComparisonView.entries | Where-Object { $_.change -ne "unchanged" }).Count -ne 0) {
+            throw "shell handoff acceptance comparison should not report changed entries"
+        }
+        if (@($ComparisonView.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
+            throw "shell handoff acceptance comparison checks reported failures"
+        }
+    }
+    $MissingHandoffManifestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-manifest --project "examples\synthetic-studio-project.json" --bundle-root $MissingShellBundleRoot --output $MissingShellHandoffManifestPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio missing shell handoff manifest failed with exit code $LASTEXITCODE"
+    }
+    $MissingHandoffIntakeOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-intake --manifest $MissingShellHandoffManifestPath --output $MissingShellHandoffIntakePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio missing shell handoff intake failed with exit code $LASTEXITCODE"
+    }
+    $MissingHandoffAcceptanceChecklistOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake $MissingShellHandoffIntakePath --output $MissingShellHandoffAcceptanceChecklistPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio missing shell handoff acceptance checklist failed with exit code $LASTEXITCODE"
+    }
+    $MissingHandoffAcceptanceChecklist = ($MissingHandoffAcceptanceChecklistOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($MissingHandoffAcceptanceChecklist.status -ne "blocked") {
+        throw "missing shell handoff acceptance checklist should be blocked"
+    }
+    if ($MissingHandoffAcceptanceChecklist.ready_count -ne 0 -or $MissingHandoffAcceptanceChecklist.blocked_count -ne 3 -or $MissingHandoffAcceptanceChecklist.rejected_count -ne 0) {
+        throw "missing shell handoff acceptance checklist counts mismatch"
+    }
+    $RegressedHandoffAcceptanceComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline $ShellHandoffAcceptanceChecklistPath --candidate $MissingShellHandoffAcceptanceChecklistPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio regressed shell handoff acceptance comparison failed with exit code $LASTEXITCODE"
+    }
+    $RegressedHandoffAcceptanceComparison = ($RegressedHandoffAcceptanceComparisonOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($RegressedHandoffAcceptanceComparison.status -ne "regressed") {
+        throw "regressed shell handoff acceptance comparison status mismatch"
+    }
+    if ($RegressedHandoffAcceptanceComparison.issue_code -ne "studio.issue.shell_bundle_file_missing") {
+        throw "regressed shell handoff acceptance comparison issue mismatch"
+    }
+    if ($RegressedHandoffAcceptanceComparison.ready_delta -ne -3 -or $RegressedHandoffAcceptanceComparison.blocked_delta -ne 3 -or $RegressedHandoffAcceptanceComparison.rejected_delta -ne 0) {
+        throw "regressed shell handoff acceptance comparison deltas mismatch"
+    }
+    if (@($RegressedHandoffAcceptanceComparison.entries | Where-Object { $_.change -eq "regressed" }).Count -ne 3) {
+        throw "regressed shell handoff acceptance comparison should report three regressed entries"
     }
     $InvalidHandoffManifest = Get-Content -Raw $ShellHandoffManifestPath | ConvertFrom-Json
     $InvalidHandoffManifest.runtime_authority.command_session_authority = "rusty.studio"
