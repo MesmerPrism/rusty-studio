@@ -122,6 +122,24 @@ try {
     $ShellHostessStagingAcceptanceRouteDriftPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-acceptance-route-drift.json"
     $ShellHostessStagingAcceptanceRouteDriftComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-acceptance-route-drift-comparison.json"
     $ShellHostessStagingExecutionRequestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-execution-request.json"
+    $PackageEvidenceReportCliPath = "target\studio-package-evidence\manifold-package-validation.json"
+    $PackageEvidenceIntakeCliPath = "target\studio-package-evidence\package-evidence-intake.json"
+    $ProjectedMotionProfileCliPath = "target\studio-package-evidence\profile-synthetic.json"
+    $ProjectedMotionAuthoringReviewCliPath = "target\studio-package-evidence\projected-motion-breath-authoring-review.json"
+    $ProjectedMotionSourceDescriptorsCliPath = "target\studio-package-evidence\source-adapter-descriptors.json"
+    $ProjectedMotionSourceSelectionCliPath = "target\studio-package-evidence\source-adapter-selection-review.json"
+    $ProjectedMotionSourceBindingCliPath = "target\studio-package-evidence\source-binding-synthetic.json"
+    $ProjectedMotionAdapterNormalizationCaseCliPath = "target\studio-package-evidence\adapter-normalization-external-patch-vector.json"
+    $ProjectedMotionAdapterNormalizationReviewCliPath = "target\studio-package-evidence\adapter-normalization-evidence-review.json"
+    $PackageEvidenceReportPath = Join-Path $RepoRoot $PackageEvidenceReportCliPath
+    $PackageEvidenceIntakePath = Join-Path $RepoRoot $PackageEvidenceIntakeCliPath
+    $ProjectedMotionProfilePath = Join-Path $RepoRoot $ProjectedMotionProfileCliPath
+    $ProjectedMotionAuthoringReviewPath = Join-Path $RepoRoot $ProjectedMotionAuthoringReviewCliPath
+    $ProjectedMotionSourceDescriptorsPath = Join-Path $RepoRoot $ProjectedMotionSourceDescriptorsCliPath
+    $ProjectedMotionSourceSelectionPath = Join-Path $RepoRoot $ProjectedMotionSourceSelectionCliPath
+    $ProjectedMotionSourceBindingPath = Join-Path $RepoRoot $ProjectedMotionSourceBindingCliPath
+    $ProjectedMotionAdapterNormalizationCasePath = Join-Path $RepoRoot $ProjectedMotionAdapterNormalizationCaseCliPath
+    $ProjectedMotionAdapterNormalizationReviewPath = Join-Path $RepoRoot $ProjectedMotionAdapterNormalizationReviewCliPath
     $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
     $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
     $MissingShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake-missing-bundles.json"
@@ -133,7 +151,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $ShellHostessHandoffPackagePath, $ShellHostessOwnerIntakePath, $ShellHostessStagingPreviewPath, $ShellHostessStagingFilePlanPath, $ShellHostessStagingHandoffPath, $ShellHostessStagingAcceptancePath, $ShellHostessStagingAcceptanceManifestPath, $ShellHostessStagingAcceptanceArchiveManifestPath, $ShellHostessStagingAcceptanceIndexPath, $ShellHostessStagingAcceptanceSelectionPath, $ShellHostessStagingAcceptanceMultiIndexPath, $ShellHostessStagingAcceptancePromotedIndexPath, $ShellHostessStagingAcceptanceComparisonPath, $ShellHostessStagingAcceptanceRouteDriftPath, $ShellHostessStagingAcceptanceRouteDriftComparisonPath, $ShellHostessStagingExecutionRequestPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $ShellHostessHandoffPackagePath, $ShellHostessOwnerIntakePath, $ShellHostessStagingPreviewPath, $ShellHostessStagingFilePlanPath, $ShellHostessStagingHandoffPath, $ShellHostessStagingAcceptancePath, $ShellHostessStagingAcceptanceManifestPath, $ShellHostessStagingAcceptanceArchiveManifestPath, $ShellHostessStagingAcceptanceIndexPath, $ShellHostessStagingAcceptanceSelectionPath, $ShellHostessStagingAcceptanceMultiIndexPath, $ShellHostessStagingAcceptancePromotedIndexPath, $ShellHostessStagingAcceptanceComparisonPath, $ShellHostessStagingAcceptanceRouteDriftPath, $ShellHostessStagingAcceptanceRouteDriftComparisonPath, $ShellHostessStagingExecutionRequestPath, $PackageEvidenceReportPath, $PackageEvidenceIntakePath, $ProjectedMotionProfilePath, $ProjectedMotionAuthoringReviewPath, $ProjectedMotionSourceDescriptorsPath, $ProjectedMotionSourceSelectionPath, $ProjectedMotionSourceBindingPath, $ProjectedMotionAdapterNormalizationCasePath, $ProjectedMotionAdapterNormalizationReviewPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -145,6 +163,164 @@ try {
     }
     $SourceProject = Get-Content -Raw -Path $SourceProjectPath | ConvertFrom-Json
     $SourceRevision = [long]$SourceProject.revision
+    New-Item -ItemType Directory -Path (Split-Path $PackageEvidenceReportPath) -Force | Out-Null
+    $PackageEvidenceChecks = @(
+        foreach ($Suffix in @(
+            "dotted_ids",
+            "exports",
+            "module_links",
+            "stream_links",
+            "graph_links",
+            "deployment_links",
+            "runtime_state_links",
+            "timestamp_policy",
+            "provider_processor_split",
+            "command_rejections",
+            "scorecards",
+            "projected_motion_contract",
+            "projected_motion_profile_commands",
+            "projected_motion_goldens",
+            "projected_motion_source_adapters",
+            "projected_motion_source_bindings",
+            "projected_motion_adapter_normalization"
+        )) {
+            [ordered]@{
+                check_id = "validation.package.package.projected_motion_breath.$Suffix"
+                status = "pass"
+                evidence = "$Suffix passed"
+            }
+        }
+    )
+    $PackageEvidenceReport = [ordered]@{
+        '$schema' = "rusty.manifold.package.validation_report.v1"
+        status = "pass"
+        checks = $PackageEvidenceChecks
+    }
+    [System.IO.File]::WriteAllText(
+        $PackageEvidenceReportPath,
+        ($PackageEvidenceReport | ConvertTo-Json -Depth 8),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $ProjectedMotionProfile = [ordered]@{
+        '$schema' = "rusty.motion_breath_profile.v1"
+        profile_id = "profile.projected_motion_breath.synthetic_default"
+        target_module_id = "module.breath.projected_motion"
+        input_kinds = @("pose", "vector3")
+        projection = [ordered]@{
+            mode = "principal_motion_axis"
+            fallback_mode = "fixed_axis"
+        }
+    }
+    [System.IO.File]::WriteAllText(
+        $ProjectedMotionProfilePath,
+        ($ProjectedMotionProfile | ConvertTo-Json -Depth 8),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $ProjectedMotionSourceDescriptors = [ordered]@{
+        '$schema' = "rusty.manifold.projected_motion_breath.source_adapter_descriptors.v1"
+        descriptor_set_id = "descriptor_set.projected_motion_breath.source_adapters.synthetic"
+        package_id = "package.projected_motion_breath"
+        target_module_id = "module.breath.projected_motion"
+        execution_policy = "not_executed.schema_descriptors_only"
+        runtime_execution_performed = $false
+        platform_execution_performed = $false
+        device_required = $false
+        source_adapters = @(
+            [ordered]@{
+                adapter_id = "adapter.projected_motion_breath.object_pose_generic"
+                source_kind = "object_pose"
+                input_kind = "pose"
+                output_stream_id = "stream.motion.object_pose"
+                transport_kind = "descriptor_only"
+                requires_platform_sdk = $false
+                requires_device_api = $false
+                runtime_adapter_included = $false
+            },
+            [ordered]@{
+                adapter_id = "adapter.projected_motion_breath.external_patch_stream_bridge_shape"
+                source_kind = "external_patch_stream_bridge"
+                input_kind = "vector3"
+                output_stream_id = "stream.motion.vector3"
+                transport_kind = "descriptor_only"
+                requires_platform_sdk = $false
+                requires_device_api = $false
+                runtime_adapter_included = $false
+            }
+        )
+    }
+    [System.IO.File]::WriteAllText(
+        $ProjectedMotionSourceDescriptorsPath,
+        ($ProjectedMotionSourceDescriptors | ConvertTo-Json -Depth 10),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $ProjectedMotionSourceBinding = [ordered]@{
+        '$schema' = "rusty.manifold.projected_motion_breath.source_binding.v1"
+        binding_id = "binding.projected_motion_breath.synthetic.external_patch_stream"
+        package_id = "package.projected_motion_breath"
+        target_module_id = "module.breath.projected_motion"
+        profile_id = "profile.projected_motion_breath.synthetic_default"
+        profile_path = "fixtures/valid/profile-synthetic.json"
+        descriptor_set_path = "fixtures/valid/source-adapter-descriptors.json"
+        selected_adapter_id = "adapter.projected_motion_breath.external_patch_stream_bridge_shape"
+        selected_source_kind = "external_patch_stream_bridge"
+        selected_input_kind = "vector3"
+        selected_output_stream_id = "stream.motion.vector3"
+        source_stream_id = "stream.motion.vector3"
+        binding_policy = "descriptor_only.owner_review_required"
+        execution_policy = "not_executed.schema_binding_only"
+        runtime_execution_performed = $false
+        platform_execution_performed = $false
+        device_required = $false
+    }
+    [System.IO.File]::WriteAllText(
+        $ProjectedMotionSourceBindingPath,
+        ($ProjectedMotionSourceBinding | ConvertTo-Json -Depth 10),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $ProjectedMotionAdapterNormalizationCase = [ordered]@{
+        '$schema' = "rusty.manifold.projected_motion_breath.adapter_normalization_case.v1"
+        case_id = "case.projected_motion_breath.normalize.external_patch_vector"
+        package_id = "package.projected_motion_breath"
+        binding_path = "fixtures/valid/source-binding-synthetic.json"
+        source_payload_kind = "external_patch_channels"
+        input = [ordered]@{
+            source_id = "source.synthetic.patch_stream"
+            sample_time_s = 12.0
+            host_time_s = 12.011
+            frame_id = "frame.synthetic.patch"
+            channel_values = [ordered]@{
+                breath_x = 0.11
+                breath_y = 0.42
+                breath_z = -0.03
+            }
+            channel_map = [ordered]@{
+                x = "breath_x"
+                y = "breath_y"
+                z = "breath_z"
+            }
+            units = "normalized_patch_units"
+            quality01 = 0.91
+        }
+        expected_sample_kind = "vector_motion"
+        expected = [ordered]@{
+            source_id = "source.synthetic.patch_stream"
+            sample_time_s = 12.0
+            host_time_s = 12.011
+            frame_id = "frame.synthetic.patch"
+            vector3 = @(0.11, 0.42, -0.03)
+            units = "normalized_patch_units"
+            quality01 = 0.91
+        }
+        execution_policy = "not_executed.fixture_normalization_only"
+        runtime_execution_performed = $false
+        platform_execution_performed = $false
+        device_required = $false
+    }
+    [System.IO.File]::WriteAllText(
+        $ProjectedMotionAdapterNormalizationCasePath,
+        ($ProjectedMotionAdapterNormalizationCase | ConvertTo-Json -Depth 12),
+        [System.Text.UTF8Encoding]::new($false)
+    )
 
     Invoke-Checked "cargo fmt" "cargo" @(
         "fmt",
@@ -207,6 +383,183 @@ try {
         "--project",
         "examples\synthetic-studio-project.json"
     )
+    Invoke-Checked "studio package evidence intake" "cargo" @(
+        "run",
+        "-p",
+        "rusty-studio-cli",
+        "--",
+        "package-evidence-intake",
+        "--report",
+        $PackageEvidenceReportCliPath,
+        "--output",
+        $PackageEvidenceIntakeCliPath
+    )
+    $PackageEvidenceIntake = Get-Content -Raw -Path $PackageEvidenceIntakePath | ConvertFrom-Json
+    if ($PackageEvidenceIntake.'$schema' -ne "rusty.studio.package_evidence_intake_report.v1") {
+        throw "package evidence intake schema mismatch"
+    }
+    if ($PackageEvidenceIntake.status -ne "ready") {
+        throw "package evidence intake should be ready"
+    }
+    if ($PackageEvidenceIntake.target_package_id -ne "package.projected_motion_breath") {
+        throw "package evidence intake target package mismatch"
+    }
+    if ($PackageEvidenceIntake.execution_policy -ne "not_executed.review_only") {
+        throw "package evidence intake execution policy mismatch"
+    }
+    if ($PackageEvidenceIntake.runtime_authority -ne "rusty.manifold") {
+        throw "package evidence intake runtime authority mismatch"
+    }
+    if ($PackageEvidenceIntake.authoring_authority -ne "rusty.studio") {
+        throw "package evidence intake authoring authority mismatch"
+    }
+    if ($PackageEvidenceIntake.platform_validation_authority -ne "rusty.hostess") {
+        throw "package evidence intake platform authority mismatch"
+    }
+    if ($PackageEvidenceIntake.runtime_execution_performed -ne $false -or $PackageEvidenceIntake.platform_execution_performed -ne $false) {
+        throw "package evidence intake must not execute runtime or platform work"
+    }
+    if ([long]$PackageEvidenceIntake.ready_required_check_count -ne 3 -or [long]$PackageEvidenceIntake.blocked_required_check_count -ne 0) {
+        throw "package evidence intake required check counts mismatch"
+    }
+    if (@($PackageEvidenceIntake.prohibited_actions) -notcontains "start_runtime_package") {
+        throw "package evidence intake should prohibit runtime package start"
+    }
+    Invoke-Checked "studio projected-motion breath authoring review" "cargo" @(
+        "run",
+        "-p",
+        "rusty-studio-cli",
+        "--",
+        "projected-motion-breath-authoring-review",
+        "--intake",
+        $PackageEvidenceIntakeCliPath,
+        "--profile",
+        $ProjectedMotionProfileCliPath,
+        "--output",
+        $ProjectedMotionAuthoringReviewCliPath
+    )
+    $ProjectedMotionAuthoringReview = Get-Content -Raw -Path $ProjectedMotionAuthoringReviewPath | ConvertFrom-Json
+    if ($ProjectedMotionAuthoringReview.'$schema' -ne "rusty.studio.projected_motion_breath_authoring_review.v1") {
+        throw "projected-motion breath authoring review schema mismatch"
+    }
+    if ($ProjectedMotionAuthoringReview.status -ne "ready") {
+        throw "projected-motion breath authoring review should be ready"
+    }
+    if ($ProjectedMotionAuthoringReview.execution_policy -ne "not_executed.proposal_only") {
+        throw "projected-motion breath authoring review execution policy mismatch"
+    }
+    if ($ProjectedMotionAuthoringReview.proposed_command_id -ne "command.breath.set_profile") {
+        throw "projected-motion breath authoring review command mismatch"
+    }
+    if ($ProjectedMotionAuthoringReview.profile_id -ne "profile.projected_motion_breath.synthetic_default") {
+        throw "projected-motion breath authoring review profile id mismatch"
+    }
+    if ($ProjectedMotionAuthoringReview.target_module_id -ne "module.breath.projected_motion") {
+        throw "projected-motion breath authoring review target module mismatch"
+    }
+    if ($ProjectedMotionAuthoringReview.runtime_authority -ne "rusty.manifold" -or $ProjectedMotionAuthoringReview.platform_validation_authority -ne "rusty.hostess") {
+        throw "projected-motion breath authoring review authority mismatch"
+    }
+    if ($ProjectedMotionAuthoringReview.runtime_execution_performed -ne $false -or $ProjectedMotionAuthoringReview.platform_execution_performed -ne $false) {
+        throw "projected-motion breath authoring review must not execute runtime or platform work"
+    }
+    if ([long]$ProjectedMotionAuthoringReview.package_ready_required_check_count -ne 3 -or [long]$ProjectedMotionAuthoringReview.package_blocked_required_check_count -ne 0) {
+        throw "projected-motion breath authoring review package evidence counts mismatch"
+    }
+    if (@($ProjectedMotionAuthoringReview.input_kinds) -notcontains "pose" -or @($ProjectedMotionAuthoringReview.input_kinds) -notcontains "vector3") {
+        throw "projected-motion breath authoring review input kind mismatch"
+    }
+    Invoke-Checked "studio projected-motion breath source adapter selection" "cargo" @(
+        "run",
+        "-p",
+        "rusty-studio-cli",
+        "--",
+        "projected-motion-breath-source-adapter-selection",
+        "--authoring-review",
+        $ProjectedMotionAuthoringReviewCliPath,
+        "--source-descriptors",
+        $ProjectedMotionSourceDescriptorsCliPath,
+        "--adapter",
+        "adapter.projected_motion_breath.external_patch_stream_bridge_shape",
+        "--output",
+        $ProjectedMotionSourceSelectionCliPath
+    )
+    $ProjectedMotionSourceSelection = Get-Content -Raw -Path $ProjectedMotionSourceSelectionPath | ConvertFrom-Json
+    if ($ProjectedMotionSourceSelection.'$schema' -ne "rusty.studio.projected_motion_breath_source_adapter_selection_review.v1") {
+        throw "projected-motion breath source adapter selection schema mismatch"
+    }
+    if ($ProjectedMotionSourceSelection.status -ne "ready") {
+        throw "projected-motion breath source adapter selection should be ready"
+    }
+    if ($ProjectedMotionSourceSelection.execution_policy -ne "not_executed.proposal_only") {
+        throw "projected-motion breath source adapter selection execution policy mismatch"
+    }
+    if ($ProjectedMotionSourceSelection.selected_adapter_id -ne "adapter.projected_motion_breath.external_patch_stream_bridge_shape") {
+        throw "projected-motion breath source adapter selection adapter mismatch"
+    }
+    if ($ProjectedMotionSourceSelection.selected_input_kind -ne "vector3") {
+        throw "projected-motion breath source adapter selection input kind mismatch"
+    }
+    if ($ProjectedMotionSourceSelection.selected_output_stream_id -ne "stream.motion.vector3") {
+        throw "projected-motion breath source adapter selection stream mismatch"
+    }
+    if ($ProjectedMotionSourceSelection.runtime_authority -ne "rusty.manifold" -or $ProjectedMotionSourceSelection.platform_validation_authority -ne "rusty.hostess") {
+        throw "projected-motion breath source adapter selection authority mismatch"
+    }
+    if ($ProjectedMotionSourceSelection.runtime_execution_performed -ne $false -or $ProjectedMotionSourceSelection.platform_execution_performed -ne $false) {
+        throw "projected-motion breath source adapter selection must not execute runtime or platform work"
+    }
+    Invoke-Checked "studio projected-motion breath adapter normalization evidence review" "cargo" @(
+        "run",
+        "-p",
+        "rusty-studio-cli",
+        "--",
+        "projected-motion-breath-adapter-normalization-evidence-review",
+        "--selection-review",
+        $ProjectedMotionSourceSelectionCliPath,
+        "--package-report",
+        $PackageEvidenceReportCliPath,
+        "--source-binding",
+        $ProjectedMotionSourceBindingCliPath,
+        "--normalization-case",
+        $ProjectedMotionAdapterNormalizationCaseCliPath,
+        "--output",
+        $ProjectedMotionAdapterNormalizationReviewCliPath
+    )
+    $ProjectedMotionAdapterNormalizationReview = Get-Content -Raw -Path $ProjectedMotionAdapterNormalizationReviewPath | ConvertFrom-Json
+    if ($ProjectedMotionAdapterNormalizationReview.'$schema' -ne "rusty.studio.projected_motion_breath_adapter_normalization_evidence_review.v1") {
+        throw "projected-motion breath adapter normalization review schema mismatch"
+    }
+    if ($ProjectedMotionAdapterNormalizationReview.status -ne "ready") {
+        throw "projected-motion breath adapter normalization review should be ready"
+    }
+    if ($ProjectedMotionAdapterNormalizationReview.execution_policy -ne "not_executed.review_only") {
+        throw "projected-motion breath adapter normalization review execution policy mismatch"
+    }
+    if ($ProjectedMotionAdapterNormalizationReview.selected_adapter_id -ne "adapter.projected_motion_breath.external_patch_stream_bridge_shape") {
+        throw "projected-motion breath adapter normalization review adapter mismatch"
+    }
+    if ($ProjectedMotionAdapterNormalizationReview.binding_id -ne "binding.projected_motion_breath.synthetic.external_patch_stream") {
+        throw "projected-motion breath adapter normalization review binding mismatch"
+    }
+    if ($ProjectedMotionAdapterNormalizationReview.normalization_case_id -ne "case.projected_motion_breath.normalize.external_patch_vector") {
+        throw "projected-motion breath adapter normalization review case mismatch"
+    }
+    if ($ProjectedMotionAdapterNormalizationReview.source_payload_kind -ne "external_patch_channels" -or $ProjectedMotionAdapterNormalizationReview.expected_sample_kind -ne "vector_motion") {
+        throw "projected-motion breath adapter normalization review payload mismatch"
+    }
+    if ($ProjectedMotionAdapterNormalizationReview.adapter_normalization_check_status -ne "pass") {
+        throw "projected-motion breath adapter normalization package check should pass"
+    }
+    if ($ProjectedMotionAdapterNormalizationReview.deterministic_normalization_evidence -ne $true) {
+        throw "projected-motion breath adapter normalization review should find deterministic evidence"
+    }
+    if ($ProjectedMotionAdapterNormalizationReview.runtime_authority -ne "rusty.manifold" -or $ProjectedMotionAdapterNormalizationReview.platform_validation_authority -ne "rusty.hostess") {
+        throw "projected-motion breath adapter normalization review authority mismatch"
+    }
+    if ($ProjectedMotionAdapterNormalizationReview.runtime_execution_performed -ne $false -or $ProjectedMotionAdapterNormalizationReview.platform_execution_performed -ne $false) {
+        throw "projected-motion breath adapter normalization review must not execute runtime or platform work"
+    }
     $ViewModelOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop"
     if ($LASTEXITCODE -ne 0) {
         throw "studio view model palette check failed with exit code $LASTEXITCODE"

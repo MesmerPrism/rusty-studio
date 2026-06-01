@@ -141,6 +141,12 @@ Current scope:
   dry-run file plan with checksum/provenance and external-owner instructions;
 - write a schema-only Hostess staging acceptance checklist over that handoff
   envelope without granting Studio staging or runtime authority;
+- review a Manifold package-validation report as a read-only package evidence
+  intake for projected-motion breath, preserving Manifold runtime authority
+  and Hostess platform-validation ownership;
+- review a projected-motion breath profile intent against that package
+  evidence intake as a proposal-only authoring artifact without sending
+  commands or touching runtime/platform routes;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -223,6 +229,10 @@ cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-index --accept
 cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-selection --acceptance-index target\studio-shell-handoffs\shell-hostess-staging-acceptances.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-selection.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-comparison --acceptance-index target\studio-shell-handoffs\shell-hostess-staging-acceptances.json --candidate target\studio-shell-handoffs\shell-hostess-staging-acceptance-checklist.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-comparison.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-execution-request --acceptance-index target\studio-shell-handoffs\shell-hostess-staging-acceptances.json --output target\studio-shell-handoffs\shell-hostess-staging-execution-request.json
+cargo run -p rusty-studio-cli -- package-evidence-intake --report target\studio-package-evidence\manifold-package-validation.json --package package.projected_motion_breath --output target\studio-package-evidence\package-evidence-intake.json
+cargo run -p rusty-studio-cli -- projected-motion-breath-authoring-review --intake target\studio-package-evidence\package-evidence-intake.json --profile target\studio-package-evidence\profile-synthetic.json --output target\studio-package-evidence\projected-motion-breath-authoring-review.json
+cargo run -p rusty-studio-cli -- projected-motion-breath-source-adapter-selection --authoring-review target\studio-package-evidence\projected-motion-breath-authoring-review.json --source-descriptors target\studio-package-evidence\source-adapter-descriptors.json --adapter adapter.projected_motion_breath.external_patch_stream_bridge_shape --output target\studio-package-evidence\source-adapter-selection-review.json
+cargo run -p rusty-studio-cli -- projected-motion-breath-adapter-normalization-evidence-review --selection-review target\studio-package-evidence\source-adapter-selection-review.json --package-report target\studio-package-evidence\manifold-package-validation.json --source-binding target\studio-package-evidence\source-binding-synthetic.json --normalization-case target\studio-package-evidence\adapter-normalization-external-patch-vector.json --output target\studio-package-evidence\adapter-normalization-evidence-review.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -257,7 +267,15 @@ instructions for Hostess and Manifold without copying, staging, installing,
 launching, opening command sessions, or collecting evidence. Staging
 acceptance checklists verify those handoff envelopes into explicit
 Hostess/Manifold acceptance rows while preserving the same non-execution
-boundary. Hostess staging acceptance comparison reports compare the current
+boundary. Package evidence intake reports consume Manifold package-validation
+JSON and classify projected-motion breath evidence for Studio review, but they
+do not build, start runtime packages, install, launch, open command sessions,
+or collect platform evidence. Projected-motion breath authoring review reports
+bind a profile intent to that evidence and name the future
+`command.breath.set_profile` request for owner review, but Studio does not send
+the command or acquire runtime/session/platform authority. Hostess staging
+acceptance comparison reports
+compare the current
 checklist against a saved Hostess acceptance manifest or index entry before any
 Hostess install, launch, copy, or evidence action exists inside Studio. Hostess
 staging execution requests are schema-only adapter handoffs over a selected
