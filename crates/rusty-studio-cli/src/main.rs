@@ -15,10 +15,10 @@ use rusty_studio_core::{
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
     load_shell_handoff_intake_report, load_shell_handoff_manifest,
     load_shell_hostess_handoff_package_report, load_shell_hostess_owner_intake_report,
-    load_shell_hostess_staging_file_plan, load_shell_hostess_staging_preview_manifest,
-    load_shell_release_candidate_review_index, load_shell_release_candidate_review_manifest,
-    load_shell_release_candidate_review_report, load_shell_template_index,
-    promote_shell_export_package_baseline_index_default,
+    load_shell_hostess_staging_file_plan, load_shell_hostess_staging_handoff_envelope,
+    load_shell_hostess_staging_preview_manifest, load_shell_release_candidate_review_index,
+    load_shell_release_candidate_review_manifest, load_shell_release_candidate_review_report,
+    load_shell_template_index, promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default,
     promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
     remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
@@ -33,7 +33,9 @@ use rusty_studio_core::{
     shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
     shell_hostess_handoff_package_for_release_candidate_index,
-    shell_hostess_owner_intake_for_handoff_package, shell_hostess_staging_file_plan_for_preview,
+    shell_hostess_owner_intake_for_handoff_package,
+    shell_hostess_staging_acceptance_checklist_for_handoff,
+    shell_hostess_staging_file_plan_for_preview,
     shell_hostess_staging_handoff_envelope_for_file_plan,
     shell_hostess_staging_preview_for_owner_intake, shell_release_candidate_review_for_manifest,
     shell_release_candidate_review_index_for_manifests,
@@ -115,6 +117,7 @@ enum Command {
     ShellHostessStagingPreview(ShellHostessStagingPreviewArgs),
     ShellHostessStagingFilePlan(ShellHostessStagingFilePlanArgs),
     ShellHostessStagingHandoff(ShellHostessStagingHandoffArgs),
+    ShellHostessStagingAcceptanceChecklist(ShellHostessStagingAcceptanceChecklistArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -622,6 +625,14 @@ struct ShellHostessStagingFilePlanArgs {
 struct ShellHostessStagingHandoffArgs {
     #[arg(long)]
     file_plan: PathBuf,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHostessStagingAcceptanceChecklistArgs {
+    #[arg(long)]
+    handoff: PathBuf,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -1550,6 +1561,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let report = shell_hostess_staging_handoff_envelope_for_file_plan(
                 &file_plan,
                 Some(&args.file_plan),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHostessStagingAcceptanceChecklist(args) => {
+            let handoff = load_shell_hostess_staging_handoff_envelope(&args.handoff)?;
+            let report = shell_hostess_staging_acceptance_checklist_for_handoff(
+                &handoff,
+                Some(&args.handoff),
             );
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;

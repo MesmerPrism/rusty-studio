@@ -139,6 +139,8 @@ Current scope:
   destination paths;
 - write a schema-only Hostess staging handoff envelope that packages the
   dry-run file plan with checksum/provenance and external-owner instructions;
+- write a schema-only Hostess staging acceptance checklist over that handoff
+  envelope without granting Studio staging or runtime authority;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -215,6 +217,7 @@ cargo run -p rusty-studio-cli -- shell-hostess-owner-intake --package target\stu
 cargo run -p rusty-studio-cli -- shell-hostess-staging-preview --intake target\studio-shell-handoffs\shell-hostess-owner-intake.json --output target\studio-shell-handoffs\shell-hostess-staging-preview.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-file-plan --preview target\studio-shell-handoffs\shell-hostess-staging-preview.json --output target\studio-shell-handoffs\shell-hostess-staging-file-plan.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-handoff --file-plan target\studio-shell-handoffs\shell-hostess-staging-file-plan.json --output target\studio-shell-handoffs\shell-hostess-staging-handoff.json
+cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-checklist --handoff target\studio-shell-handoffs\shell-hostess-staging-handoff.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-checklist.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -246,7 +249,10 @@ targets remain visible. Hostess staging file plans convert the reviewed
 package into dry-run shared/per-target file-copy requests, and staging handoff
 envelopes add a checksum/provenance summary plus explicit external-owner
 instructions for Hostess and Manifold without copying, staging, installing,
-launching, opening command sessions, or collecting evidence. Saved
+launching, opening command sessions, or collecting evidence. Staging
+acceptance checklists verify those handoff envelopes into explicit
+Hostess/Manifold acceptance rows while preserving the same non-execution
+boundary. Saved
 export-package comparisons let agents review
 whether a package review stayed unchanged, improved, regressed, or became
 incomparable without opening raw package JSON. Export-package baseline
@@ -320,3 +326,6 @@ source-route provenance while still leaving actual staging to Hostess.
 Hostess staging handoff envelopes wrap that file plan with a checksum,
 provenance summary, and explicit Hostess/Manifold owner instructions while
 preserving the same handoff-only, not-executed boundary.
+Hostess staging acceptance checklists verify the saved handoff envelope and
+turn it into explicit Hostess/Manifold acceptance rows, but still do not copy
+files, install, launch, open command sessions, or collect evidence.

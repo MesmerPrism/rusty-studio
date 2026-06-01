@@ -13,8 +13,8 @@ use rusty_studio_core::{
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
     load_shell_handoff_manifest, load_shell_hostess_handoff_package_report,
     load_shell_hostess_owner_intake_report, load_shell_hostess_staging_file_plan,
-    load_shell_hostess_staging_preview_manifest, load_shell_release_candidate_review_index,
-    load_shell_release_candidate_review_manifest,
+    load_shell_hostess_staging_handoff_envelope, load_shell_hostess_staging_preview_manifest,
+    load_shell_release_candidate_review_index, load_shell_release_candidate_review_manifest,
     promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default,
     promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
@@ -28,7 +28,9 @@ use rusty_studio_core::{
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
     shell_hostess_handoff_package_for_release_candidate_index,
-    shell_hostess_owner_intake_for_handoff_package, shell_hostess_staging_file_plan_for_preview,
+    shell_hostess_owner_intake_for_handoff_package,
+    shell_hostess_staging_acceptance_checklist_for_handoff,
+    shell_hostess_staging_file_plan_for_preview,
     shell_hostess_staging_handoff_envelope_for_file_plan,
     shell_hostess_staging_preview_for_owner_intake, shell_release_candidate_review_for_manifest,
     shell_release_candidate_review_index_for_manifests,
@@ -56,6 +58,7 @@ use rusty_studio_model::{
     StudioShellHostessHandoffPackageActionStatus, StudioShellHostessHandoffPackageReport,
     StudioShellHostessHandoffPackageStatus, StudioShellHostessOwnerIntakeAssignmentStatus,
     StudioShellHostessOwnerIntakeReport, StudioShellHostessOwnerIntakeStatus,
+    StudioShellHostessStagingAcceptanceChecklistReport, StudioShellHostessStagingAcceptanceStatus,
     StudioShellHostessStagingFilePlan, StudioShellHostessStagingFilePlanStatus,
     StudioShellHostessStagingFileRequestStatus, StudioShellHostessStagingHandoffEnvelope,
     StudioShellHostessStagingHandoffEnvelopeStatus,
@@ -257,6 +260,7 @@ script_mod! {
             shell_hostess_staging_preview_button := ActionButton{text: "Preview Hostess Staging"}
             shell_hostess_staging_file_plan_button := ActionButton{text: "Plan Staging Files"}
             shell_hostess_staging_handoff_button := ActionButton{text: "Prepare Hostess Handoff"}
+            shell_hostess_staging_acceptance_button := ActionButton{text: "Check Hostess Handoff"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1818,6 +1822,26 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn review_shell_hostess_staging_acceptance(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_hostess_staging_acceptance_for_project_source(&source) {
+            Ok((report, output_path)) => {
+                self.last_shell_bundle_status =
+                    shell_hostess_staging_acceptance_status(&report, &output_path);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -2621,6 +2645,13 @@ impl MatchEvent for App {
             .clicked(actions)
         {
             self.review_shell_hostess_staging_handoff(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_staging_acceptance_button))
+            .clicked(actions)
+        {
+            self.review_shell_hostess_staging_acceptance(cx);
         }
         if self
             .ui
@@ -3784,6 +3815,21 @@ fn shell_hostess_staging_handoff_for_project_source(
     Ok((report, output_path))
 }
 
+fn shell_hostess_staging_acceptance_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellHostessStagingAcceptanceChecklistReport, PathBuf), String> {
+    let handoff_path = shell_hostess_staging_handoff_output_path(project_path);
+    let handoff = load_shell_hostess_staging_handoff_envelope(&handoff_path)
+        .map_err(|error| format!("Shell Hostess staging handoff load failed: {error}"))?;
+    let report =
+        shell_hostess_staging_acceptance_checklist_for_handoff(&handoff, Some(&handoff_path));
+    let output_path = shell_hostess_staging_acceptance_output_path(project_path);
+    save_json(&output_path, &report).map_err(|error| {
+        format!("Shell Hostess staging acceptance checklist save failed: {error}")
+    })?;
+    Ok((report, output_path))
+}
+
 fn retarget_project_source(
     project_path: &Path,
     model: &StudioViewModel,
@@ -4184,6 +4230,15 @@ fn shell_hostess_staging_handoff_output_path(project_path: &Path) -> PathBuf {
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-hostess-staging-handoff.json")
+}
+
+fn shell_hostess_staging_acceptance_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-hostess-staging-acceptance-checklist.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -6790,6 +6845,92 @@ fn shell_hostess_staging_handoff_status(
     )
 }
 
+fn shell_hostess_staging_acceptance_status(
+    report: &StudioShellHostessStagingAcceptanceChecklistReport,
+    output_path: &Path,
+) -> String {
+    let status = shell_hostess_staging_acceptance_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let handoff_path = report.handoff_path.as_deref().unwrap_or("unknown");
+    let file_plan_path = report.file_plan_path.as_deref().unwrap_or("unknown");
+    let entries = report
+        .entries
+        .iter()
+        .map(|entry| {
+            let entry_status = shell_hostess_staging_acceptance_status_label(entry.status);
+            let issue = entry.issue_code.as_deref().unwrap_or("none");
+            format!(
+                "{} [{}] owner {}; kind {}; route {}; next {}; prohibited in Studio {}; issue {}",
+                entry.item_id,
+                entry_status,
+                entry.owner,
+                entry.item_kind,
+                entry.route_kind,
+                entry.next_required_action,
+                if entry.prohibited_in_studio {
+                    "yes"
+                } else {
+                    "no"
+                },
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    let prohibited = if report.prohibited_actions.is_empty() {
+        "none".to_string()
+    } else {
+        report.prohibited_actions.join(", ")
+    };
+    let failed_checks = report
+        .handoff_checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .count();
+    format!(
+        "shell Hostess staging acceptance {status}; issue {issue}\n  checklist: {}\n  handoff: {}\n  file plan: {}\n  envelope id: {}\n  project: {} rev {}\n  checksum: {} ({})\n  requests ready {}; blocked {}; instructions ready {}; blocked {}\n  items ready {}; blocked {}; rejected {}\n  authority: command {}; host {}; studio {}; policy {}; checklist owner {}; handoff owner {}; staging owner {}\n  entries:\n  {}\n  prohibited: {}\n  checks: {}; failed {}",
+        output_path.display(),
+        handoff_path,
+        file_plan_path,
+        report.envelope_id,
+        report.project_id.as_deref().unwrap_or("unknown"),
+        report
+            .project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        report.plan_checksum,
+        report.checksum_algorithm,
+        report.ready_request_count,
+        report.blocked_request_count,
+        report.ready_instruction_count,
+        report.blocked_instruction_count,
+        report.ready_item_count,
+        report.blocked_item_count,
+        report.rejected_item_count,
+        report
+            .command_session_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report
+            .install_launch_evidence_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report.studio_role.as_deref().unwrap_or("unknown"),
+        report.execution_policy,
+        report.checklist_owner,
+        report.handoff_owner,
+        report.staging_owner,
+        if entries.is_empty() {
+            "none".to_string()
+        } else {
+            entries
+        },
+        prohibited,
+        report.handoff_checks.len(),
+        failed_checks
+    )
+}
+
 fn shell_release_candidate_review_manifest_summary_status(
     candidate: &StudioShellReleaseCandidateReviewManifest,
     index: &StudioShellReleaseCandidateReviewIndex,
@@ -6988,6 +7129,16 @@ fn shell_hostess_staging_handoff_instruction_status_label(
     match status {
         StudioShellHostessStagingHandoffInstructionStatus::Ready => "ready",
         StudioShellHostessStagingHandoffInstructionStatus::Blocked => "blocked",
+    }
+}
+
+fn shell_hostess_staging_acceptance_status_label(
+    status: StudioShellHostessStagingAcceptanceStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessStagingAcceptanceStatus::Ready => "ready",
+        StudioShellHostessStagingAcceptanceStatus::Blocked => "blocked",
+        StudioShellHostessStagingAcceptanceStatus::Rejected => "rejected",
     }
 }
 
@@ -9498,6 +9649,64 @@ mod tests {
         assert!(handoff_status.contains("not_executed.handoff_only"));
         assert!(handoff_status.contains("instructions ready 4; blocked 0"));
         assert!(handoff_status.contains("hostess.stage.files_from_plan"));
+
+        let (acceptance, acceptance_path) =
+            shell_hostess_staging_acceptance_for_project_source(&project_path)
+                .expect("prepare shell Hostess staging acceptance checklist");
+        assert!(acceptance_path.is_file());
+        assert_eq!(
+            acceptance.schema_id,
+            "rusty.studio.shell_hostess_staging_acceptance_checklist.v1"
+        );
+        assert_eq!(
+            acceptance.status,
+            StudioShellHostessStagingAcceptanceStatus::Ready
+        );
+        assert_eq!(acceptance.issue_code, None);
+        assert_eq!(
+            acceptance.execution_policy,
+            "not_executed.acceptance_check_only"
+        );
+        assert_eq!(acceptance.checklist_owner, "rusty.hostess");
+        assert_eq!(acceptance.handoff_owner, "rusty.hostess");
+        assert_eq!(acceptance.staging_owner, "rusty.hostess");
+        assert_eq!(
+            acceptance.handoff_path.as_deref(),
+            Some(handoff_path.display().to_string().as_str())
+        );
+        assert_eq!(acceptance.plan_checksum, handoff.provenance.plan_checksum);
+        assert_eq!(acceptance.request_count, handoff.request_count);
+        assert_eq!(acceptance.ready_request_count, handoff.ready_request_count);
+        assert_eq!(acceptance.blocked_request_count, 0);
+        assert_eq!(acceptance.instruction_count, 4);
+        assert_eq!(acceptance.ready_instruction_count, 4);
+        assert_eq!(acceptance.blocked_instruction_count, 0);
+        assert_eq!(acceptance.ready_item_count, 6);
+        assert_eq!(acceptance.blocked_item_count, 0);
+        assert_eq!(acceptance.rejected_item_count, 0);
+        assert!(acceptance.entries.iter().any(|entry| {
+            entry.item_id == "hostess.copy_staging_files"
+                && entry.owner == "rusty.hostess"
+                && entry.route_kind == "hostess.stage.files_from_plan"
+                && entry.status == StudioShellHostessStagingAcceptanceStatus::Ready
+                && entry.prohibited_in_studio
+        }));
+        assert!(acceptance.entries.iter().any(|entry| {
+            entry.item_id == "manifold.review_command_session_contract"
+                && entry.owner == "rusty.manifold"
+                && entry.route_kind == "manifold.review.command_session_contract"
+        }));
+        assert!(acceptance
+            .handoff_checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+
+        let acceptance_status =
+            shell_hostess_staging_acceptance_status(&acceptance, &acceptance_path);
+        assert!(acceptance_status.contains("shell Hostess staging acceptance ready"));
+        assert!(acceptance_status.contains("not_executed.acceptance_check_only"));
+        assert!(acceptance_status.contains("items ready 6; blocked 0; rejected 0"));
+        assert!(acceptance_status.contains("hostess.stage.files_from_plan"));
     }
 
     #[test]

@@ -68,6 +68,8 @@ pub const SHELL_HOSTESS_STAGING_FILE_PLAN_SCHEMA: &str =
     "rusty.studio.shell_hostess_staging_file_plan.v1";
 pub const SHELL_HOSTESS_STAGING_HANDOFF_ENVELOPE_SCHEMA: &str =
     "rusty.studio.shell_hostess_staging_handoff_envelope.v1";
+pub const SHELL_HOSTESS_STAGING_ACCEPTANCE_CHECKLIST_SCHEMA: &str =
+    "rusty.studio.shell_hostess_staging_acceptance_checklist.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -1919,6 +1921,70 @@ pub struct StudioShellHostessStagingHandoffInstruction {
 pub enum StudioShellHostessStagingHandoffInstructionStatus {
     Ready,
     Blocked,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingAcceptanceChecklistReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub source_handoff_schema: String,
+    pub handoff_path: Option<String>,
+    pub file_plan_path: Option<String>,
+    pub preview_path: Option<String>,
+    pub intake_path: Option<String>,
+    pub package_path: Option<String>,
+    pub handoff_manifest_path: Option<String>,
+    pub selected_candidate_id: Option<String>,
+    pub envelope_id: String,
+    pub manifest_id: Option<String>,
+    pub project_id: Option<String>,
+    pub project_revision: Option<u64>,
+    pub status: StudioShellHostessStagingAcceptanceStatus,
+    pub issue_code: Option<String>,
+    pub execution_policy: String,
+    pub checklist_owner: String,
+    pub handoff_owner: String,
+    pub staging_owner: String,
+    pub command_session_authority: Option<String>,
+    pub install_launch_evidence_authority: Option<String>,
+    pub studio_role: Option<String>,
+    pub request_count: usize,
+    pub ready_request_count: usize,
+    pub blocked_request_count: usize,
+    pub instruction_count: usize,
+    pub ready_instruction_count: usize,
+    pub blocked_instruction_count: usize,
+    pub checksum_algorithm: String,
+    pub plan_checksum: String,
+    pub ready_item_count: usize,
+    pub blocked_item_count: usize,
+    pub rejected_item_count: usize,
+    pub prohibited_actions: Vec<String>,
+    pub handoff_checks: Vec<StudioValidationCheck>,
+    pub entries: Vec<StudioShellHostessStagingAcceptanceChecklistEntry>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingAcceptanceStatus {
+    Ready,
+    Blocked,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingAcceptanceChecklistEntry {
+    pub item_id: String,
+    pub owner: String,
+    pub status: StudioShellHostessStagingAcceptanceStatus,
+    pub issue_code: Option<String>,
+    pub item_kind: String,
+    pub route_kind: String,
+    pub source: String,
+    pub evidence: String,
+    pub next_required_action: String,
+    pub prohibited_in_studio: bool,
+    pub expected_input_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
