@@ -82,6 +82,13 @@ try {
     $DamagedTemplateShellExportPackagePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-damaged-template.json"
     $ShellExportPackageComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-comparison.json"
     $RegressedShellExportPackageComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-comparison-regressed.json"
+    $ShellExportPackageBaselinePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-baseline.json"
+    $ShellExportPackageBaselineIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-baselines.json"
+    $ShellExportPackageBaselineSelectionPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-baseline-selection.json"
+    $ShellExportPackageIndexComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-comparison-indexed.json"
+    $DamagedTemplateShellExportPackageBaselinePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-baseline-damaged-template.json"
+    $ShellExportPackageMultiBaselineIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-baselines-multi.json"
+    $ShellExportPackagePromotedBaselineIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-baselines-promoted.json"
     $ShellHandoffAcceptanceChecklistPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json"
     $ShellHandoffAcceptanceSnapshotPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json"
     $ShellHandoffAcceptanceSummaryPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-summary.json"
@@ -102,7 +109,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -2104,6 +2111,241 @@ try {
         if (@($RegressedExportComparisonView.entries | Where-Object { $_.graph_id -ne "studio.graph.synthetic_wave_phone" -and $_.change -ne "unchanged" }).Count -ne 0) {
             throw "regressed shell export package comparison should keep undamaged entries unchanged"
         }
+    }
+    $ShellExportPackageBaselineOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package-baseline --package-report $ShellExportPackagePath --baseline-id "synthetic-ready-package" --label "Synthetic ready export package baseline" --output $ShellExportPackageBaselinePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell export package baseline failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellExportPackageBaselinePath)) {
+        throw "shell export package baseline manifest was not written"
+    }
+    $ShellExportPackageBaseline = ($ShellExportPackageBaselineOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellExportPackageBaseline = Get-Content -Raw $ShellExportPackageBaselinePath | ConvertFrom-Json
+    foreach ($ExportPackageBaselineView in @($ShellExportPackageBaseline, $WrittenShellExportPackageBaseline)) {
+        if ($ExportPackageBaselineView.'$schema' -ne "rusty.studio.shell_export_package_baseline_manifest.v1") {
+            throw "shell export package baseline schema mismatch"
+        }
+        if ($ExportPackageBaselineView.baseline_id -ne "synthetic-ready-package" -or $ExportPackageBaselineView.label -ne "Synthetic ready export package baseline") {
+            throw "shell export package baseline identity mismatch"
+        }
+        if ($ExportPackageBaselineView.package_path -ne $ShellExportPackagePath) {
+            throw "shell export package baseline package path mismatch"
+        }
+        if ($ExportPackageBaselineView.package_schema -ne "rusty.studio.shell_export_package_report.v1") {
+            throw "shell export package baseline package schema mismatch"
+        }
+        if ($ExportPackageBaselineView.package_id -ne $ShellExportPackage.package_id -or $ExportPackageBaselineView.manifest_id -ne $ShellExportPackage.manifest_id) {
+            throw "shell export package baseline package identity mismatch"
+        }
+        if ($ExportPackageBaselineView.project_id -ne $ShellExportPackage.project_id -or $ExportPackageBaselineView.project_revision -ne $ShellExportPackage.project_revision) {
+            throw "shell export package baseline project metadata mismatch"
+        }
+        if ($ExportPackageBaselineView.status -ne "ready" -or $ExportPackageBaselineView.ready_count -ne 3 -or $ExportPackageBaselineView.blocked_count -ne 0 -or $ExportPackageBaselineView.rejected_count -ne 0) {
+            throw "shell export package baseline readiness mismatch"
+        }
+        if ($ExportPackageBaselineView.descriptor_count -ne 3 -or $ExportPackageBaselineView.template_manifest_count -ne 3 -or $ExportPackageBaselineView.runbook_entry_count -ne 3 -or $ExportPackageBaselineView.target_count -ne 3) {
+            throw "shell export package baseline count mismatch"
+        }
+        if ($ExportPackageBaselineView.execution_policy -ne "not_executed.review_only" -or $ExportPackageBaselineView.command_session_authority -ne "rusty.manifold" -or $ExportPackageBaselineView.install_launch_evidence_authority -ne "rusty.hostess" -or $ExportPackageBaselineView.studio_role -ne "authoring.export_planning") {
+            throw "shell export package baseline authority mismatch"
+        }
+    }
+    $ShellExportPackageBaselineIndexOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package-baseline-index --baseline-manifest $ShellExportPackageBaselinePath --default-baseline-id "synthetic-ready-package" --output $ShellExportPackageBaselineIndexPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell export package baseline index failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellExportPackageBaselineIndexPath)) {
+        throw "shell export package baseline index was not written"
+    }
+    $ShellExportPackageBaselineIndex = ($ShellExportPackageBaselineIndexOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellExportPackageBaselineIndex = Get-Content -Raw $ShellExportPackageBaselineIndexPath | ConvertFrom-Json
+    foreach ($ExportPackageBaselineIndexView in @($ShellExportPackageBaselineIndex, $WrittenShellExportPackageBaselineIndex)) {
+        if ($ExportPackageBaselineIndexView.'$schema' -ne "rusty.studio.shell_export_package_baseline_index.v1") {
+            throw "shell export package baseline index schema mismatch"
+        }
+        if ($ExportPackageBaselineIndexView.default_baseline_id -ne "synthetic-ready-package") {
+            throw "shell export package baseline index default mismatch"
+        }
+        if ($ExportPackageBaselineIndexView.baseline_count -ne 1 -or $ExportPackageBaselineIndexView.ready_baseline_count -ne 1 -or $ExportPackageBaselineIndexView.blocked_baseline_count -ne 0 -or $ExportPackageBaselineIndexView.rejected_baseline_count -ne 0) {
+            throw "shell export package baseline index counts mismatch"
+        }
+        if (@($ExportPackageBaselineIndexView.project_ids).Count -ne 1 -or @($ExportPackageBaselineIndexView.project_ids)[0] -ne $ShellExportPackage.project_id) {
+            throw "shell export package baseline index project ids mismatch"
+        }
+        if (@($ExportPackageBaselineIndexView.package_ids).Count -ne 1 -or @($ExportPackageBaselineIndexView.package_ids)[0] -ne $ShellExportPackage.package_id) {
+            throw "shell export package baseline index package ids mismatch"
+        }
+        if (@($ExportPackageBaselineIndexView.manifest_ids).Count -ne 1 -or @($ExportPackageBaselineIndexView.manifest_ids)[0] -ne $ShellExportPackage.manifest_id) {
+            throw "shell export package baseline index manifest ids mismatch"
+        }
+        if (@($ExportPackageBaselineIndexView.entries).Count -ne 1) {
+            throw "shell export package baseline index entry count mismatch"
+        }
+        $ExportPackageBaselineIndexEntry = @($ExportPackageBaselineIndexView.entries)[0]
+        if ($ExportPackageBaselineIndexEntry.baseline_id -ne "synthetic-ready-package" -or $ExportPackageBaselineIndexEntry.label -ne "Synthetic ready export package baseline") {
+            throw "shell export package baseline index entry identity mismatch"
+        }
+        if ($ExportPackageBaselineIndexEntry.baseline_manifest_path -ne $ShellExportPackageBaselinePath -or $ExportPackageBaselineIndexEntry.package_path -ne $ShellExportPackagePath) {
+            throw "shell export package baseline index entry path mismatch"
+        }
+        if ($ExportPackageBaselineIndexEntry.package_schema -ne "rusty.studio.shell_export_package_report.v1" -or $ExportPackageBaselineIndexEntry.package_id -ne $ShellExportPackage.package_id) {
+            throw "shell export package baseline index entry package mismatch"
+        }
+        if ($ExportPackageBaselineIndexEntry.status -ne "ready" -or $ExportPackageBaselineIndexEntry.ready_count -ne 3 -or $ExportPackageBaselineIndexEntry.blocked_count -ne 0 -or $ExportPackageBaselineIndexEntry.rejected_count -ne 0 -or $ExportPackageBaselineIndexEntry.descriptor_count -ne 3 -or $ExportPackageBaselineIndexEntry.template_manifest_count -ne 3 -or $ExportPackageBaselineIndexEntry.runbook_entry_count -ne 3 -or $ExportPackageBaselineIndexEntry.target_count -ne 3) {
+            throw "shell export package baseline index entry readiness mismatch"
+        }
+    }
+    $ShellExportPackageBaselineSelectionOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package-baseline-selection --baseline-index $ShellExportPackageBaselineIndexPath --baseline-id "synthetic-ready-package" --output $ShellExportPackageBaselineSelectionPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell export package baseline selection failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellExportPackageBaselineSelectionPath)) {
+        throw "shell export package baseline selection was not written"
+    }
+    $ShellExportPackageBaselineSelection = ($ShellExportPackageBaselineSelectionOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellExportPackageBaselineSelection = Get-Content -Raw $ShellExportPackageBaselineSelectionPath | ConvertFrom-Json
+    foreach ($ExportPackageBaselineSelectionView in @($ShellExportPackageBaselineSelection, $WrittenShellExportPackageBaselineSelection)) {
+        if ($ExportPackageBaselineSelectionView.'$schema' -ne "rusty.studio.shell_export_package_baseline_selection.v1") {
+            throw "shell export package baseline selection schema mismatch"
+        }
+        if ($ExportPackageBaselineSelectionView.source_index_schema -ne "rusty.studio.shell_export_package_baseline_index.v1") {
+            throw "shell export package baseline selection source index schema mismatch"
+        }
+        if ($ExportPackageBaselineSelectionView.index_path -ne $ShellExportPackageBaselineIndexPath) {
+            throw "shell export package baseline selection index path mismatch"
+        }
+        if ($ExportPackageBaselineSelectionView.requested_baseline_id -ne "synthetic-ready-package" -or $ExportPackageBaselineSelectionView.default_baseline_id -ne "synthetic-ready-package" -or $ExportPackageBaselineSelectionView.selected_baseline_id -ne "synthetic-ready-package") {
+            throw "shell export package baseline selection id mismatch"
+        }
+        if ($ExportPackageBaselineSelectionView.status -ne "selected") {
+            throw "shell export package baseline selection status mismatch"
+        }
+        if ($null -ne $ExportPackageBaselineSelectionView.issue_code) {
+            throw "selected shell export package baseline selection should not carry an issue"
+        }
+        if ($ExportPackageBaselineSelectionView.baseline_count -ne 1 -or $ExportPackageBaselineSelectionView.ready_baseline_count -ne 1 -or $ExportPackageBaselineSelectionView.blocked_baseline_count -ne 0 -or $ExportPackageBaselineSelectionView.rejected_baseline_count -ne 0) {
+            throw "shell export package baseline selection counts mismatch"
+        }
+        if (@($ExportPackageBaselineSelectionView.entries).Count -ne 1) {
+            throw "shell export package baseline selection entry count mismatch"
+        }
+        $ExportPackageBaselineSelectionEntry = @($ExportPackageBaselineSelectionView.entries)[0]
+        $ExportPackageBaselineSelectionEntryDefault = $ExportPackageBaselineSelectionEntry.PSObject.Properties["default"].Value
+        if ($ExportPackageBaselineSelectionEntry.baseline_id -ne "synthetic-ready-package" -or -not $ExportPackageBaselineSelectionEntry.selected -or -not $ExportPackageBaselineSelectionEntryDefault) {
+            throw "shell export package baseline selection entry selection mismatch"
+        }
+        if ($ExportPackageBaselineSelectionEntry.package_path -ne $ShellExportPackagePath -or $ExportPackageBaselineSelectionEntry.package_id -ne $ShellExportPackage.package_id) {
+            throw "shell export package baseline selection entry package mismatch"
+        }
+    }
+    $ShellExportPackageIndexComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package-comparison --baseline-index $ShellExportPackageBaselineIndexPath --baseline-id "synthetic-ready-package" --candidate $ShellExportPackagePath --output $ShellExportPackageIndexComparisonPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio indexed shell export package comparison failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellExportPackageIndexComparisonPath)) {
+        throw "indexed shell export package comparison was not written"
+    }
+    $ShellExportPackageIndexComparison = ($ShellExportPackageIndexComparisonOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellExportPackageIndexComparison = Get-Content -Raw $ShellExportPackageIndexComparisonPath | ConvertFrom-Json
+    foreach ($ExportPackageIndexComparisonView in @($ShellExportPackageIndexComparison, $WrittenShellExportPackageIndexComparison)) {
+        if ($ExportPackageIndexComparisonView.'$schema' -ne "rusty.studio.shell_export_package_comparison.v1") {
+            throw "indexed shell export package comparison schema mismatch"
+        }
+        if ($ExportPackageIndexComparisonView.baseline_identity_schema -ne "rusty.studio.shell_export_package_baseline_manifest.v1") {
+            throw "indexed shell export package comparison baseline identity schema mismatch"
+        }
+        if ($ExportPackageIndexComparisonView.baseline_id -ne "synthetic-ready-package" -or $ExportPackageIndexComparisonView.baseline_label -ne "Synthetic ready export package baseline") {
+            throw "indexed shell export package comparison baseline identity mismatch"
+        }
+        if ($ExportPackageIndexComparisonView.baseline_package_path -ne $ShellExportPackagePath) {
+            throw "indexed shell export package comparison baseline package path mismatch"
+        }
+        if ($ExportPackageIndexComparisonView.baseline_index_schema -ne "rusty.studio.shell_export_package_baseline_index.v1" -or $ExportPackageIndexComparisonView.baseline_index_path -ne $ShellExportPackageBaselineIndexPath) {
+            throw "indexed shell export package comparison baseline index mismatch"
+        }
+        if ($ExportPackageIndexComparisonView.baseline_index_default_baseline_id -ne "synthetic-ready-package" -or $ExportPackageIndexComparisonView.baseline_index_selected_baseline_id -ne "synthetic-ready-package") {
+            throw "indexed shell export package comparison baseline index selection mismatch"
+        }
+        if ($ExportPackageIndexComparisonView.status -ne "unchanged") {
+            throw "indexed shell export package comparison should be unchanged"
+        }
+        if (@($ExportPackageIndexComparisonView.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
+            throw "indexed shell export package comparison checks reported failures"
+        }
+        if (@($ExportPackageIndexComparisonView.checks | Where-Object { $_.check_id -like "*baseline_identity*" }).Count -lt 6) {
+            throw "indexed shell export package comparison did not include baseline identity checks"
+        }
+        if (@($ExportPackageIndexComparisonView.checks | Where-Object { $_.check_id -like "*baseline_index*" }).Count -lt 7) {
+            throw "indexed shell export package comparison did not include baseline index checks"
+        }
+    }
+    $DamagedTemplateShellExportPackageBaselineOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package-baseline --package-report $DamagedTemplateShellExportPackagePath --baseline-id "synthetic-blocked-package" --label "Synthetic blocked export package baseline" --output $DamagedTemplateShellExportPackageBaselinePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio damaged template shell export package baseline failed with exit code $LASTEXITCODE"
+    }
+    $DamagedTemplateShellExportPackageBaseline = ($DamagedTemplateShellExportPackageBaselineOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($DamagedTemplateShellExportPackageBaseline.'$schema' -ne "rusty.studio.shell_export_package_baseline_manifest.v1") {
+        throw "damaged template shell export package baseline schema mismatch"
+    }
+    if ($DamagedTemplateShellExportPackageBaseline.status -ne "blocked" -or $DamagedTemplateShellExportPackageBaseline.ready_count -ne 2 -or $DamagedTemplateShellExportPackageBaseline.blocked_count -ne 1) {
+        throw "damaged template shell export package baseline readiness mismatch"
+    }
+    $ShellExportPackageMultiBaselineIndexOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package-baseline-index-append --baseline-index $ShellExportPackageBaselineIndexPath --baseline-manifest $DamagedTemplateShellExportPackageBaselinePath --default-baseline-id "synthetic-blocked-package" --output $ShellExportPackageMultiBaselineIndexPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell export package baseline index append failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellExportPackageMultiBaselineIndexPath)) {
+        throw "multi-baseline shell export package index was not written"
+    }
+    $ShellExportPackageMultiBaselineIndex = ($ShellExportPackageMultiBaselineIndexOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($ShellExportPackageMultiBaselineIndex.'$schema' -ne "rusty.studio.shell_export_package_baseline_index.v1") {
+        throw "multi-baseline shell export package index schema mismatch"
+    }
+    if ($ShellExportPackageMultiBaselineIndex.default_baseline_id -ne "synthetic-blocked-package") {
+        throw "multi-baseline shell export package index default mismatch"
+    }
+    if ($ShellExportPackageMultiBaselineIndex.baseline_count -ne 2 -or $ShellExportPackageMultiBaselineIndex.ready_baseline_count -ne 1 -or $ShellExportPackageMultiBaselineIndex.blocked_baseline_count -ne 1 -or $ShellExportPackageMultiBaselineIndex.rejected_baseline_count -ne 0) {
+        throw "multi-baseline shell export package index counts mismatch"
+    }
+    $MultiExportPackageSelectionOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package-baseline-selection --baseline-index $ShellExportPackageMultiBaselineIndexPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio multi-baseline shell export package selection failed with exit code $LASTEXITCODE"
+    }
+    $MultiExportPackageSelection = ($MultiExportPackageSelectionOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($MultiExportPackageSelection.status -ne "selected" -or $MultiExportPackageSelection.default_baseline_id -ne "synthetic-blocked-package" -or $MultiExportPackageSelection.selected_baseline_id -ne "synthetic-blocked-package") {
+        throw "multi-baseline shell export package selection default mismatch"
+    }
+    $ShellExportPackagePromotedBaselineIndexOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package-baseline-index-promote --baseline-index $ShellExportPackageMultiBaselineIndexPath --baseline-id "synthetic-ready-package" --output $ShellExportPackagePromotedBaselineIndexPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell export package baseline index promote failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellExportPackagePromotedBaselineIndexPath)) {
+        throw "promoted shell export package index was not written"
+    }
+    $ShellExportPackagePromotedBaselineIndex = ($ShellExportPackagePromotedBaselineIndexOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($ShellExportPackagePromotedBaselineIndex.default_baseline_id -ne "synthetic-ready-package") {
+        throw "promoted shell export package index default mismatch"
+    }
+    if ($ShellExportPackagePromotedBaselineIndex.baseline_count -ne 2 -or $ShellExportPackagePromotedBaselineIndex.ready_baseline_count -ne 1 -or $ShellExportPackagePromotedBaselineIndex.blocked_baseline_count -ne 1) {
+        throw "promoted shell export package index counts mismatch"
+    }
+    $MissingExportPackagePromoteResult = Invoke-NativeExpectedFailure "cargo" @(
+        "run",
+        "--quiet",
+        "-p",
+        "rusty-studio-cli",
+        "--",
+        "shell-export-package-baseline-index-promote",
+        "--baseline-index",
+        $ShellExportPackageMultiBaselineIndexPath,
+        "--baseline-id",
+        "synthetic-missing-package"
+    )
+    if ($MissingExportPackagePromoteResult.ExitCode -eq 0) {
+        throw "missing shell export package baseline promote should fail"
+    }
+    if ((($MissingExportPackagePromoteResult.Output -join [Environment]::NewLine) -notmatch "--baseline-id was not found in --baseline-index")) {
+        throw "missing shell export package baseline promote error mismatch"
     }
     $HandoffAcceptanceChecklistOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake $ShellHandoffIntakePath --output $ShellHandoffAcceptanceChecklistPath
     if ($LASTEXITCODE -ne 0) {

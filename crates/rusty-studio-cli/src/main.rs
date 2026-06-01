@@ -1,25 +1,33 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rusty_studio_core::{
     add_binding_to_graph, add_module_to_graph, add_next_catalog_module_from_package_to_graph,
-    add_next_catalog_module_to_graph, append_shell_handoff_acceptance_baseline_index_manifests,
-    compare_shell_export_packages, compare_shell_handoff_acceptance_against_baseline_index_entry,
+    add_next_catalog_module_to_graph, append_shell_export_package_baseline_index_manifests,
+    append_shell_handoff_acceptance_baseline_index_manifests, compare_shell_export_packages,
+    compare_shell_export_packages_against_baseline_index_entry,
+    compare_shell_export_packages_against_baseline_manifest,
+    compare_shell_handoff_acceptance_against_baseline_index_entry,
     compare_shell_handoff_acceptance_against_baseline_manifest,
     compare_shell_handoff_acceptance_checklists, desktop_shell_handoff_for_bundle, export_plan,
     load_project, load_shell_artifact_manifest, load_shell_descriptor,
+    load_shell_export_package_baseline_index, load_shell_export_package_baseline_manifest,
     load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
     load_shell_handoff_intake_report, load_shell_handoff_manifest, load_shell_template_index,
+    promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default, remove_binding_from_graph,
     remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
-    save_project, save_shell_bundle, select_shell_handoff_acceptance_baseline_index_entry,
-    selected_shell_bundle_for_graph, shell_artifacts_for_project, shell_descriptor_artifact_path,
-    shell_descriptor_for_graph, shell_export_package_for_manifest,
+    save_project, save_shell_bundle, select_shell_export_package_baseline_index_entry,
+    select_shell_handoff_acceptance_baseline_index_entry, selected_shell_bundle_for_graph,
+    shell_artifacts_for_project, shell_descriptor_artifact_path, shell_descriptor_for_graph,
+    shell_export_package_baseline_index_for_manifests,
+    shell_export_package_baseline_manifest_for_report, shell_export_package_for_manifest,
     shell_export_package_for_project, shell_handoff_acceptance_baseline_index_for_manifests,
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_intake, shell_handoff_acceptance_checklist_for_project,
     shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
     shell_runbook_for_project, shell_templates_for_artifact_manifest,
+    summarize_shell_export_package_baseline_index_selection,
     summarize_shell_handoff_acceptance_baseline_index_selection,
     summarize_shell_handoff_acceptance_checklist, validate_project_with_base,
     validate_selected_shell_bundle, validate_shell_artifact_manifest, validate_shell_descriptor,
@@ -69,6 +77,11 @@ enum Command {
     ShellHandoffIntake(ShellHandoffIntakeArgs),
     ShellRunbook(ShellRunbookArgs),
     ShellExportPackage(ShellExportPackageArgs),
+    ShellExportPackageBaseline(ShellExportPackageBaselineArgs),
+    ShellExportPackageBaselineIndex(ShellExportPackageBaselineIndexArgs),
+    ShellExportPackageBaselineIndexAppend(ShellExportPackageBaselineIndexAppendArgs),
+    ShellExportPackageBaselineIndexPromote(ShellExportPackageBaselineIndexPromoteArgs),
+    ShellExportPackageBaselineSelection(ShellExportPackageBaselineSelectionArgs),
     ShellExportPackageComparison(ShellExportPackageComparisonArgs),
     ShellHandoffAcceptanceChecklist(ShellHandoffAcceptanceChecklistArgs),
     ShellHandoffAcceptanceSnapshot(ShellHandoffAcceptanceSnapshotArgs),
@@ -313,9 +326,69 @@ struct ShellExportPackageArgs {
 }
 
 #[derive(Debug, Parser)]
+struct ShellExportPackageBaselineArgs {
+    #[arg(long)]
+    package_report: PathBuf,
+    #[arg(long)]
+    baseline_id: Option<String>,
+    #[arg(long)]
+    label: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellExportPackageBaselineIndexArgs {
+    #[arg(long = "baseline-manifest", required = true)]
+    baseline_manifests: Vec<PathBuf>,
+    #[arg(long)]
+    default_baseline_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellExportPackageBaselineIndexAppendArgs {
+    #[arg(long)]
+    baseline_index: PathBuf,
+    #[arg(long = "baseline-manifest", required = true)]
+    baseline_manifests: Vec<PathBuf>,
+    #[arg(long)]
+    default_baseline_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellExportPackageBaselineIndexPromoteArgs {
+    #[arg(long)]
+    baseline_index: PathBuf,
+    #[arg(long)]
+    baseline_id: String,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellExportPackageBaselineSelectionArgs {
+    #[arg(long)]
+    baseline_index: PathBuf,
+    #[arg(long)]
+    baseline_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
 struct ShellExportPackageComparisonArgs {
     #[arg(long)]
-    baseline: PathBuf,
+    baseline: Option<PathBuf>,
+    #[arg(long)]
+    baseline_manifest: Option<PathBuf>,
+    #[arg(long)]
+    baseline_index: Option<PathBuf>,
+    #[arg(long)]
+    baseline_id: Option<String>,
     #[arg(long)]
     candidate: PathBuf,
     #[arg(long)]
@@ -823,10 +896,167 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
+        Command::ShellExportPackageBaseline(args) => {
+            let package = load_shell_export_package_report(&args.package_report)?;
+            let report = shell_export_package_baseline_manifest_for_report(
+                &package,
+                &args.package_report,
+                args.baseline_id.as_deref(),
+                args.label.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellExportPackageBaselineIndex(args) => {
+            let baselines = args
+                .baseline_manifests
+                .iter()
+                .map(|path| {
+                    load_shell_export_package_baseline_manifest(path)
+                        .map(|baseline| (baseline, Some(path.clone())))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let report = shell_export_package_baseline_index_for_manifests(
+                baselines,
+                args.default_baseline_id.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellExportPackageBaselineIndexAppend(args) => {
+            let index = load_shell_export_package_baseline_index(&args.baseline_index)?;
+            let baselines = args
+                .baseline_manifests
+                .iter()
+                .map(|path| {
+                    load_shell_export_package_baseline_manifest(path)
+                        .map(|baseline| (baseline, Some(path.clone())))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let report = append_shell_export_package_baseline_index_manifests(
+                &index,
+                baselines,
+                args.default_baseline_id.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellExportPackageBaselineIndexPromote(args) => {
+            let index = load_shell_export_package_baseline_index(&args.baseline_index)?;
+            let report =
+                promote_shell_export_package_baseline_index_default(&index, &args.baseline_id)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "--baseline-id was not found in --baseline-index",
+                        )
+                    })?;
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellExportPackageBaselineSelection(args) => {
+            let index = load_shell_export_package_baseline_index(&args.baseline_index)?;
+            let report = summarize_shell_export_package_baseline_index_selection(
+                &index,
+                Some(&args.baseline_index),
+                args.baseline_id.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
         Command::ShellExportPackageComparison(args) => {
-            let baseline = load_shell_export_package_report(&args.baseline)?;
             let candidate = load_shell_export_package_report(&args.candidate)?;
-            let report = compare_shell_export_packages(&baseline, &candidate);
+            let report = if let Some(baseline_index_path) = args.baseline_index.as_ref() {
+                if args.baseline.is_some() || args.baseline_manifest.is_some() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--baseline-index cannot be combined with --baseline or --baseline-manifest",
+                    )
+                    .into());
+                }
+                let baseline_index = load_shell_export_package_baseline_index(baseline_index_path)?;
+                let baseline_index_entry = select_shell_export_package_baseline_index_entry(
+                    &baseline_index,
+                    args.baseline_id.as_deref(),
+                )
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--baseline-id was not found in --baseline-index",
+                    )
+                })?;
+                let baseline_manifest_path = baseline_index_entry
+                    .baseline_manifest_path
+                    .as_ref()
+                    .map(PathBuf::from)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "selected baseline index entry does not include baseline_manifest_path",
+                        )
+                    })?;
+                let baseline_manifest =
+                    load_shell_export_package_baseline_manifest(&baseline_manifest_path)?;
+                let baseline_path = PathBuf::from(&baseline_manifest.package_path);
+                let baseline = load_shell_export_package_report(&baseline_path)?;
+                compare_shell_export_packages_against_baseline_index_entry(
+                    &baseline_index,
+                    Some(baseline_index_path),
+                    baseline_index_entry,
+                    Some(&baseline_manifest_path),
+                    &baseline_manifest,
+                    &baseline,
+                    &candidate,
+                )
+            } else {
+                if args.baseline_id.is_some() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--baseline-id requires --baseline-index",
+                    )
+                    .into());
+                }
+                let baseline_manifest = args
+                    .baseline_manifest
+                    .as_ref()
+                    .map(|path| load_shell_export_package_baseline_manifest(path))
+                    .transpose()?;
+                let baseline_path = baseline_manifest
+                    .as_ref()
+                    .map(|identity| PathBuf::from(&identity.package_path))
+                    .or(args.baseline.clone())
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "--baseline, --baseline-manifest, or --baseline-index is required",
+                        )
+                    })?;
+                let baseline = load_shell_export_package_report(&baseline_path)?;
+                if let Some(baseline_manifest) = baseline_manifest.as_ref() {
+                    compare_shell_export_packages_against_baseline_manifest(
+                        baseline_manifest,
+                        &baseline,
+                        &candidate,
+                    )
+                } else {
+                    compare_shell_export_packages(&baseline, &candidate)
+                }
+            };
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }

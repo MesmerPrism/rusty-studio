@@ -79,6 +79,13 @@ Current scope:
 - review a schema-only shell export-package summary that groups descriptor
   refs, template manifest refs, and runbook rows for external Hostess/Manifold
   staging review without executing runtime actions;
+- write a named export-package baseline identity manifest that points to a
+  saved package review and records its review-only authority and readiness
+  counts;
+- write, append, select, and promote a compact export-package baseline index
+  for saved package-review slots;
+- compare export-package reviews by selecting a named baseline from that index
+  without hand-opening raw package JSON;
 - review shell handoff acceptance checklists from Makepad through the same
   manifest-to-intake-to-checklist core route used by CLI validation;
 - snapshot a current shell handoff acceptance checklist directly from a
@@ -158,6 +165,11 @@ cargo run -p rusty-studio-cli -- shell-runbook --project examples\synthetic-stud
 cargo run -p rusty-studio-cli -- shell-export-package --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-export-package.json
 cargo run -p rusty-studio-cli -- shell-export-package --manifest target\studio-shell-handoffs\shell-handoffs.json --output target\studio-shell-handoffs\shell-export-package.json
 cargo run -p rusty-studio-cli -- shell-export-package-comparison --baseline target\studio-shell-handoffs\shell-export-package.json --candidate target\studio-shell-handoffs\shell-export-package.json --output target\studio-shell-handoffs\shell-export-package-comparison.json
+cargo run -p rusty-studio-cli -- shell-export-package-baseline --package-report target\studio-shell-handoffs\shell-export-package.json --baseline-id synthetic-ready-package --label "Synthetic ready export package baseline" --output target\studio-shell-handoffs\shell-export-package-baseline.json
+cargo run -p rusty-studio-cli -- shell-export-package-baseline-index --baseline-manifest target\studio-shell-handoffs\shell-export-package-baseline.json --default-baseline-id synthetic-ready-package --output target\studio-shell-handoffs\shell-export-package-baselines.json
+cargo run -p rusty-studio-cli -- shell-export-package-baseline-selection --baseline-index target\studio-shell-handoffs\shell-export-package-baselines.json --baseline-id synthetic-ready-package --output target\studio-shell-handoffs\shell-export-package-baseline-selection.json
+cargo run -p rusty-studio-cli -- shell-export-package-baseline-index-promote --baseline-index target\studio-shell-handoffs\shell-export-package-baselines.json --baseline-id synthetic-ready-package --output target\studio-shell-handoffs\shell-export-package-baselines.json
+cargo run -p rusty-studio-cli -- shell-export-package-comparison --baseline-index target\studio-shell-handoffs\shell-export-package-baselines.json --baseline-id synthetic-ready-package --candidate target\studio-shell-handoffs\shell-export-package.json --output target\studio-shell-handoffs\shell-export-package-comparison.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake target\studio-shell-handoffs\shell-handoff-intake.json --output target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-snapshot --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-summary --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-summary.json
@@ -190,7 +202,10 @@ They can be regenerated from an archived shell handoff manifest so stale or
 damaged descriptor/template files are caught as review blockers while intact
 targets remain visible. Saved export-package comparisons let agents review
 whether a package review stayed unchanged, improved, regressed, or became
-incomparable without opening raw package JSON.
+incomparable without opening raw package JSON. Export-package baseline
+manifests and indexes give those saved reviews named slots, default selection,
+and promotion commands; indexed comparisons load the selected baseline package
+through the same core route and still remain review-only artifacts.
 Shell handoff acceptance checklists are also declarative: they
 enumerate downstream readiness
 checks and explicitly prohibit install, launch, command-session opening, and
