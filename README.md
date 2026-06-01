@@ -62,6 +62,8 @@ Current scope:
   evidence;
 - inspect multi-target shell handoff readiness across exported selected graph
   bundles through shared core logic, CLI, and Makepad;
+- correlate shell handoff readiness with export-plan package, module,
+  operator-shell, and target-profile coverage;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 

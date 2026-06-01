@@ -1232,13 +1232,20 @@ try {
         throw "shell handoff readiness entry count mismatch"
     }
     foreach ($RequiredReadiness in @(
-        @{ Graph = "studio.graph.synthetic_wave_desktop"; HandoffKind = "desktop_shell"; Consumer = "rusty-studio-desktop-shell"; TargetKind = "desktop" },
-        @{ Graph = "studio.graph.synthetic_wave_phone"; HandoffKind = "phone_shell"; Consumer = "rusty-studio-phone-shell"; TargetKind = "phone" },
-        @{ Graph = "studio.graph.synthetic_wave_headset"; HandoffKind = "quest_shell"; Consumer = "rusty-studio-quest-shell"; TargetKind = "quest" }
+        @{ Graph = "studio.graph.synthetic_wave_desktop"; HandoffKind = "desktop_shell"; Consumer = "rusty-studio-desktop-shell"; TargetKind = "desktop"; TargetProfile = "host_run.profile.desktop"; Shell = "shell.synthetic_wave.desktop_operator" },
+        @{ Graph = "studio.graph.synthetic_wave_phone"; HandoffKind = "phone_shell"; Consumer = "rusty-studio-phone-shell"; TargetKind = "phone"; TargetProfile = "host_run.profile.mobile"; Shell = "shell.synthetic_wave.phone_operator" },
+        @{ Graph = "studio.graph.synthetic_wave_headset"; HandoffKind = "quest_shell"; Consumer = "rusty-studio-quest-shell"; TargetKind = "quest"; TargetProfile = "host_run.profile.headset"; Shell = "shell.synthetic_wave.quest_operator" }
     )) {
         $Entry = @($HandoffReadiness.entries | Where-Object { $_.graph_id -eq $RequiredReadiness.Graph }) | Select-Object -First 1
         if ($null -eq $Entry) {
             throw "shell handoff readiness missing graph $($RequiredReadiness.Graph)"
+        }
+        $ExpectedBundleId = "studio.export.$($RequiredReadiness.Graph)"
+        if ($Entry.export_bundle_id -ne $ExpectedBundleId) {
+            throw "shell handoff readiness export bundle mismatch for $($RequiredReadiness.Graph)"
+        }
+        if ($Entry.target_host_profile -ne $RequiredReadiness.TargetProfile) {
+            throw "shell handoff readiness target host profile mismatch for $($RequiredReadiness.Graph)"
         }
         if ($Entry.status -ne "pass") {
             throw "shell handoff readiness entry did not pass for $($RequiredReadiness.Graph)"
@@ -1257,6 +1264,24 @@ try {
         }
         if ($Entry.failed_check_count -ne 0) {
             throw "shell handoff readiness failed check count mismatch for $($RequiredReadiness.Graph)"
+        }
+        if ($Entry.package_count -ne 1) {
+            throw "shell handoff readiness package count mismatch for $($RequiredReadiness.Graph)"
+        }
+        if ($Entry.module_count -ne 2) {
+            throw "shell handoff readiness module count mismatch for $($RequiredReadiness.Graph)"
+        }
+        if ($Entry.operator_shell_count -ne 1) {
+            throw "shell handoff readiness operator shell count mismatch for $($RequiredReadiness.Graph)"
+        }
+        if (@($Entry.package_ids).Count -ne 1 -or @($Entry.package_ids)[0] -ne "package.synthetic_wave") {
+            throw "shell handoff readiness package ids mismatch for $($RequiredReadiness.Graph)"
+        }
+        if (@($Entry.module_ids).Count -ne 2 -or -not (@($Entry.module_ids) -contains "module.synthetic_wave_provider") -or -not (@($Entry.module_ids) -contains "module.synthetic_wave_processor")) {
+            throw "shell handoff readiness module ids mismatch for $($RequiredReadiness.Graph)"
+        }
+        if (@($Entry.operator_shell_ids).Count -ne 1 -or @($Entry.operator_shell_ids)[0] -ne $RequiredReadiness.Shell) {
+            throw "shell handoff readiness operator shell ids mismatch for $($RequiredReadiness.Graph)"
         }
     }
 } finally {

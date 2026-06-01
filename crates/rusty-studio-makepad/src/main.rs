@@ -2681,9 +2681,13 @@ fn shell_handoff_readiness_status(
             let entry_status = validation_status_label(entry.status);
             let issue = entry.issue_code.as_deref().unwrap_or("none");
             format!(
-                "{} [{}] -> {} / {}; issue {}",
+                "{} [{}] profile {}; packages {}; modules {}; shell {}; -> {} / {}; issue {}",
                 entry.graph_id,
                 shell_target_kind_label(entry.target_kind),
+                entry.target_host_profile,
+                entry.package_count,
+                entry.module_count,
+                entry.operator_shell_count,
                 entry.consumer_id,
                 entry_status,
                 issue
@@ -3474,12 +3478,21 @@ mod tests {
 
         assert_eq!(report.status, StudioValidationStatus::Pass);
         assert_eq!(report.entries.len(), 1);
+        assert_eq!(
+            report.entries[0].export_bundle_id,
+            "studio.export.studio.graph.makepad_edit"
+        );
         assert_eq!(report.entries[0].consumer_id, "rusty-studio-desktop-shell");
+        assert_eq!(report.entries[0].package_count, 1);
+        assert_eq!(report.entries[0].module_count, 0);
+        assert_eq!(report.entries[0].operator_shell_count, 1);
         assert_eq!(report.entries[0].failed_check_count, 0);
         let status = shell_handoff_readiness_status(&report, &bundle_root);
         assert!(status.contains("handoff readiness pass"));
         assert!(status.contains("ready 1/1"));
         assert!(status.contains("studio.graph.makepad_edit [desktop]"));
+        assert!(status.contains("profile host_run.profile.desktop"));
+        assert!(status.contains("packages 1; modules 0; shell 1"));
     }
 
     #[test]

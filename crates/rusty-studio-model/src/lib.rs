@@ -506,10 +506,17 @@ pub struct StudioShellHandoffReadinessReport {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StudioShellHandoffReadinessEntry {
+    pub export_bundle_id: String,
     pub graph_id: String,
     pub display_name: String,
     pub target_host_profile: String,
     pub target_kind: StudioShellTargetKind,
+    pub package_ids: Vec<String>,
+    pub module_ids: Vec<String>,
+    pub operator_shell_ids: Vec<String>,
+    pub package_count: usize,
+    pub module_count: usize,
+    pub operator_shell_count: usize,
     pub status: StudioValidationStatus,
     pub issue_code: Option<String>,
     pub message: String,

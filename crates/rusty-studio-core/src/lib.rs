@@ -2819,13 +2819,15 @@ pub fn shell_handoff_readiness_for_project(
     base_dir: Option<&Path>,
     bundle_root: &Path,
 ) -> StudioShellHandoffReadinessReport {
+    let plan = export_plan(project);
     let entries = project
         .graphs
         .iter()
-        .map(|graph| {
+        .zip(plan.bundles.iter())
+        .map(|(graph, export_bundle)| {
             let bundle_dir = bundle_root.join(&graph.graph_id);
             let handoff = shell_handoff_for_bundle(project, base_dir, &graph.graph_id, &bundle_dir);
-            shell_handoff_readiness_entry(graph, handoff)
+            shell_handoff_readiness_entry(graph, export_bundle, handoff)
         })
         .collect::<Vec<_>>();
     let status = if entries.is_empty()
@@ -4415,6 +4417,7 @@ fn shell_handoff_report(
 
 fn shell_handoff_readiness_entry(
     graph: &StudioGraph,
+    export_bundle: &StudioExportBundle,
     handoff: StudioShellHandoffReport,
 ) -> StudioShellHandoffReadinessEntry {
     let failed_check_count = handoff
@@ -4423,11 +4426,21 @@ fn shell_handoff_readiness_entry(
         .iter()
         .filter(|check| check.status == StudioValidationStatus::Fail)
         .count();
+    let package_count = export_bundle.package_ids.len();
+    let module_count = export_bundle.module_ids.len();
+    let operator_shell_count = export_bundle.operator_shell_ids.len();
     StudioShellHandoffReadinessEntry {
+        export_bundle_id: export_bundle.bundle_id.clone(),
         graph_id: graph.graph_id.clone(),
         display_name: graph.display_name.clone(),
-        target_host_profile: graph.target_host_profile.clone(),
+        target_host_profile: export_bundle.target_host_profile.clone(),
         target_kind: handoff.target_kind,
+        package_ids: export_bundle.package_ids.clone(),
+        module_ids: export_bundle.module_ids.clone(),
+        operator_shell_ids: export_bundle.operator_shell_ids.clone(),
+        package_count,
+        module_count,
+        operator_shell_count,
         status: handoff.status,
         issue_code: handoff.issue_code,
         message: handoff.message,
@@ -6943,18 +6956,28 @@ mod tests {
                 && entry.validation_status == StudioValidationStatus::Pass
                 && entry.failed_check_count == 0
                 && entry.consumer_args.iter().any(|arg| arg == "--templates")
+                && entry.export_bundle_id == format!("studio.export.{}", entry.graph_id)
+                && entry.package_ids == vec!["package.synthetic".to_string()]
+                && entry.module_ids == vec!["module.synthetic_provider".to_string()]
+                && entry.package_count == entry.package_ids.len()
+                && entry.module_count == entry.module_ids.len()
+                && entry.operator_shell_count == entry.operator_shell_ids.len()
         }));
         assert!(readiness.entries.iter().any(|entry| {
             entry.graph_id == "studio.graph.phone"
+                && entry.target_host_profile == "host_run.profile.mobile"
                 && entry.handoff_kind == StudioShellHandoffKind::PhoneShell
                 && entry.consumer_id == "rusty-studio-phone-shell"
                 && entry.target_kind == StudioShellTargetKind::Phone
+                && entry.operator_shell_ids == vec!["shell.synthetic.phone_operator".to_string()]
         }));
         assert!(readiness.entries.iter().any(|entry| {
             entry.graph_id == "studio.graph.quest"
+                && entry.target_host_profile == "host_run.profile.headset"
                 && entry.handoff_kind == StudioShellHandoffKind::QuestShell
                 && entry.consumer_id == "rusty-studio-quest-shell"
                 && entry.target_kind == StudioShellTargetKind::Quest
+                && entry.operator_shell_ids == vec!["shell.synthetic.quest_operator".to_string()]
         }));
     }
 
@@ -6972,6 +6995,10 @@ mod tests {
         assert!(readiness.entries.iter().all(|entry| {
             entry.status == StudioValidationStatus::Fail
                 && entry.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
+                && entry.export_bundle_id == format!("studio.export.{}", entry.graph_id)
+                && entry.package_count == 1
+                && entry.module_count == 1
+                && entry.operator_shell_count == 1
                 && entry.failed_check_count > 0
         }));
     }
