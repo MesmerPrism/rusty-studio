@@ -120,6 +120,10 @@ Current scope:
   baseline selection, and both comparison statuses;
 - expose the release-candidate review from Makepad through the same shared
   core route without adding runtime execution authority;
+- write, append, select, and promote a compact release-candidate review index
+  for saved Hostess review candidate slots;
+- expose release-candidate candidate write, archive, inspect, select, and
+  promote actions in Makepad through the same shared lifecycle route;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -186,6 +190,11 @@ cargo run -p rusty-studio-cli -- shell-handoff-acceptance-baseline-selection --b
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-baseline-index-promote --baseline-index target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json --baseline-id synthetic-ready --output target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline-index target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json --baseline-id synthetic-ready --candidate target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json
 cargo run -p rusty-studio-cli -- shell-release-candidate-review --manifest target\studio-shell-handoffs\shell-handoffs.json --acceptance-baseline-index target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json --acceptance-baseline-id synthetic-ready --export-package-baseline-index target\studio-shell-handoffs\shell-export-package-baselines.json --export-package-baseline-id synthetic-ready-package --output target\studio-shell-handoffs\shell-release-candidate-review.json
+cargo run -p rusty-studio-cli -- shell-release-candidate-review-manifest --review target\studio-shell-handoffs\shell-release-candidate-review.json --candidate-id synthetic-ready-candidate --label "Synthetic ready release candidate" --output target\studio-shell-handoffs\shell-release-candidate-review-manifest.json
+cargo run -p rusty-studio-cli -- shell-release-candidate-review-index --candidate-manifest target\studio-shell-handoffs\shell-release-candidate-review-manifest.json --default-candidate-id synthetic-ready-candidate --output target\studio-shell-handoffs\shell-release-candidate-reviews.json
+cargo run -p rusty-studio-cli -- shell-release-candidate-review-selection --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-id synthetic-ready-candidate --output target\studio-shell-handoffs\shell-release-candidate-review-selection.json
+cargo run -p rusty-studio-cli -- shell-release-candidate-review-index-append --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-manifest target\studio-shell-handoffs\shell-release-candidate-review-regressed-manifest.json --default-candidate-id synthetic-regressed-candidate --output target\studio-shell-handoffs\shell-release-candidate-reviews.json
+cargo run -p rusty-studio-cli -- shell-release-candidate-review-index-promote --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-id synthetic-ready-candidate --output target\studio-shell-handoffs\shell-release-candidate-reviews.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -259,4 +268,8 @@ export-package baselines from their indexes, compare the current generated
 state against both selected baselines, and block on missing or regressed
 evidence. Makepad can write the same release-candidate review artifact, but the
 artifact remains review-only and does not stage, install, launch, open command
-sessions, or collect evidence.
+sessions, or collect evidence. Release-candidate manifests and indexes turn
+saved review artifacts into named Hostess review candidate slots with default
+selection and promotion commands. Makepad exposes the same write/archive/inspect/
+select/promote lifecycle through shared core helpers, so GUI state cannot
+silently diverge from the CLI artifacts.

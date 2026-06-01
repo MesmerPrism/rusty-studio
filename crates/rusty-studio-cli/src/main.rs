@@ -2,7 +2,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use rusty_studio_core::{
     add_binding_to_graph, add_module_to_graph, add_next_catalog_module_from_package_to_graph,
     add_next_catalog_module_to_graph, append_shell_export_package_baseline_index_manifests,
-    append_shell_handoff_acceptance_baseline_index_manifests, compare_shell_export_packages,
+    append_shell_handoff_acceptance_baseline_index_manifests,
+    append_shell_release_candidate_review_index_manifests, compare_shell_export_packages,
     compare_shell_export_packages_against_baseline_index_entry,
     compare_shell_export_packages_against_baseline_manifest,
     compare_shell_handoff_acceptance_against_baseline_index_entry,
@@ -12,9 +13,12 @@ use rusty_studio_core::{
     load_shell_export_package_baseline_index, load_shell_export_package_baseline_manifest,
     load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
-    load_shell_handoff_intake_report, load_shell_handoff_manifest, load_shell_template_index,
+    load_shell_handoff_intake_report, load_shell_handoff_manifest,
+    load_shell_release_candidate_review_index, load_shell_release_candidate_review_manifest,
+    load_shell_release_candidate_review_report, load_shell_template_index,
     promote_shell_export_package_baseline_index_default,
-    promote_shell_handoff_acceptance_baseline_index_default, remove_binding_from_graph,
+    promote_shell_handoff_acceptance_baseline_index_default,
+    promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
     remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
     save_project, save_shell_bundle, select_shell_export_package_baseline_index_entry,
     select_shell_handoff_acceptance_baseline_index_entry, selected_shell_bundle_for_graph,
@@ -26,10 +30,13 @@ use rusty_studio_core::{
     shell_handoff_acceptance_checklist_for_intake, shell_handoff_acceptance_checklist_for_project,
     shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
-    shell_release_candidate_review_for_manifest, shell_runbook_for_project,
+    shell_release_candidate_review_for_manifest,
+    shell_release_candidate_review_index_for_manifests,
+    shell_release_candidate_review_manifest_for_report, shell_runbook_for_project,
     shell_templates_for_artifact_manifest, summarize_shell_export_package_baseline_index_selection,
     summarize_shell_handoff_acceptance_baseline_index_selection,
-    summarize_shell_handoff_acceptance_checklist, validate_project_with_base,
+    summarize_shell_handoff_acceptance_checklist,
+    summarize_shell_release_candidate_review_index_selection, validate_project_with_base,
     validate_selected_shell_bundle, validate_shell_artifact_manifest, validate_shell_descriptor,
     validate_shell_handoff_manifest, validate_shell_template_index,
     view_model_for_graph_issue_node_and_edge,
@@ -93,6 +100,11 @@ enum Command {
     ShellHandoffAcceptanceBaselineSelection(ShellHandoffAcceptanceBaselineSelectionArgs),
     ShellHandoffAcceptanceComparison(ShellHandoffAcceptanceComparisonArgs),
     ShellReleaseCandidateReview(ShellReleaseCandidateReviewArgs),
+    ShellReleaseCandidateReviewManifest(ShellReleaseCandidateReviewManifestArgs),
+    ShellReleaseCandidateReviewIndex(ShellReleaseCandidateReviewIndexArgs),
+    ShellReleaseCandidateReviewIndexAppend(ShellReleaseCandidateReviewIndexAppendArgs),
+    ShellReleaseCandidateReviewIndexPromote(ShellReleaseCandidateReviewIndexPromoteArgs),
+    ShellReleaseCandidateReviewSelection(ShellReleaseCandidateReviewSelectionArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -504,6 +516,60 @@ struct ShellReleaseCandidateReviewArgs {
     export_package_baseline_index: PathBuf,
     #[arg(long)]
     export_package_baseline_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellReleaseCandidateReviewManifestArgs {
+    #[arg(long)]
+    review: PathBuf,
+    #[arg(long)]
+    candidate_id: Option<String>,
+    #[arg(long)]
+    label: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellReleaseCandidateReviewIndexArgs {
+    #[arg(long = "candidate-manifest", required = true)]
+    candidate_manifests: Vec<PathBuf>,
+    #[arg(long)]
+    default_candidate_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellReleaseCandidateReviewIndexAppendArgs {
+    #[arg(long)]
+    review_index: PathBuf,
+    #[arg(long = "candidate-manifest", required = true)]
+    candidate_manifests: Vec<PathBuf>,
+    #[arg(long)]
+    default_candidate_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellReleaseCandidateReviewIndexPromoteArgs {
+    #[arg(long)]
+    review_index: PathBuf,
+    #[arg(long)]
+    candidate_id: String,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellReleaseCandidateReviewSelectionArgs {
+    #[arg(long)]
+    review_index: PathBuf,
+    #[arg(long)]
+    candidate_id: Option<String>,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -1295,6 +1361,89 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 &export_package_baseline_index,
                 Some(&args.export_package_baseline_index),
                 args.export_package_baseline_id.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellReleaseCandidateReviewManifest(args) => {
+            let review = load_shell_release_candidate_review_report(&args.review)?;
+            let report = shell_release_candidate_review_manifest_for_report(
+                &review,
+                &args.review,
+                args.candidate_id.as_deref(),
+                args.label.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellReleaseCandidateReviewIndex(args) => {
+            let candidates = args
+                .candidate_manifests
+                .iter()
+                .map(|path| {
+                    load_shell_release_candidate_review_manifest(path)
+                        .map(|candidate| (candidate, Some(path.clone())))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let report = shell_release_candidate_review_index_for_manifests(
+                candidates,
+                args.default_candidate_id.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellReleaseCandidateReviewIndexAppend(args) => {
+            let index = load_shell_release_candidate_review_index(&args.review_index)?;
+            let candidates = args
+                .candidate_manifests
+                .iter()
+                .map(|path| {
+                    load_shell_release_candidate_review_manifest(path)
+                        .map(|candidate| (candidate, Some(path.clone())))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let report = append_shell_release_candidate_review_index_manifests(
+                &index,
+                candidates,
+                args.default_candidate_id.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellReleaseCandidateReviewIndexPromote(args) => {
+            let index = load_shell_release_candidate_review_index(&args.review_index)?;
+            let report =
+                promote_shell_release_candidate_review_index_default(&index, &args.candidate_id)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "--candidate-id was not found in --review-index",
+                        )
+                    })?;
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellReleaseCandidateReviewSelection(args) => {
+            let index = load_shell_release_candidate_review_index(&args.review_index)?;
+            let report = summarize_shell_release_candidate_review_index_selection(
+                &index,
+                Some(&args.review_index),
+                args.candidate_id.as_deref(),
             );
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;

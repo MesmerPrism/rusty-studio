@@ -99,7 +99,13 @@ try {
     $ShellHandoffAcceptancePromotedBaselineIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-baselines-promoted.json"
     $ShellHandoffAcceptanceComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json"
     $ShellReleaseCandidateReviewPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-release-candidate-review.json"
+    $ShellReleaseCandidateReviewManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-release-candidate-review-manifest.json"
+    $ShellReleaseCandidateReviewIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-release-candidate-reviews.json"
+    $ShellReleaseCandidateReviewSelectionPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-release-candidate-review-selection.json"
     $RegressedShellReleaseCandidateReviewPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-release-candidate-review-regressed.json"
+    $RegressedShellReleaseCandidateReviewManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-release-candidate-review-regressed-manifest.json"
+    $ShellReleaseCandidateReviewMultiIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-release-candidate-reviews-multi.json"
+    $ShellReleaseCandidateReviewPromotedIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-release-candidate-reviews-promoted.json"
     $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
     $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
     $MissingShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake-missing-bundles.json"
@@ -111,7 +117,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -2807,6 +2813,78 @@ try {
             throw "shell release candidate review prohibited actions mismatch"
         }
     }
+    $ShellReleaseCandidateManifestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-release-candidate-review-manifest --review $ShellReleaseCandidateReviewPath --candidate-id "synthetic-ready-candidate" --label "Synthetic ready release candidate" --output $ShellReleaseCandidateReviewManifestPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell release candidate manifest failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellReleaseCandidateReviewManifestPath)) {
+        throw "shell release candidate manifest was not written"
+    }
+    $ShellReleaseCandidateManifest = ($ShellReleaseCandidateManifestOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellReleaseCandidateManifest = Get-Content -Raw $ShellReleaseCandidateReviewManifestPath | ConvertFrom-Json
+    foreach ($CandidateManifestView in @($ShellReleaseCandidateManifest, $WrittenShellReleaseCandidateManifest)) {
+        if ($CandidateManifestView.'$schema' -ne "rusty.studio.shell_release_candidate_review_manifest.v1") {
+            throw "shell release candidate manifest schema mismatch"
+        }
+        if ($CandidateManifestView.candidate_id -ne "synthetic-ready-candidate" -or $CandidateManifestView.label -ne "Synthetic ready release candidate") {
+            throw "shell release candidate manifest identity mismatch"
+        }
+        if ($CandidateManifestView.review_path -ne $ShellReleaseCandidateReviewPath -or $CandidateManifestView.review_schema -ne "rusty.studio.shell_release_candidate_review.v1") {
+            throw "shell release candidate manifest review path mismatch"
+        }
+        if ($CandidateManifestView.status -ne "ready" -or $null -ne $CandidateManifestView.issue_code) {
+            throw "shell release candidate manifest status mismatch"
+        }
+        if ($CandidateManifestView.execution_policy -ne "not_executed.review_only" -or $CandidateManifestView.review_owner -ne "rusty.hostess") {
+            throw "shell release candidate manifest policy mismatch"
+        }
+        if ($CandidateManifestView.command_session_authority -ne "rusty.manifold" -or $CandidateManifestView.install_launch_evidence_authority -ne "rusty.hostess" -or $CandidateManifestView.studio_role -ne "authoring.export_planning") {
+            throw "shell release candidate manifest authority mismatch"
+        }
+        if ($CandidateManifestView.acceptance_baseline_status -ne "selected" -or $CandidateManifestView.acceptance_baseline_id -ne "synthetic-ready") {
+            throw "shell release candidate manifest acceptance selection mismatch"
+        }
+        if ($CandidateManifestView.acceptance_comparison_status -ne "unchanged") {
+            throw "shell release candidate manifest acceptance comparison mismatch"
+        }
+        if ($CandidateManifestView.export_package_baseline_status -ne "selected" -or $CandidateManifestView.export_package_baseline_id -ne "synthetic-ready-package") {
+            throw "shell release candidate manifest export package selection mismatch"
+        }
+        if ($CandidateManifestView.export_package_comparison_status -ne "unchanged") {
+            throw "shell release candidate manifest export package comparison mismatch"
+        }
+        if ($CandidateManifestView.check_count -lt 1 -or $CandidateManifestView.failed_check_count -ne 0) {
+            throw "shell release candidate manifest check counts mismatch"
+        }
+    }
+    $ShellReleaseCandidateIndexOutput = & cargo run --quiet -p rusty-studio-cli -- shell-release-candidate-review-index --candidate-manifest $ShellReleaseCandidateReviewManifestPath --default-candidate-id "synthetic-ready-candidate" --output $ShellReleaseCandidateReviewIndexPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell release candidate index failed with exit code $LASTEXITCODE"
+    }
+    $ShellReleaseCandidateIndex = ($ShellReleaseCandidateIndexOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($ShellReleaseCandidateIndex.'$schema' -ne "rusty.studio.shell_release_candidate_review_index.v1") {
+        throw "shell release candidate index schema mismatch"
+    }
+    if ($ShellReleaseCandidateIndex.default_candidate_id -ne "synthetic-ready-candidate" -or $ShellReleaseCandidateIndex.candidate_count -ne 1 -or $ShellReleaseCandidateIndex.ready_candidate_count -ne 1 -or $ShellReleaseCandidateIndex.blocked_candidate_count -ne 0 -or $ShellReleaseCandidateIndex.rejected_candidate_count -ne 0) {
+        throw "shell release candidate index counts mismatch"
+    }
+    if (@($ShellReleaseCandidateIndex.entries).Count -ne 1 -or $ShellReleaseCandidateIndex.entries[0].candidate_manifest_path -ne $ShellReleaseCandidateReviewManifestPath) {
+        throw "shell release candidate index entry mismatch"
+    }
+    $ShellReleaseCandidateSelectionOutput = & cargo run --quiet -p rusty-studio-cli -- shell-release-candidate-review-selection --review-index $ShellReleaseCandidateReviewIndexPath --candidate-id "synthetic-ready-candidate" --output $ShellReleaseCandidateReviewSelectionPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell release candidate selection failed with exit code $LASTEXITCODE"
+    }
+    $ShellReleaseCandidateSelection = ($ShellReleaseCandidateSelectionOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($ShellReleaseCandidateSelection.'$schema' -ne "rusty.studio.shell_release_candidate_review_selection.v1") {
+        throw "shell release candidate selection schema mismatch"
+    }
+    if ($ShellReleaseCandidateSelection.status -ne "selected" -or $ShellReleaseCandidateSelection.selected_candidate_id -ne "synthetic-ready-candidate" -or $null -ne $ShellReleaseCandidateSelection.issue_code) {
+        throw "shell release candidate selection mismatch"
+    }
+    if (@($ShellReleaseCandidateSelection.entries | Where-Object { $_.candidate_id -eq "synthetic-ready-candidate" -and $_.selected -eq $true -and $_.default -eq $true }).Count -ne 1) {
+        throw "shell release candidate selection entry flags mismatch"
+    }
     $RegressedShellReleaseCandidateReviewOutput = & cargo run --quiet -p rusty-studio-cli -- shell-release-candidate-review --manifest $DamagedTemplateShellHandoffManifestPath --acceptance-baseline-index $ShellHandoffAcceptanceBaselineIndexPath --acceptance-baseline-id "synthetic-ready" --export-package-baseline-index $ShellExportPackageBaselineIndexPath --export-package-baseline-id "synthetic-ready-package" --output $RegressedShellReleaseCandidateReviewPath
     if ($LASTEXITCODE -ne 0) {
         throw "studio regressed shell release candidate review failed with exit code $LASTEXITCODE"
@@ -2832,6 +2910,42 @@ try {
     }
     if (@($RegressedShellReleaseCandidateReview.checks | Where-Object { $_.check_id -eq "studio.check.shell_release_candidate_review.export_package_comparison_not_regressed" -and $_.status -eq "fail" -and $_.issue_code -eq "studio.issue.shell_export_package_template_load_failed" }).Count -ne 1) {
         throw "regressed shell release candidate did not flag export package regression"
+    }
+    $RegressedShellReleaseCandidateManifestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-release-candidate-review-manifest --review $RegressedShellReleaseCandidateReviewPath --candidate-id "synthetic-regressed-candidate" --label "Synthetic regressed release candidate" --output $RegressedShellReleaseCandidateReviewManifestPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio regressed shell release candidate manifest failed with exit code $LASTEXITCODE"
+    }
+    $RegressedShellReleaseCandidateManifest = ($RegressedShellReleaseCandidateManifestOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($RegressedShellReleaseCandidateManifest.'$schema' -ne "rusty.studio.shell_release_candidate_review_manifest.v1") {
+        throw "regressed shell release candidate manifest schema mismatch"
+    }
+    if ($RegressedShellReleaseCandidateManifest.candidate_id -ne "synthetic-regressed-candidate" -or $RegressedShellReleaseCandidateManifest.status -ne "blocked" -or $RegressedShellReleaseCandidateManifest.issue_code -ne "studio.issue.shell_export_package_template_load_failed") {
+        throw "regressed shell release candidate manifest status mismatch"
+    }
+    if ($RegressedShellReleaseCandidateManifest.failed_check_count -lt 1 -or $RegressedShellReleaseCandidateManifest.export_package_comparison_status -ne "regressed") {
+        throw "regressed shell release candidate manifest comparison mismatch"
+    }
+    $ShellReleaseCandidateMultiIndexOutput = & cargo run --quiet -p rusty-studio-cli -- shell-release-candidate-review-index-append --review-index $ShellReleaseCandidateReviewIndexPath --candidate-manifest $RegressedShellReleaseCandidateReviewManifestPath --default-candidate-id "synthetic-regressed-candidate" --output $ShellReleaseCandidateReviewMultiIndexPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell release candidate index append failed with exit code $LASTEXITCODE"
+    }
+    $ShellReleaseCandidateMultiIndex = ($ShellReleaseCandidateMultiIndexOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($ShellReleaseCandidateMultiIndex.candidate_count -ne 2 -or $ShellReleaseCandidateMultiIndex.ready_candidate_count -ne 1 -or $ShellReleaseCandidateMultiIndex.blocked_candidate_count -ne 1 -or $ShellReleaseCandidateMultiIndex.default_candidate_id -ne "synthetic-regressed-candidate") {
+        throw "shell release candidate multi-index counts mismatch"
+    }
+    if (@($ShellReleaseCandidateMultiIndex.entries | Where-Object { $_.candidate_id -eq "synthetic-ready-candidate" -and $_.status -eq "ready" }).Count -ne 1) {
+        throw "shell release candidate multi-index missing ready candidate"
+    }
+    if (@($ShellReleaseCandidateMultiIndex.entries | Where-Object { $_.candidate_id -eq "synthetic-regressed-candidate" -and $_.status -eq "blocked" }).Count -ne 1) {
+        throw "shell release candidate multi-index missing blocked candidate"
+    }
+    $ShellReleaseCandidatePromotedIndexOutput = & cargo run --quiet -p rusty-studio-cli -- shell-release-candidate-review-index-promote --review-index $ShellReleaseCandidateReviewMultiIndexPath --candidate-id "synthetic-ready-candidate" --output $ShellReleaseCandidateReviewPromotedIndexPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell release candidate index promote failed with exit code $LASTEXITCODE"
+    }
+    $ShellReleaseCandidatePromotedIndex = ($ShellReleaseCandidatePromotedIndexOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($ShellReleaseCandidatePromotedIndex.default_candidate_id -ne "synthetic-ready-candidate" -or $ShellReleaseCandidatePromotedIndex.candidate_count -ne 2) {
+        throw "shell release candidate promoted index mismatch"
     }
     $MissingHandoffManifestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-manifest --project "examples\synthetic-studio-project.json" --bundle-root $MissingShellBundleRoot --output $MissingShellHandoffManifestPath
     if ($LASTEXITCODE -ne 0) {

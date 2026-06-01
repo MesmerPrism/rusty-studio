@@ -5,13 +5,17 @@ use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
     add_next_catalog_module_to_graph, append_shell_export_package_baseline_index_manifests,
     append_shell_handoff_acceptance_baseline_index_manifests,
+    append_shell_release_candidate_review_index_manifests,
     compare_shell_export_packages_against_baseline_index_entry,
     compare_shell_handoff_acceptance_against_baseline_index_entry, load_project,
     load_shell_export_package_baseline_index, load_shell_export_package_baseline_manifest,
     load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
-    load_shell_handoff_manifest, promote_shell_export_package_baseline_index_default,
-    promote_shell_handoff_acceptance_baseline_index_default, remove_binding_from_graph,
+    load_shell_handoff_manifest, load_shell_release_candidate_review_index,
+    load_shell_release_candidate_review_manifest,
+    promote_shell_export_package_baseline_index_default,
+    promote_shell_handoff_acceptance_baseline_index_default,
+    promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
     remove_module_from_graph, retarget_graph_host_profile, save_json, save_project,
     save_shell_bundle, select_shell_export_package_baseline_index_entry,
     select_shell_handoff_acceptance_baseline_index_entry, selected_shell_bundle_for_graph,
@@ -21,9 +25,12 @@ use rusty_studio_core::{
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
-    shell_release_candidate_review_for_manifest, shell_runbook_for_project,
+    shell_release_candidate_review_for_manifest,
+    shell_release_candidate_review_index_for_manifests,
+    shell_release_candidate_review_manifest_for_report, shell_runbook_for_project,
     summarize_shell_export_package_baseline_index_selection,
-    summarize_shell_handoff_acceptance_baseline_index_selection, validate_selected_shell_bundle,
+    summarize_shell_handoff_acceptance_baseline_index_selection,
+    summarize_shell_release_candidate_review_index_selection, validate_selected_shell_bundle,
     view_model_for_graph, view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
@@ -41,7 +48,9 @@ use rusty_studio_model::{
     StudioShellHandoffAcceptanceComparisonReport, StudioShellHandoffAcceptanceComparisonStatus,
     StudioShellHandoffAcceptanceStatus, StudioShellHandoffManifest,
     StudioShellHandoffReadinessReport, StudioShellHandoffReport,
-    StudioShellReleaseCandidateReviewReport, StudioShellReleaseCandidateReviewStatus,
+    StudioShellReleaseCandidateReviewIndex, StudioShellReleaseCandidateReviewManifest,
+    StudioShellReleaseCandidateReviewReport, StudioShellReleaseCandidateReviewSelectionReport,
+    StudioShellReleaseCandidateReviewSelectionStatus, StudioShellReleaseCandidateReviewStatus,
     StudioShellRunbookReport, StudioShellRunbookStatus, StudioShellTargetKind,
     StudioValidationStatus, StudioViewModel,
 };
@@ -225,6 +234,11 @@ script_mod! {
             shell_acceptance_baseline_promote_button := ActionButton{text: "Promote Baseline"}
             shell_acceptance_compare_button := ActionButton{text: "Compare Acceptance"}
             shell_release_candidate_button := ActionButton{text: "Review Release Candidate"}
+            shell_release_candidate_manifest_button := ActionButton{text: "Write Candidate"}
+            shell_release_candidate_append_button := ActionButton{text: "Archive Candidate"}
+            shell_release_candidate_summary_button := ActionButton{text: "Inspect Candidate"}
+            shell_release_candidate_next_button := ActionButton{text: "Next Candidate"}
+            shell_release_candidate_promote_button := ActionButton{text: "Promote Candidate"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1558,6 +1572,134 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn write_shell_release_candidate_manifest(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match write_shell_release_candidate_review_manifest_for_project_source(&source) {
+            Ok((review, candidate, index, review_path, candidate_path, index_path)) => {
+                self.last_shell_bundle_status = shell_release_candidate_review_manifest_status(
+                    &review,
+                    &candidate,
+                    &index,
+                    &review_path,
+                    &candidate_path,
+                    &index_path,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn append_shell_release_candidate_manifest(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match append_shell_release_candidate_review_manifest_for_project_source(&source) {
+            Ok((review, candidate, index, review_path, candidate_path, index_path)) => {
+                self.last_shell_bundle_status =
+                    shell_release_candidate_review_manifest_append_status(
+                        &review,
+                        &candidate,
+                        &index,
+                        &review_path,
+                        &candidate_path,
+                        &index_path,
+                    );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn inspect_shell_release_candidate_manifest(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_release_candidate_review_manifest_summary_for_project_source(&source) {
+            Ok((candidate, index, candidate_path, index_path)) => {
+                self.last_shell_bundle_status =
+                    shell_release_candidate_review_manifest_summary_status(
+                        &candidate,
+                        &index,
+                        &candidate_path,
+                        &index_path,
+                    );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn select_next_shell_release_candidate_default(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match select_next_shell_release_candidate_default_for_project_source(&source) {
+            Ok((candidate, index, candidate_path, index_path)) => {
+                self.last_shell_bundle_status =
+                    shell_release_candidate_review_manifest_select_status(
+                        &candidate,
+                        &index,
+                        &candidate_path,
+                        &index_path,
+                    );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn promote_shell_release_candidate_default(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match promote_shell_release_candidate_default_for_project_source(&source) {
+            Ok((candidate, index, candidate_path, index_path)) => {
+                self.last_shell_bundle_status =
+                    shell_release_candidate_review_manifest_promote_status(
+                        &candidate,
+                        &index,
+                        &candidate_path,
+                        &index_path,
+                    );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -2291,6 +2433,41 @@ impl MatchEvent for App {
             .clicked(actions)
         {
             self.review_shell_release_candidate(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_release_candidate_manifest_button))
+            .clicked(actions)
+        {
+            self.write_shell_release_candidate_manifest(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_release_candidate_append_button))
+            .clicked(actions)
+        {
+            self.append_shell_release_candidate_manifest(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_release_candidate_summary_button))
+            .clicked(actions)
+        {
+            self.inspect_shell_release_candidate_manifest(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_release_candidate_next_button))
+            .clicked(actions)
+        {
+            self.select_next_shell_release_candidate_default(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_release_candidate_promote_button))
+            .clicked(actions)
+        {
+            self.promote_shell_release_candidate_default(cx);
         }
         if self
             .ui
@@ -3123,6 +3300,265 @@ fn shell_release_candidate_review_for_project_source(
     Ok((report, output_path))
 }
 
+fn write_shell_release_candidate_review_manifest_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellReleaseCandidateReviewReport,
+        StudioShellReleaseCandidateReviewManifest,
+        StudioShellReleaseCandidateReviewIndex,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let (review, review_path) = shell_release_candidate_review_for_project_source(project_path)?;
+    let candidate =
+        shell_release_candidate_review_manifest_for_report(&review, &review_path, None, None);
+    let candidate_path = shell_release_candidate_review_manifest_output_path(project_path);
+    save_json(&candidate_path, &candidate)
+        .map_err(|error| format!("Shell release candidate identity save failed: {error}"))?;
+    let index = shell_release_candidate_review_index_for_manifests(
+        vec![(candidate.clone(), Some(candidate_path.clone()))],
+        Some(&candidate.candidate_id),
+    );
+    let index_path = shell_release_candidate_review_index_output_path(project_path);
+    save_json(&index_path, &index)
+        .map_err(|error| format!("Shell release candidate index save failed: {error}"))?;
+    Ok((
+        review,
+        candidate,
+        index,
+        review_path,
+        candidate_path,
+        index_path,
+    ))
+}
+
+fn append_shell_release_candidate_review_manifest_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellReleaseCandidateReviewReport,
+        StudioShellReleaseCandidateReviewManifest,
+        StudioShellReleaseCandidateReviewIndex,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let (review, _) = shell_release_candidate_review_for_project_source(project_path)?;
+    let index_path = shell_release_candidate_review_index_output_path(project_path);
+    let existing_index = if index_path.is_file() {
+        Some(
+            load_shell_release_candidate_review_index(&index_path)
+                .map_err(|error| format!("Shell release candidate index load failed: {error}"))?,
+        )
+    } else {
+        None
+    };
+    let (candidate_id, label) =
+        next_shell_release_candidate_archive_identity(&review, existing_index.as_ref());
+    let review_path =
+        shell_release_candidate_review_archive_report_output_path(project_path, &candidate_id);
+    save_json(&review_path, &review)
+        .map_err(|error| format!("Shell release candidate review archive save failed: {error}"))?;
+    let candidate = shell_release_candidate_review_manifest_for_report(
+        &review,
+        &review_path,
+        Some(&candidate_id),
+        Some(&label),
+    );
+    let candidate_path =
+        shell_release_candidate_review_archive_manifest_output_path(project_path, &candidate_id);
+    save_json(&candidate_path, &candidate)
+        .map_err(|error| format!("Shell release candidate identity save failed: {error}"))?;
+    let index = if let Some(index) = existing_index.as_ref() {
+        append_shell_release_candidate_review_index_manifests(
+            index,
+            vec![(candidate.clone(), Some(candidate_path.clone()))],
+            Some(&candidate.candidate_id),
+        )
+    } else {
+        shell_release_candidate_review_index_for_manifests(
+            vec![(candidate.clone(), Some(candidate_path.clone()))],
+            Some(&candidate.candidate_id),
+        )
+    };
+    save_json(&index_path, &index)
+        .map_err(|error| format!("Shell release candidate index save failed: {error}"))?;
+    Ok((
+        review,
+        candidate,
+        index,
+        review_path,
+        candidate_path,
+        index_path,
+    ))
+}
+
+fn next_shell_release_candidate_archive_identity(
+    review: &StudioShellReleaseCandidateReviewReport,
+    index: Option<&StudioShellReleaseCandidateReviewIndex>,
+) -> (String, String) {
+    let status = shell_release_candidate_review_status_label(review.status);
+    let base_id = format!(
+        "{}.rev{}.{}",
+        review.project_id, review.project_revision, status
+    );
+    let next_slot = index
+        .map(|index| {
+            index
+                .entries
+                .iter()
+                .filter(|entry| {
+                    entry.candidate_id == base_id
+                        || entry
+                            .candidate_id
+                            .strip_prefix(base_id.as_str())
+                            .is_some_and(|suffix| suffix.starts_with(".archive"))
+                })
+                .count()
+                + 1
+        })
+        .unwrap_or(1);
+    let candidate_id = if next_slot == 1 {
+        base_id
+    } else {
+        format!("{base_id}.archive{next_slot}")
+    };
+    let label = if next_slot == 1 {
+        format!(
+            "{} revision {} {} release candidate",
+            review.project_id, review.project_revision, status
+        )
+    } else {
+        format!(
+            "{} revision {} {} release candidate archive {}",
+            review.project_id, review.project_revision, status, next_slot
+        )
+    };
+    (candidate_id, label)
+}
+
+fn shell_release_candidate_review_manifest_summary_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellReleaseCandidateReviewManifest,
+        StudioShellReleaseCandidateReviewIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let candidate_path = shell_release_candidate_review_manifest_output_path(project_path);
+    let candidate = load_shell_release_candidate_review_manifest(&candidate_path)
+        .map_err(|error| format!("Shell release candidate identity load failed: {error}"))?;
+    let index_path = shell_release_candidate_review_index_output_path(project_path);
+    let index = load_shell_release_candidate_review_index(&index_path)
+        .map_err(|error| format!("Shell release candidate index load failed: {error}"))?;
+    Ok((candidate, index, candidate_path, index_path))
+}
+
+fn promote_shell_release_candidate_default_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellReleaseCandidateReviewManifest,
+        StudioShellReleaseCandidateReviewIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let candidate_path = shell_release_candidate_review_manifest_output_path(project_path);
+    let candidate = load_shell_release_candidate_review_manifest(&candidate_path)
+        .map_err(|error| format!("Shell release candidate identity load failed: {error}"))?;
+    let index_path = shell_release_candidate_review_index_output_path(project_path);
+    let index = load_shell_release_candidate_review_index(&index_path)
+        .map_err(|error| format!("Shell release candidate index load failed: {error}"))?;
+    let promoted =
+        promote_shell_release_candidate_review_index_default(&index, &candidate.candidate_id)
+            .ok_or_else(|| {
+                format!(
+                    "Shell release candidate index does not contain candidate {}",
+                    candidate.candidate_id
+                )
+            })?;
+    save_json(&index_path, &promoted)
+        .map_err(|error| format!("Shell release candidate index save failed: {error}"))?;
+    Ok((candidate, promoted, candidate_path, index_path))
+}
+
+fn select_next_shell_release_candidate_default_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellReleaseCandidateReviewManifest,
+        StudioShellReleaseCandidateReviewIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let index_path = shell_release_candidate_review_index_output_path(project_path);
+    let index = load_shell_release_candidate_review_index(&index_path)
+        .map_err(|error| format!("Shell release candidate index load failed: {error}"))?;
+    let candidate_id = next_shell_release_candidate_default_id(&index)?;
+    let candidate_path = index
+        .entries
+        .iter()
+        .find(|entry| entry.candidate_id == candidate_id)
+        .and_then(|entry| entry.candidate_manifest_path.as_ref())
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            format!(
+                "Shell release candidate index entry {candidate_id} does not include a manifest path"
+            )
+        })?;
+    let candidate = load_shell_release_candidate_review_manifest(&candidate_path)
+        .map_err(|error| format!("Shell release candidate identity load failed: {error}"))?;
+    let promoted =
+        promote_shell_release_candidate_review_index_default(&index, &candidate.candidate_id)
+            .ok_or_else(|| {
+                format!(
+                    "Shell release candidate index does not contain candidate {}",
+                    candidate.candidate_id
+                )
+            })?;
+    save_json(&index_path, &promoted)
+        .map_err(|error| format!("Shell release candidate index save failed: {error}"))?;
+    Ok((candidate, promoted, candidate_path, index_path))
+}
+
+fn next_shell_release_candidate_default_id(
+    index: &StudioShellReleaseCandidateReviewIndex,
+) -> Result<String, String> {
+    if index.entries.is_empty() {
+        return Err("Shell release candidate index has no selectable entries".to_string());
+    }
+    let default_position = index
+        .default_candidate_id
+        .as_deref()
+        .and_then(|default_id| {
+            index
+                .entries
+                .iter()
+                .position(|entry| entry.candidate_id == default_id)
+        });
+    let selected_position = default_position.map_or(0, |position| {
+        if position + 1 >= index.entries.len() {
+            0
+        } else {
+            position + 1
+        }
+    });
+    Ok(index.entries[selected_position].candidate_id.clone())
+}
+
 fn retarget_project_source(
     project_path: &Path,
     model: &StudioViewModel,
@@ -3435,6 +3871,49 @@ fn shell_release_candidate_review_output_path(project_path: &Path) -> PathBuf {
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-release-candidate-review.json")
+}
+
+fn shell_release_candidate_review_manifest_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-release-candidate-review-manifest.json")
+}
+
+fn shell_release_candidate_review_archive_dir(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("release-candidates")
+}
+
+fn shell_release_candidate_review_archive_report_output_path(
+    project_path: &Path,
+    candidate_id: &str,
+) -> PathBuf {
+    shell_release_candidate_review_archive_dir(project_path)
+        .join(format!("{candidate_id}.review.json"))
+}
+
+fn shell_release_candidate_review_archive_manifest_output_path(
+    project_path: &Path,
+    candidate_id: &str,
+) -> PathBuf {
+    shell_release_candidate_review_archive_dir(project_path)
+        .join(format!("{candidate_id}.candidate.json"))
+}
+
+fn shell_release_candidate_review_index_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-release-candidate-reviews.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -5333,6 +5812,281 @@ fn shell_release_candidate_review_status(
             report.prohibited_actions.join(", ")
         }
     )
+}
+
+fn shell_release_candidate_review_manifest_status(
+    review: &StudioShellReleaseCandidateReviewReport,
+    candidate: &StudioShellReleaseCandidateReviewManifest,
+    index: &StudioShellReleaseCandidateReviewIndex,
+    review_path: &Path,
+    candidate_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection =
+        summarize_shell_release_candidate_review_index_selection(index, Some(index_path), None);
+    format!(
+        "release candidate written\n  candidate: {} ({})\n  identity: {}\n  review artifact: {}\n{}\n{}\n{}",
+        candidate.candidate_id,
+        candidate.label,
+        candidate_path.display(),
+        review_path.display(),
+        shell_release_candidate_review_selection_status(&selection),
+        shell_release_candidate_review_index_status(index, index_path),
+        shell_release_candidate_review_status(review, review_path)
+    )
+}
+
+fn shell_release_candidate_review_manifest_append_status(
+    review: &StudioShellReleaseCandidateReviewReport,
+    candidate: &StudioShellReleaseCandidateReviewManifest,
+    index: &StudioShellReleaseCandidateReviewIndex,
+    review_path: &Path,
+    candidate_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection = summarize_shell_release_candidate_review_index_selection(
+        index,
+        Some(index_path),
+        Some(&candidate.candidate_id),
+    );
+    format!(
+        "release candidate archived\n  candidate: {} ({})\n  identity: {}\n  review artifact: {}\n{}\n{}\n{}",
+        candidate.candidate_id,
+        candidate.label,
+        candidate_path.display(),
+        review_path.display(),
+        shell_release_candidate_review_selection_status(&selection),
+        shell_release_candidate_review_index_status(index, index_path),
+        shell_release_candidate_review_status(review, review_path)
+    )
+}
+
+fn shell_release_candidate_review_index_status(
+    index: &StudioShellReleaseCandidateReviewIndex,
+    index_path: &Path,
+) -> String {
+    let default = index.default_candidate_id.as_deref().unwrap_or("none");
+    let projects = if index.project_ids.is_empty() {
+        "none".to_string()
+    } else {
+        index.project_ids.join(", ")
+    };
+    let manifests = if index.manifest_ids.is_empty() {
+        "none".to_string()
+    } else {
+        index.manifest_ids.join(", ")
+    };
+    let rows = index
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let status = shell_release_candidate_review_status_label(entry.status);
+            let issue = entry.issue_code.as_deref().unwrap_or("none");
+            let manifest_path = entry
+                .candidate_manifest_path
+                .as_deref()
+                .unwrap_or("unknown");
+            let acceptance = entry
+                .acceptance_comparison_status
+                .map(shell_handoff_acceptance_comparison_status_label)
+                .unwrap_or("missing");
+            let export_package = entry
+                .export_package_comparison_status
+                .map(shell_export_package_comparison_status_label)
+                .unwrap_or("missing");
+            format!(
+                "{} [{}] project {} rev {}; handoff ready {}; failed {}; missing {}; acceptance {}; package {}; checks failed {}; manifest {}; issue {}",
+                entry.candidate_id,
+                status,
+                entry.project_id,
+                entry.project_revision,
+                entry.handoff_ready_count,
+                entry.handoff_failed_count,
+                entry.handoff_missing_bundle_count,
+                acceptance,
+                export_package,
+                entry.failed_check_count,
+                manifest_path,
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "release candidate index slots {}; default {}; ready {}; blocked {}; rejected {}\n  index: {}\n  projects: {}\n  manifests: {}\n  entries:\n  {}",
+        index.candidate_count,
+        default,
+        index.ready_candidate_count,
+        index.blocked_candidate_count,
+        index.rejected_candidate_count,
+        index_path.display(),
+        projects,
+        manifests,
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
+fn shell_release_candidate_review_selection_status(
+    report: &StudioShellReleaseCandidateReviewSelectionReport,
+) -> String {
+    let status = shell_release_candidate_review_selection_status_label(report.status);
+    let requested = report.requested_candidate_id.as_deref().unwrap_or("none");
+    let default = report.default_candidate_id.as_deref().unwrap_or("none");
+    let selected = report.selected_candidate_id.as_deref().unwrap_or("none");
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let index_path = report.index_path.as_deref().unwrap_or("not saved");
+    let rows = report
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let entry_status = shell_release_candidate_review_status_label(entry.status);
+            let entry_issue = entry.issue_code.as_deref().unwrap_or("none");
+            let manifest_path = entry
+                .candidate_manifest_path
+                .as_deref()
+                .unwrap_or("unknown");
+            let selected_flag = if entry.selected { "yes" } else { "no" };
+            let default_flag = if entry.default { "yes" } else { "no" };
+            let acceptance = entry
+                .acceptance_comparison_status
+                .map(shell_handoff_acceptance_comparison_status_label)
+                .unwrap_or("missing");
+            let export_package = entry
+                .export_package_comparison_status
+                .map(shell_export_package_comparison_status_label)
+                .unwrap_or("missing");
+            format!(
+                "{} [{}] selected {}; default {}; acceptance {}; package {}; checks failed {}; manifest {}; issue {}",
+                entry.candidate_id,
+                entry_status,
+                selected_flag,
+                default_flag,
+                acceptance,
+                export_package,
+                entry.failed_check_count,
+                manifest_path,
+                entry_issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "release candidate selection {status}; requested {requested}; default {default}; selected {selected}; slots {}; ready {}; blocked {}; rejected {}; issue {issue}\n  index: {}\n  entries:\n  {}",
+        report.candidate_count,
+        report.ready_candidate_count,
+        report.blocked_candidate_count,
+        report.rejected_candidate_count,
+        index_path,
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
+fn shell_release_candidate_review_manifest_summary_status(
+    candidate: &StudioShellReleaseCandidateReviewManifest,
+    index: &StudioShellReleaseCandidateReviewIndex,
+    candidate_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection =
+        summarize_shell_release_candidate_review_index_selection(index, Some(index_path), None);
+    let status = shell_release_candidate_review_status_label(candidate.status);
+    let issue = candidate.issue_code.as_deref().unwrap_or("none");
+    let acceptance = candidate
+        .acceptance_comparison_status
+        .map(shell_handoff_acceptance_comparison_status_label)
+        .unwrap_or("missing");
+    let export_package = candidate
+        .export_package_comparison_status
+        .map(shell_export_package_comparison_status_label)
+        .unwrap_or("missing");
+    format!(
+        "release candidate summary {status}; candidate {} ({}); project {} rev {}; manifest {}; issue {issue}\n  identity: {}\n  review artifact: {}\n  handoff ready {}; failed {}; missing {}; acceptance {}; export package {}; checks {}; failed {}\n  authority: command {}; host {}; studio {}; policy {}; owner {}\n{}\n{}",
+        candidate.candidate_id,
+        candidate.label,
+        candidate.project_id,
+        candidate.project_revision,
+        candidate.manifest_id,
+        candidate_path.display(),
+        candidate.review_path,
+        candidate.handoff_ready_count,
+        candidate.handoff_failed_count,
+        candidate.handoff_missing_bundle_count,
+        acceptance,
+        export_package,
+        candidate.check_count,
+        candidate.failed_check_count,
+        candidate.command_session_authority,
+        candidate.install_launch_evidence_authority,
+        candidate.studio_role,
+        candidate.execution_policy,
+        candidate.review_owner,
+        shell_release_candidate_review_selection_status(&selection),
+        shell_release_candidate_review_index_status(index, index_path)
+    )
+}
+
+fn shell_release_candidate_review_manifest_promote_status(
+    candidate: &StudioShellReleaseCandidateReviewManifest,
+    index: &StudioShellReleaseCandidateReviewIndex,
+    candidate_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection = summarize_shell_release_candidate_review_index_selection(
+        index,
+        Some(index_path),
+        Some(&candidate.candidate_id),
+    );
+    format!(
+        "release candidate default promoted\n  candidate: {} ({})\n  identity: {}\n{}\n{}",
+        candidate.candidate_id,
+        candidate.label,
+        candidate_path.display(),
+        shell_release_candidate_review_selection_status(&selection),
+        shell_release_candidate_review_index_status(index, index_path)
+    )
+}
+
+fn shell_release_candidate_review_manifest_select_status(
+    candidate: &StudioShellReleaseCandidateReviewManifest,
+    index: &StudioShellReleaseCandidateReviewIndex,
+    candidate_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection = summarize_shell_release_candidate_review_index_selection(
+        index,
+        Some(index_path),
+        Some(&candidate.candidate_id),
+    );
+    format!(
+        "release candidate default selected\n  candidate: {} ({})\n  identity: {}\n{}\n{}",
+        candidate.candidate_id,
+        candidate.label,
+        candidate_path.display(),
+        shell_release_candidate_review_selection_status(&selection),
+        shell_release_candidate_review_index_status(index, index_path)
+    )
+}
+
+fn shell_release_candidate_review_selection_status_label(
+    status: StudioShellReleaseCandidateReviewSelectionStatus,
+) -> &'static str {
+    match status {
+        StudioShellReleaseCandidateReviewSelectionStatus::Selected => "selected",
+        StudioShellReleaseCandidateReviewSelectionStatus::Missing => "missing",
+        StudioShellReleaseCandidateReviewSelectionStatus::Empty => "empty",
+    }
 }
 
 fn shell_release_candidate_review_status_label(
@@ -7365,6 +8119,127 @@ mod tests {
         assert!(status.contains("checks:"));
         assert!(status.contains("failed 0"));
         assert!(status.contains("not_executed.review_only"));
+    }
+
+    #[test]
+    fn shell_release_candidate_review_index_cycles_default_from_makepad_route() {
+        let root = temp_root("shell-release-candidate-index");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+        write_shell_handoff_manifest_for_project_source(&project_path)
+            .expect("write shell handoff manifest");
+        write_shell_handoff_acceptance_baseline_for_project_source(&project_path)
+            .expect("write acceptance baseline");
+        write_shell_export_package_baseline_for_project_source(&project_path)
+            .expect("write export package baseline");
+
+        let (review, candidate, index, review_path, candidate_path, index_path) =
+            write_shell_release_candidate_review_manifest_for_project_source(&project_path)
+                .expect("write release candidate manifest");
+
+        assert!(review_path.is_file());
+        assert!(candidate_path.is_file());
+        assert!(index_path.is_file());
+        assert_eq!(
+            candidate.schema_id,
+            "rusty.studio.shell_release_candidate_review_manifest.v1"
+        );
+        assert_eq!(
+            candidate.candidate_id,
+            "studio.project.makepad_edit.rev1.ready"
+        );
+        assert_eq!(
+            candidate.status,
+            StudioShellReleaseCandidateReviewStatus::Ready
+        );
+        assert_eq!(candidate.review_path, review_path.display().to_string());
+        assert_eq!(
+            index.schema_id,
+            "rusty.studio.shell_release_candidate_review_index.v1"
+        );
+        assert_eq!(
+            index.default_candidate_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+        assert_eq!(index.candidate_count, 1);
+        assert_eq!(index.ready_candidate_count, 1);
+        assert_eq!(index.blocked_candidate_count, 0);
+        let status = shell_release_candidate_review_manifest_status(
+            &review,
+            &candidate,
+            &index,
+            &review_path,
+            &candidate_path,
+            &index_path,
+        );
+        assert!(status.contains("release candidate written"));
+        assert!(status.contains("release candidate selection selected"));
+        assert!(status.contains("release candidate index slots 1"));
+
+        let (_, archived_candidate, archived_index, _, archived_candidate_path, _) =
+            append_shell_release_candidate_review_manifest_for_project_source(&project_path)
+                .expect("archive release candidate");
+
+        assert_eq!(
+            archived_candidate.candidate_id,
+            "studio.project.makepad_edit.rev1.ready.archive2"
+        );
+        assert_eq!(
+            archived_index.default_candidate_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready.archive2")
+        );
+        assert_eq!(archived_index.candidate_count, 2);
+        assert_eq!(archived_index.ready_candidate_count, 2);
+        assert_eq!(
+            archived_index.entries[1].candidate_manifest_path.as_deref(),
+            Some(archived_candidate_path.display().to_string().as_str())
+        );
+        let loaded_index =
+            load_shell_release_candidate_review_index(&index_path).expect("load candidate index");
+        assert_eq!(loaded_index, archived_index);
+
+        let (selected_ready, selected_index, selected_candidate_path, loaded_index_path) =
+            select_next_shell_release_candidate_default_for_project_source(&project_path)
+                .expect("select next release candidate");
+        assert_eq!(selected_ready, candidate);
+        assert_eq!(selected_candidate_path, candidate_path);
+        assert_eq!(
+            selected_index.default_candidate_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+        let status = shell_release_candidate_review_manifest_select_status(
+            &selected_ready,
+            &selected_index,
+            &selected_candidate_path,
+            &loaded_index_path,
+        );
+        assert!(status.contains("release candidate default selected"));
+        assert!(status.contains(
+            "release candidate selection selected; requested studio.project.makepad_edit.rev1.ready; default studio.project.makepad_edit.rev1.ready; selected studio.project.makepad_edit.rev1.ready"
+        ));
+
+        let (promoted_candidate, promoted_index, promoted_candidate_path, loaded_index_path) =
+            promote_shell_release_candidate_default_for_project_source(&project_path)
+                .expect("promote saved release candidate");
+        assert_eq!(promoted_candidate, candidate);
+        assert_eq!(promoted_candidate_path, candidate_path);
+        assert_eq!(
+            promoted_index.default_candidate_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+        let status = shell_release_candidate_review_manifest_promote_status(
+            &promoted_candidate,
+            &promoted_index,
+            &promoted_candidate_path,
+            &loaded_index_path,
+        );
+        assert!(status.contains("release candidate default promoted"));
+        assert!(status.contains("release candidate index slots 2"));
     }
 
     #[test]

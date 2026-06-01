@@ -32,7 +32,11 @@ use rusty_studio_model::{
     StudioShellHandoffManifestValidationReport, StudioShellHandoffReadinessEntry,
     StudioShellHandoffReadinessReport, StudioShellHandoffReadinessTargetSummary,
     StudioShellHandoffReport, StudioShellHostProfile, StudioShellHostRoutes,
-    StudioShellReleaseCandidateReviewReport, StudioShellReleaseCandidateReviewStatus,
+    StudioShellReleaseCandidateReviewIndex, StudioShellReleaseCandidateReviewIndexEntry,
+    StudioShellReleaseCandidateReviewManifest, StudioShellReleaseCandidateReviewReport,
+    StudioShellReleaseCandidateReviewSelectionEntry,
+    StudioShellReleaseCandidateReviewSelectionReport,
+    StudioShellReleaseCandidateReviewSelectionStatus, StudioShellReleaseCandidateReviewStatus,
     StudioShellRunbookEntry, StudioShellRunbookReport, StudioShellRunbookStatus,
     StudioShellRunbookTargetSummary, StudioShellRuntimeAuthority, StudioShellTargetKind,
     StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
@@ -52,10 +56,12 @@ use rusty_studio_model::{
     SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA,
     SHELL_HANDOFF_INTAKE_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
     SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
-    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA,
-    SHELL_RUNBOOK_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
-    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
-    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
+    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA,
+    SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA,
+    SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA, SHELL_RUNBOOK_REPORT_SCHEMA,
+    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
+    VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -152,6 +158,24 @@ pub enum StudioCoreError {
     },
     #[error("{path}: {source}")]
     ParseShellExportPackageBaselineIndex {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellReleaseCandidateReviewReport {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellReleaseCandidateReviewManifest {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellReleaseCandidateReviewIndex {
         path: String,
         #[source]
         source: serde_json::Error,
@@ -341,6 +365,51 @@ pub fn load_shell_export_package_baseline_index(
     })?;
     serde_json::from_str(&text).map_err(|source| {
         StudioCoreError::ParseShellExportPackageBaselineIndex {
+            path: path.display().to_string(),
+            source,
+        }
+    })
+}
+
+pub fn load_shell_release_candidate_review_report(
+    path: &Path,
+) -> Result<StudioShellReleaseCandidateReviewReport, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseShellReleaseCandidateReviewReport {
+            path: path.display().to_string(),
+            source,
+        }
+    })
+}
+
+pub fn load_shell_release_candidate_review_manifest(
+    path: &Path,
+) -> Result<StudioShellReleaseCandidateReviewManifest, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseShellReleaseCandidateReviewManifest {
+            path: path.display().to_string(),
+            source,
+        }
+    })
+}
+
+pub fn load_shell_release_candidate_review_index(
+    path: &Path,
+) -> Result<StudioShellReleaseCandidateReviewIndex, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseShellReleaseCandidateReviewIndex {
             path: path.display().to_string(),
             source,
         }
@@ -8090,6 +8159,317 @@ fn failed_release_candidate_check(
     }
 }
 
+pub fn shell_release_candidate_review_manifest_for_report(
+    review: &StudioShellReleaseCandidateReviewReport,
+    review_path: &Path,
+    candidate_id: Option<&str>,
+    label: Option<&str>,
+) -> StudioShellReleaseCandidateReviewManifest {
+    let candidate_id = candidate_id
+        .map(str::to_string)
+        .unwrap_or_else(|| default_shell_release_candidate_review_id(review));
+    let label = label
+        .map(str::to_string)
+        .unwrap_or_else(|| default_shell_release_candidate_review_label(review));
+
+    StudioShellReleaseCandidateReviewManifest {
+        schema_id: SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA.to_string(),
+        candidate_id,
+        label,
+        review_path: review_path.display().to_string(),
+        review_schema: review.schema_id.clone(),
+        manifest_id: review.manifest_id.clone(),
+        project_id: review.project_id.clone(),
+        project_revision: review.project_revision,
+        status: review.status,
+        issue_code: review.issue_code.clone(),
+        execution_policy: review.execution_policy.clone(),
+        review_owner: review.review_owner.clone(),
+        command_session_authority: review.command_session_authority.clone(),
+        install_launch_evidence_authority: review.install_launch_evidence_authority.clone(),
+        studio_role: review.studio_role.clone(),
+        handoff_ready_count: review.handoff_ready_count,
+        handoff_failed_count: review.handoff_failed_count,
+        handoff_missing_bundle_count: review.handoff_missing_bundle_count,
+        acceptance_baseline_status: review.acceptance_baseline_selection.status,
+        acceptance_baseline_id: review
+            .acceptance_baseline_selection
+            .selected_baseline_id
+            .clone(),
+        acceptance_comparison_status: review
+            .acceptance_comparison
+            .as_ref()
+            .map(|comparison| comparison.status),
+        export_package_baseline_status: review.export_package_baseline_selection.status,
+        export_package_baseline_id: review
+            .export_package_baseline_selection
+            .selected_baseline_id
+            .clone(),
+        export_package_comparison_status: review
+            .export_package_comparison
+            .as_ref()
+            .map(|comparison| comparison.status),
+        check_count: review.checks.len(),
+        failed_check_count: review
+            .checks
+            .iter()
+            .filter(|check| check.status == StudioValidationStatus::Fail)
+            .count(),
+        prohibited_actions: review.prohibited_actions.clone(),
+    }
+}
+
+pub fn shell_release_candidate_review_index_for_manifests(
+    candidates: Vec<(StudioShellReleaseCandidateReviewManifest, Option<PathBuf>)>,
+    default_candidate_id: Option<&str>,
+) -> StudioShellReleaseCandidateReviewIndex {
+    let entries = candidates
+        .into_iter()
+        .map(|(candidate, candidate_manifest_path)| {
+            shell_release_candidate_review_index_entry_for_manifest(
+                candidate,
+                candidate_manifest_path,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    shell_release_candidate_review_index_for_entries(entries, default_candidate_id)
+}
+
+pub fn append_shell_release_candidate_review_index_manifests(
+    index: &StudioShellReleaseCandidateReviewIndex,
+    candidates: Vec<(StudioShellReleaseCandidateReviewManifest, Option<PathBuf>)>,
+    default_candidate_id: Option<&str>,
+) -> StudioShellReleaseCandidateReviewIndex {
+    let entries = index
+        .entries
+        .iter()
+        .cloned()
+        .chain(
+            candidates
+                .into_iter()
+                .map(|(candidate, candidate_manifest_path)| {
+                    shell_release_candidate_review_index_entry_for_manifest(
+                        candidate,
+                        candidate_manifest_path,
+                    )
+                }),
+        )
+        .collect::<Vec<_>>();
+    let default_candidate_id = default_candidate_id.or(index.default_candidate_id.as_deref());
+
+    shell_release_candidate_review_index_for_entries(entries, default_candidate_id)
+}
+
+pub fn promote_shell_release_candidate_review_index_default(
+    index: &StudioShellReleaseCandidateReviewIndex,
+    candidate_id: &str,
+) -> Option<StudioShellReleaseCandidateReviewIndex> {
+    index
+        .entries
+        .iter()
+        .any(|entry| entry.candidate_id == candidate_id)
+        .then(|| {
+            shell_release_candidate_review_index_for_entries(
+                index.entries.clone(),
+                Some(candidate_id),
+            )
+        })
+}
+
+fn shell_release_candidate_review_index_entry_for_manifest(
+    candidate: StudioShellReleaseCandidateReviewManifest,
+    candidate_manifest_path: Option<PathBuf>,
+) -> StudioShellReleaseCandidateReviewIndexEntry {
+    StudioShellReleaseCandidateReviewIndexEntry {
+        candidate_id: candidate.candidate_id,
+        label: candidate.label,
+        candidate_manifest_path: candidate_manifest_path.map(|path| path.display().to_string()),
+        review_path: candidate.review_path,
+        review_schema: candidate.review_schema,
+        manifest_id: candidate.manifest_id,
+        project_id: candidate.project_id,
+        project_revision: candidate.project_revision,
+        status: candidate.status,
+        issue_code: candidate.issue_code,
+        execution_policy: candidate.execution_policy,
+        review_owner: candidate.review_owner,
+        command_session_authority: candidate.command_session_authority,
+        install_launch_evidence_authority: candidate.install_launch_evidence_authority,
+        studio_role: candidate.studio_role,
+        handoff_ready_count: candidate.handoff_ready_count,
+        handoff_failed_count: candidate.handoff_failed_count,
+        handoff_missing_bundle_count: candidate.handoff_missing_bundle_count,
+        acceptance_baseline_status: candidate.acceptance_baseline_status,
+        acceptance_baseline_id: candidate.acceptance_baseline_id,
+        acceptance_comparison_status: candidate.acceptance_comparison_status,
+        export_package_baseline_status: candidate.export_package_baseline_status,
+        export_package_baseline_id: candidate.export_package_baseline_id,
+        export_package_comparison_status: candidate.export_package_comparison_status,
+        check_count: candidate.check_count,
+        failed_check_count: candidate.failed_check_count,
+    }
+}
+
+fn shell_release_candidate_review_index_for_entries(
+    entries: Vec<StudioShellReleaseCandidateReviewIndexEntry>,
+    default_candidate_id: Option<&str>,
+) -> StudioShellReleaseCandidateReviewIndex {
+    let mut by_id = BTreeMap::new();
+    for entry in entries {
+        by_id.insert(entry.candidate_id.clone(), entry);
+    }
+
+    let entries = by_id.into_values().collect::<Vec<_>>();
+    let default_candidate_id = default_candidate_id
+        .filter(|candidate_id| {
+            entries
+                .iter()
+                .any(|entry| entry.candidate_id == *candidate_id)
+        })
+        .map(str::to_string)
+        .or_else(|| entries.first().map(|entry| entry.candidate_id.clone()));
+
+    StudioShellReleaseCandidateReviewIndex {
+        schema_id: SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA.to_string(),
+        project_ids: unique_strings(entries.iter().map(|entry| entry.project_id.clone())),
+        manifest_ids: unique_strings(entries.iter().map(|entry| entry.manifest_id.clone())),
+        default_candidate_id,
+        candidate_count: entries.len(),
+        ready_candidate_count: entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellReleaseCandidateReviewStatus::Ready)
+            .count(),
+        blocked_candidate_count: entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellReleaseCandidateReviewStatus::Blocked)
+            .count(),
+        rejected_candidate_count: entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellReleaseCandidateReviewStatus::Rejected)
+            .count(),
+        entries,
+    }
+}
+
+pub fn select_shell_release_candidate_review_index_entry<'a>(
+    index: &'a StudioShellReleaseCandidateReviewIndex,
+    candidate_id: Option<&str>,
+) -> Option<&'a StudioShellReleaseCandidateReviewIndexEntry> {
+    let selected_id = candidate_id.or(index.default_candidate_id.as_deref());
+    selected_id
+        .and_then(|selected_id| {
+            index
+                .entries
+                .iter()
+                .find(|entry| entry.candidate_id == selected_id)
+        })
+        .or_else(|| {
+            candidate_id
+                .is_none()
+                .then(|| index.entries.first())
+                .flatten()
+        })
+}
+
+pub fn summarize_shell_release_candidate_review_index_selection(
+    index: &StudioShellReleaseCandidateReviewIndex,
+    index_path: Option<&Path>,
+    requested_candidate_id: Option<&str>,
+) -> StudioShellReleaseCandidateReviewSelectionReport {
+    let selected_entry =
+        select_shell_release_candidate_review_index_entry(index, requested_candidate_id);
+    let selected_candidate_id = selected_entry.map(|entry| entry.candidate_id.clone());
+    let status = if index.entries.is_empty() {
+        StudioShellReleaseCandidateReviewSelectionStatus::Empty
+    } else if selected_entry.is_some() {
+        StudioShellReleaseCandidateReviewSelectionStatus::Selected
+    } else {
+        StudioShellReleaseCandidateReviewSelectionStatus::Missing
+    };
+    let issue_code = match status {
+        StudioShellReleaseCandidateReviewSelectionStatus::Selected => None,
+        StudioShellReleaseCandidateReviewSelectionStatus::Missing => {
+            Some("studio.issue.shell_release_candidate_review_not_found".to_string())
+        }
+        StudioShellReleaseCandidateReviewSelectionStatus::Empty => {
+            Some("studio.issue.shell_release_candidate_review_index_empty".to_string())
+        }
+    };
+
+    StudioShellReleaseCandidateReviewSelectionReport {
+        schema_id: SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA.to_string(),
+        source_index_schema: index.schema_id.clone(),
+        index_path: index_path.map(|path| path.display().to_string()),
+        requested_candidate_id: requested_candidate_id.map(str::to_string),
+        default_candidate_id: index.default_candidate_id.clone(),
+        selected_candidate_id: selected_candidate_id.clone(),
+        status,
+        issue_code,
+        candidate_count: index.candidate_count,
+        ready_candidate_count: index.ready_candidate_count,
+        blocked_candidate_count: index.blocked_candidate_count,
+        rejected_candidate_count: index.rejected_candidate_count,
+        project_ids: index.project_ids.clone(),
+        manifest_ids: index.manifest_ids.clone(),
+        entries: index
+            .entries
+            .iter()
+            .map(|entry| StudioShellReleaseCandidateReviewSelectionEntry {
+                candidate_id: entry.candidate_id.clone(),
+                label: entry.label.clone(),
+                selected: selected_candidate_id.as_deref() == Some(entry.candidate_id.as_str()),
+                default: index.default_candidate_id.as_deref() == Some(entry.candidate_id.as_str()),
+                candidate_manifest_path: entry.candidate_manifest_path.clone(),
+                review_path: entry.review_path.clone(),
+                manifest_id: entry.manifest_id.clone(),
+                project_id: entry.project_id.clone(),
+                project_revision: entry.project_revision,
+                status: entry.status,
+                issue_code: entry.issue_code.clone(),
+                acceptance_baseline_id: entry.acceptance_baseline_id.clone(),
+                acceptance_comparison_status: entry.acceptance_comparison_status,
+                export_package_baseline_id: entry.export_package_baseline_id.clone(),
+                export_package_comparison_status: entry.export_package_comparison_status,
+                check_count: entry.check_count,
+                failed_check_count: entry.failed_check_count,
+            })
+            .collect(),
+    }
+}
+
+fn default_shell_release_candidate_review_id(
+    review: &StudioShellReleaseCandidateReviewReport,
+) -> String {
+    format!(
+        "{}.rev{}.{}",
+        review.project_id,
+        review.project_revision,
+        shell_release_candidate_review_status_key(review.status)
+    )
+}
+
+fn default_shell_release_candidate_review_label(
+    review: &StudioShellReleaseCandidateReviewReport,
+) -> String {
+    format!(
+        "{} revision {} {} release candidate",
+        review.project_id,
+        review.project_revision,
+        shell_release_candidate_review_status_key(review.status)
+    )
+}
+
+fn shell_release_candidate_review_status_key(
+    status: StudioShellReleaseCandidateReviewStatus,
+) -> &'static str {
+    match status {
+        StudioShellReleaseCandidateReviewStatus::Ready => "ready",
+        StudioShellReleaseCandidateReviewStatus::Blocked => "blocked",
+        StudioShellReleaseCandidateReviewStatus::Rejected => "rejected",
+    }
+}
+
 fn count_delta(candidate: usize, baseline: usize) -> isize {
     candidate as isize - baseline as isize
 }
@@ -13796,6 +14176,223 @@ mod tests {
                 && check.issue_code.as_deref()
                     == Some("studio.issue.shell_export_package_template_load_failed")
         }));
+    }
+
+    #[test]
+    fn shell_release_candidate_review_index_lists_and_selects_candidates() {
+        let root = temp_root("shell-release-candidate-index");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        save_selected_shell_bundles(&project, &root, &bundle_root);
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        let manifest_path = root.join("shell-handoffs.json");
+        save_json(&manifest_path, &manifest).expect("save shell handoff manifest");
+
+        let acceptance_checklist = shell_handoff_acceptance_checklist_for_intake(
+            &shell_handoff_intake_for_manifest(&manifest),
+        );
+        let acceptance_checklist_path = root.join("shell-handoff-acceptance-checklist.json");
+        save_json(&acceptance_checklist_path, &acceptance_checklist)
+            .expect("save acceptance checklist");
+        let acceptance_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &acceptance_checklist,
+            &acceptance_checklist_path,
+            Some("synthetic-ready"),
+            Some("Synthetic ready acceptance baseline"),
+        );
+        let acceptance_baseline_path = root.join("shell-handoff-acceptance-baseline.json");
+        save_json(&acceptance_baseline_path, &acceptance_baseline)
+            .expect("save acceptance baseline");
+        let acceptance_index = shell_handoff_acceptance_baseline_index_for_manifests(
+            vec![(acceptance_baseline, Some(acceptance_baseline_path))],
+            Some("synthetic-ready"),
+        );
+        let acceptance_index_path = root.join("shell-handoff-acceptance-baselines.json");
+        save_json(&acceptance_index_path, &acceptance_index).expect("save acceptance index");
+
+        let export_package = shell_export_package_for_manifest(&manifest);
+        let export_package_path = root.join("shell-export-package.json");
+        save_json(&export_package_path, &export_package).expect("save export package");
+        let export_package_baseline = shell_export_package_baseline_manifest_for_report(
+            &export_package,
+            &export_package_path,
+            Some("synthetic-ready-package"),
+            Some("Synthetic ready export package baseline"),
+        );
+        let export_package_baseline_path = root.join("shell-export-package-baseline.json");
+        save_json(&export_package_baseline_path, &export_package_baseline)
+            .expect("save export package baseline");
+        let export_package_index = shell_export_package_baseline_index_for_manifests(
+            vec![(export_package_baseline, Some(export_package_baseline_path))],
+            Some("synthetic-ready-package"),
+        );
+        let export_package_index_path = root.join("shell-export-package-baselines.json");
+        save_json(&export_package_index_path, &export_package_index)
+            .expect("save export package index");
+
+        let ready_review = shell_release_candidate_review_for_manifest(
+            &manifest,
+            Some(&manifest_path),
+            &acceptance_index,
+            Some(&acceptance_index_path),
+            Some("synthetic-ready"),
+            &export_package_index,
+            Some(&export_package_index_path),
+            Some("synthetic-ready-package"),
+        );
+        let ready_review_path = root.join("shell-release-candidate-review.json");
+        save_json(&ready_review_path, &ready_review).expect("save ready review");
+        let ready_candidate = shell_release_candidate_review_manifest_for_report(
+            &ready_review,
+            &ready_review_path,
+            None,
+            None,
+        );
+        let ready_candidate_path = root.join("shell-release-candidate-review-manifest.json");
+        save_json(&ready_candidate_path, &ready_candidate).expect("save ready candidate");
+
+        assert_eq!(
+            ready_candidate.schema_id,
+            SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA
+        );
+        assert_eq!(
+            ready_candidate.candidate_id,
+            "studio.project.test.rev1.ready"
+        );
+        assert_eq!(
+            ready_candidate.review_path,
+            ready_review_path.display().to_string()
+        );
+        assert_eq!(
+            ready_candidate.status,
+            StudioShellReleaseCandidateReviewStatus::Ready
+        );
+        assert_eq!(
+            ready_candidate.acceptance_comparison_status,
+            Some(StudioShellHandoffAcceptanceComparisonStatus::Unchanged)
+        );
+        assert_eq!(
+            ready_candidate.export_package_comparison_status,
+            Some(StudioShellExportPackageComparisonStatus::Unchanged)
+        );
+        assert_eq!(ready_candidate.failed_check_count, 0);
+
+        let index = shell_release_candidate_review_index_for_manifests(
+            vec![(ready_candidate.clone(), Some(ready_candidate_path.clone()))],
+            None,
+        );
+        let index_path = root.join("shell-release-candidate-reviews.json");
+        save_json(&index_path, &index).expect("save release candidate index");
+        assert_eq!(index.schema_id, SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA);
+        assert_eq!(
+            index.default_candidate_id.as_deref(),
+            Some("studio.project.test.rev1.ready")
+        );
+        assert_eq!(index.candidate_count, 1);
+        assert_eq!(index.ready_candidate_count, 1);
+        assert_eq!(index.blocked_candidate_count, 0);
+        assert_eq!(index.rejected_candidate_count, 0);
+        assert_eq!(index.entries[0].candidate_id, ready_candidate.candidate_id);
+        assert_eq!(
+            index.entries[0].candidate_manifest_path.as_deref(),
+            Some(ready_candidate_path.display().to_string().as_str())
+        );
+
+        let selection = summarize_shell_release_candidate_review_index_selection(
+            &index,
+            Some(&index_path),
+            None,
+        );
+        assert_eq!(
+            selection.schema_id,
+            SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA
+        );
+        assert_eq!(
+            selection.status,
+            StudioShellReleaseCandidateReviewSelectionStatus::Selected
+        );
+        assert_eq!(selection.issue_code, None);
+        assert_eq!(
+            selection.selected_candidate_id.as_deref(),
+            Some("studio.project.test.rev1.ready")
+        );
+        assert_eq!(selection.ready_candidate_count, 1);
+        assert_eq!(selection.entries.len(), 1);
+        assert!(selection.entries[0].selected);
+        assert!(selection.entries[0].default);
+
+        std::fs::remove_file(
+            bundle_root
+                .join("studio.graph.phone")
+                .join("shells/phone/studio.graph.phone.shell-template.json"),
+        )
+        .expect("remove phone template manifest");
+        let blocked_review = shell_release_candidate_review_for_manifest(
+            &manifest,
+            Some(&manifest_path),
+            &acceptance_index,
+            Some(&acceptance_index_path),
+            Some("synthetic-ready"),
+            &export_package_index,
+            Some(&export_package_index_path),
+            Some("synthetic-ready-package"),
+        );
+        let blocked_review_path = root.join("shell-release-candidate-review-blocked.json");
+        save_json(&blocked_review_path, &blocked_review).expect("save blocked review");
+        let blocked_candidate = shell_release_candidate_review_manifest_for_report(
+            &blocked_review,
+            &blocked_review_path,
+            Some("synthetic-blocked"),
+            Some("Synthetic blocked release candidate"),
+        );
+        let blocked_candidate_path = root.join("shell-release-candidate-blocked-manifest.json");
+        save_json(&blocked_candidate_path, &blocked_candidate).expect("save blocked candidate");
+
+        let appended = append_shell_release_candidate_review_index_manifests(
+            &index,
+            vec![(
+                blocked_candidate.clone(),
+                Some(blocked_candidate_path.clone()),
+            )],
+            Some("synthetic-blocked"),
+        );
+        assert_eq!(appended.candidate_count, 2);
+        assert_eq!(appended.ready_candidate_count, 1);
+        assert_eq!(appended.blocked_candidate_count, 1);
+        assert_eq!(
+            appended.default_candidate_id.as_deref(),
+            Some("synthetic-blocked")
+        );
+        assert_eq!(
+            select_shell_release_candidate_review_index_entry(&appended, Some("synthetic-blocked"))
+                .map(|entry| entry.status),
+            Some(StudioShellReleaseCandidateReviewStatus::Blocked)
+        );
+
+        let promoted = promote_shell_release_candidate_review_index_default(
+            &appended,
+            "studio.project.test.rev1.ready",
+        )
+        .expect("promote ready candidate");
+        assert_eq!(
+            promoted.default_candidate_id.as_deref(),
+            Some("studio.project.test.rev1.ready")
+        );
+        let missing = summarize_shell_release_candidate_review_index_selection(
+            &promoted,
+            None,
+            Some("missing"),
+        );
+        assert_eq!(
+            missing.status,
+            StudioShellReleaseCandidateReviewSelectionStatus::Missing
+        );
+        assert_eq!(
+            missing.issue_code.as_deref(),
+            Some("studio.issue.shell_release_candidate_review_not_found")
+        );
+        assert_eq!(missing.selected_candidate_id, None);
     }
 
     #[test]
