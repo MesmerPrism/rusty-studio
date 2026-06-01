@@ -12,8 +12,9 @@ use rusty_studio_core::{
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_intake_for_manifest, shell_handoff_manifest_for_project,
     shell_handoff_readiness_for_project, shell_templates_for_artifact_manifest,
-    validate_project_with_base, validate_selected_shell_bundle, validate_shell_artifact_manifest,
-    validate_shell_descriptor, validate_shell_handoff_manifest, validate_shell_template_index,
+    summarize_shell_handoff_acceptance_checklist, validate_project_with_base,
+    validate_selected_shell_bundle, validate_shell_artifact_manifest, validate_shell_descriptor,
+    validate_shell_handoff_manifest, validate_shell_template_index,
     view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
@@ -59,6 +60,7 @@ enum Command {
     ShellHandoffIntake(ShellHandoffIntakeArgs),
     ShellHandoffAcceptanceChecklist(ShellHandoffAcceptanceChecklistArgs),
     ShellHandoffAcceptanceSnapshot(ShellHandoffAcceptanceSnapshotArgs),
+    ShellHandoffAcceptanceSummary(ShellHandoffAcceptanceSummaryArgs),
     ShellHandoffAcceptanceComparison(ShellHandoffAcceptanceComparisonArgs),
 }
 
@@ -285,6 +287,14 @@ struct ShellHandoffAcceptanceSnapshotArgs {
     project: PathBuf,
     #[arg(long)]
     bundle_root: PathBuf,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHandoffAcceptanceSummaryArgs {
+    #[arg(long)]
+    checklist: PathBuf,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -684,6 +694,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 args.project.parent(),
                 &args.bundle_root,
             );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHandoffAcceptanceSummary(args) => {
+            let checklist = load_shell_handoff_acceptance_checklist(&args.checklist)?;
+            let report =
+                summarize_shell_handoff_acceptance_checklist(&checklist, Some(&args.checklist));
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }

@@ -35,6 +35,7 @@ try {
     $ShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake.json"
     $ShellHandoffAcceptanceChecklistPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json"
     $ShellHandoffAcceptanceSnapshotPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json"
+    $ShellHandoffAcceptanceSummaryPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-summary.json"
     $ShellHandoffAcceptanceComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json"
     $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
     $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
@@ -46,7 +47,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -1680,6 +1681,66 @@ try {
             }
             if ($SnapshotEntry.status -ne $ChecklistEntry.status -or $SnapshotEntry.consumer_id -ne $ChecklistEntry.consumer_id -or $SnapshotEntry.runtime_route_kind -ne $ChecklistEntry.runtime_route_kind) {
                 throw "shell handoff acceptance snapshot entry mismatch for $($ChecklistEntry.graph_id)"
+            }
+        }
+    }
+    $HandoffAcceptanceSummaryOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-summary --checklist $ShellHandoffAcceptanceChecklistPath --output $ShellHandoffAcceptanceSummaryPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell handoff acceptance summary failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellHandoffAcceptanceSummaryPath)) {
+        throw "shell handoff acceptance summary was not written"
+    }
+    $HandoffAcceptanceSummary = ($HandoffAcceptanceSummaryOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenHandoffAcceptanceSummary = Get-Content -Raw $ShellHandoffAcceptanceSummaryPath | ConvertFrom-Json
+    foreach ($SummaryView in @($HandoffAcceptanceSummary, $WrittenHandoffAcceptanceSummary)) {
+        if ($SummaryView.'$schema' -ne "rusty.studio.shell_handoff_acceptance_summary.v1") {
+            throw "shell handoff acceptance summary schema mismatch"
+        }
+        if ($SummaryView.checklist_schema -ne "rusty.studio.shell_handoff_acceptance_checklist.v1") {
+            throw "shell handoff acceptance summary checklist schema mismatch"
+        }
+        if ($SummaryView.manifest_id -ne $HandoffAcceptanceChecklist.manifest_id) {
+            throw "shell handoff acceptance summary manifest mismatch"
+        }
+        if ($SummaryView.project_id -ne $HandoffAcceptanceChecklist.project_id -or $SummaryView.project_revision -ne $HandoffAcceptanceChecklist.project_revision) {
+            throw "shell handoff acceptance summary project metadata mismatch"
+        }
+        if ($SummaryView.status -ne "ready") {
+            throw "shell handoff acceptance summary was not ready"
+        }
+        if ($SummaryView.ready_count -ne 3 -or $SummaryView.blocked_count -ne 0 -or $SummaryView.rejected_count -ne 0 -or $SummaryView.entry_count -ne 3) {
+            throw "shell handoff acceptance summary counts mismatch"
+        }
+        if ($SummaryView.failed_intake_check_count -ne 0) {
+            throw "shell handoff acceptance summary should not report failed intake checks"
+        }
+        if (@($SummaryView.targets).Count -ne 3) {
+            throw "shell handoff acceptance summary target count mismatch"
+        }
+        foreach ($RequiredSummary in @(
+            @{ TargetKind = "desktop"; Graph = "studio.graph.synthetic_wave_desktop"; Consumer = "rusty-studio-desktop-shell"; RouteKind = "desktop_operator_shell" },
+            @{ TargetKind = "phone"; Graph = "studio.graph.synthetic_wave_phone"; Consumer = "rusty-studio-phone-shell"; RouteKind = "phone_operator_shell" },
+            @{ TargetKind = "quest"; Graph = "studio.graph.synthetic_wave_headset"; Consumer = "rusty-studio-quest-shell"; RouteKind = "quest_operator_shell" }
+        )) {
+            $SummaryTarget = @($SummaryView.targets | Where-Object { $_.target_kind -eq $RequiredSummary.TargetKind }) | Select-Object -First 1
+            if ($null -eq $SummaryTarget) {
+                throw "shell handoff acceptance summary missing target $($RequiredSummary.TargetKind)"
+            }
+            if ($SummaryTarget.graph_count -ne 1 -or $SummaryTarget.ready_count -ne 1 -or $SummaryTarget.blocked_count -ne 0 -or $SummaryTarget.rejected_count -ne 0) {
+                throw "shell handoff acceptance summary target counts mismatch for $($RequiredSummary.TargetKind)"
+            }
+            if (@($SummaryTarget.graph_ids).Count -ne 1 -or @($SummaryTarget.graph_ids)[0] -ne $RequiredSummary.Graph) {
+                throw "shell handoff acceptance summary target graph mismatch for $($RequiredSummary.TargetKind)"
+            }
+            if (@($SummaryTarget.consumer_ids).Count -ne 1 -or @($SummaryTarget.consumer_ids)[0] -ne $RequiredSummary.Consumer) {
+                throw "shell handoff acceptance summary target consumer mismatch for $($RequiredSummary.TargetKind)"
+            }
+            if (@($SummaryTarget.route_kinds).Count -ne 1 -or @($SummaryTarget.route_kinds)[0] -ne $RequiredSummary.RouteKind) {
+                throw "shell handoff acceptance summary target route mismatch for $($RequiredSummary.TargetKind)"
+            }
+            if (@($SummaryTarget.issue_codes).Count -ne 0) {
+                throw "shell handoff acceptance summary target should not report issues for $($RequiredSummary.TargetKind)"
             }
         }
     }

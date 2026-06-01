@@ -79,6 +79,8 @@ Current scope:
   project and selected bundle root for durable baseline creation;
 - write the same acceptance baseline from Makepad through the shared snapshot
   route before comparing later revisions;
+- summarize a saved acceptance baseline by project revision, manifest id,
+  status counts, target groups, consumers, routes, and issue codes;
 - compare acceptance checklist artifacts across revisions to detect improved,
   unchanged, regressed, or incomparable downstream handoff readiness;
 - surface acceptance comparison in Makepad as a read-only revision review of a
@@ -133,6 +135,7 @@ cargo run -p rusty-studio-cli -- validate-shell-handoff-manifest --manifest targ
 cargo run -p rusty-studio-cli -- shell-handoff-intake --manifest target\studio-shell-handoffs\shell-handoffs.json --output target\studio-shell-handoffs\shell-handoff-intake.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake target\studio-shell-handoffs\shell-handoff-intake.json --output target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-snapshot --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json
+cargo run -p rusty-studio-cli -- shell-handoff-acceptance-summary --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-summary.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --candidate target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
@@ -153,7 +156,10 @@ device-evidence collection inside Studio. Acceptance snapshots derive the same
 checklist directly from a project and bundle root so agents and Makepad can
 create or compare baselines without hand-stitching manifest and intake steps.
 Makepad can review the same checklist in memory or write it as a baseline
-artifact; it does not execute downstream runtime actions. Acceptance comparison
-reports are revision-review artifacts only: they compare checklist readiness
-and issue transitions without granting runtime authority. Makepad can render
-the same comparison without becoming the source of truth.
+artifact; it does not execute downstream runtime actions. Acceptance summaries
+are compact metadata views over saved baseline checklists so operators can see
+project revision, manifest id, target groups, consumers, routes, and issues
+without opening the full JSON. Acceptance comparison reports are revision-review
+artifacts only: they compare checklist readiness and issue transitions without
+granting runtime authority. Makepad can render the same comparison without
+becoming the source of truth.
