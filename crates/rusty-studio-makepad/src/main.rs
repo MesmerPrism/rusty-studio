@@ -12,8 +12,8 @@ use rusty_studio_core::{
     load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
     load_shell_handoff_manifest, load_shell_hostess_handoff_package_report,
-    load_shell_hostess_owner_intake_report, load_shell_release_candidate_review_index,
-    load_shell_release_candidate_review_manifest,
+    load_shell_hostess_owner_intake_report, load_shell_hostess_staging_preview_manifest,
+    load_shell_release_candidate_review_index, load_shell_release_candidate_review_manifest,
     promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default,
     promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
@@ -27,8 +27,8 @@ use rusty_studio_core::{
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
     shell_hostess_handoff_package_for_release_candidate_index,
-    shell_hostess_owner_intake_for_handoff_package, shell_hostess_staging_preview_for_owner_intake,
-    shell_release_candidate_review_for_manifest,
+    shell_hostess_owner_intake_for_handoff_package, shell_hostess_staging_file_plan_for_preview,
+    shell_hostess_staging_preview_for_owner_intake, shell_release_candidate_review_for_manifest,
     shell_release_candidate_review_index_for_manifests,
     shell_release_candidate_review_manifest_for_report, shell_runbook_for_project,
     summarize_shell_export_package_baseline_index_selection,
@@ -54,10 +54,11 @@ use rusty_studio_model::{
     StudioShellHostessHandoffPackageActionStatus, StudioShellHostessHandoffPackageReport,
     StudioShellHostessHandoffPackageStatus, StudioShellHostessOwnerIntakeAssignmentStatus,
     StudioShellHostessOwnerIntakeReport, StudioShellHostessOwnerIntakeStatus,
-    StudioShellHostessStagingPreviewGroupStatus, StudioShellHostessStagingPreviewManifest,
-    StudioShellHostessStagingPreviewStatus, StudioShellReleaseCandidateReviewIndex,
-    StudioShellReleaseCandidateReviewManifest, StudioShellReleaseCandidateReviewReport,
-    StudioShellReleaseCandidateReviewSelectionReport,
+    StudioShellHostessStagingFilePlan, StudioShellHostessStagingFilePlanStatus,
+    StudioShellHostessStagingFileRequestStatus, StudioShellHostessStagingPreviewGroupStatus,
+    StudioShellHostessStagingPreviewManifest, StudioShellHostessStagingPreviewStatus,
+    StudioShellReleaseCandidateReviewIndex, StudioShellReleaseCandidateReviewManifest,
+    StudioShellReleaseCandidateReviewReport, StudioShellReleaseCandidateReviewSelectionReport,
     StudioShellReleaseCandidateReviewSelectionStatus, StudioShellReleaseCandidateReviewStatus,
     StudioShellRunbookReport, StudioShellRunbookStatus, StudioShellTargetKind,
     StudioValidationStatus, StudioViewModel,
@@ -250,6 +251,7 @@ script_mod! {
             shell_hostess_handoff_package_button := ActionButton{text: "Review Hostess Package"}
             shell_hostess_owner_intake_button := ActionButton{text: "Review Hostess Intake"}
             shell_hostess_staging_preview_button := ActionButton{text: "Preview Hostess Staging"}
+            shell_hostess_staging_file_plan_button := ActionButton{text: "Plan Staging Files"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1771,6 +1773,26 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn review_shell_hostess_staging_file_plan(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_hostess_staging_file_plan_for_project_source(&source) {
+            Ok((report, output_path)) => {
+                self.last_shell_bundle_status =
+                    shell_hostess_staging_file_plan_status(&report, &output_path);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -2560,6 +2582,13 @@ impl MatchEvent for App {
             .clicked(actions)
         {
             self.review_shell_hostess_staging_preview(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_staging_file_plan_button))
+            .clicked(actions)
+        {
+            self.review_shell_hostess_staging_file_plan(cx);
         }
         if self
             .ui
@@ -3696,6 +3725,19 @@ fn shell_hostess_staging_preview_for_project_source(
     Ok((report, output_path))
 }
 
+fn shell_hostess_staging_file_plan_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellHostessStagingFilePlan, PathBuf), String> {
+    let preview_path = shell_hostess_staging_preview_output_path(project_path);
+    let preview = load_shell_hostess_staging_preview_manifest(&preview_path)
+        .map_err(|error| format!("Shell Hostess staging preview load failed: {error}"))?;
+    let report = shell_hostess_staging_file_plan_for_preview(&preview, Some(&preview_path));
+    let output_path = shell_hostess_staging_file_plan_output_path(project_path);
+    save_json(&output_path, &report)
+        .map_err(|error| format!("Shell Hostess staging file plan save failed: {error}"))?;
+    Ok((report, output_path))
+}
+
 fn retarget_project_source(
     project_path: &Path,
     model: &StudioViewModel,
@@ -4078,6 +4120,15 @@ fn shell_hostess_staging_preview_output_path(project_path: &Path) -> PathBuf {
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-hostess-staging-preview.json")
+}
+
+fn shell_hostess_staging_file_plan_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-hostess-staging-file-plan.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -6485,6 +6536,95 @@ fn shell_hostess_staging_preview_status(
     )
 }
 
+fn shell_hostess_staging_file_plan_status(
+    report: &StudioShellHostessStagingFilePlan,
+    output_path: &Path,
+) -> String {
+    let status = shell_hostess_staging_file_plan_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let selected = report.selected_candidate_id.as_deref().unwrap_or("none");
+    let preview_path = report.preview_path.as_deref().unwrap_or("unknown");
+    let requests = report
+        .requests
+        .iter()
+        .map(|request| {
+            let request_status = shell_hostess_staging_file_request_status_label(request.status);
+            let issue = request.issue_code.as_deref().unwrap_or("none");
+            let target_kind = request
+                .target_kind
+                .map(shell_target_kind_label)
+                .unwrap_or("shared");
+            let graph = request.graph_id.as_deref().unwrap_or("shared");
+            let routes = if request.route_kinds.is_empty() {
+                "none".to_string()
+            } else {
+                request.route_kinds.join(", ")
+            };
+            format!(
+                "{} [{}] kind {}; target {}; graph {}; files {}; root {}; routes {}; issue {}",
+                request.request_id,
+                request_status,
+                request.request_kind,
+                target_kind,
+                graph,
+                request.planned_file_count,
+                request.destination_root,
+                routes,
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    let prohibited = if report.prohibited_actions.is_empty() {
+        "none".to_string()
+    } else {
+        report.prohibited_actions.join(", ")
+    };
+    let failed_checks = report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .count();
+    format!(
+        "shell Hostess staging file plan {status}; selected {selected}; issue {issue}\n  file plan: {}\n  preview: {}\n  project: {} rev {}\n  preview groups ready {}; blocked {}; source artifacts {}; planned files {}; duplicates {}\n  requests ready {}; blocked {}; target {}; shared {}\n  authority: command {}; host {}; studio {}; policy {}; staging owner {}\n  requests:\n  {}\n  prohibited: {}\n  checks: {}; failed {}",
+        output_path.display(),
+        preview_path,
+        report.project_id.as_deref().unwrap_or("unknown"),
+        report
+            .project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        report.ready_preview_group_count,
+        report.blocked_preview_group_count,
+        report.source_artifact_count,
+        report.planned_file_count,
+        report.duplicate_artifact_count,
+        report.ready_request_count,
+        report.blocked_request_count,
+        report.target_request_count,
+        report.shared_request_count,
+        report
+            .command_session_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report
+            .install_launch_evidence_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report.studio_role.as_deref().unwrap_or("unknown"),
+        report.execution_policy,
+        report.staging_owner,
+        if requests.is_empty() {
+            "none".to_string()
+        } else {
+            requests
+        },
+        prohibited,
+        report.checks.len(),
+        failed_checks
+    )
+}
+
 fn shell_release_candidate_review_manifest_summary_status(
     candidate: &StudioShellReleaseCandidateReviewManifest,
     index: &StudioShellReleaseCandidateReviewIndex,
@@ -6645,6 +6785,25 @@ fn shell_hostess_staging_preview_group_status_label(
     match status {
         StudioShellHostessStagingPreviewGroupStatus::Ready => "ready",
         StudioShellHostessStagingPreviewGroupStatus::Blocked => "blocked",
+    }
+}
+
+fn shell_hostess_staging_file_plan_status_label(
+    status: StudioShellHostessStagingFilePlanStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessStagingFilePlanStatus::Ready => "ready",
+        StudioShellHostessStagingFilePlanStatus::Blocked => "blocked",
+        StudioShellHostessStagingFilePlanStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_hostess_staging_file_request_status_label(
+    status: StudioShellHostessStagingFileRequestStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessStagingFileRequestStatus::Ready => "ready",
+        StudioShellHostessStagingFileRequestStatus::Blocked => "blocked",
     }
 }
 
@@ -9041,6 +9200,63 @@ mod tests {
         assert!(staging_status.contains("route hostess.stage.generated_shells"));
         assert!(staging_status.contains("not_executed.preview_only"));
         assert!(staging_status.contains("groups ready 4; blocked 0"));
+
+        let (file_plan, file_plan_path) =
+            shell_hostess_staging_file_plan_for_project_source(&project_path)
+                .expect("plan shell Hostess staging files");
+        assert!(file_plan_path.is_file());
+        assert_eq!(
+            file_plan.schema_id,
+            "rusty.studio.shell_hostess_staging_file_plan.v1"
+        );
+        assert_eq!(
+            file_plan.status,
+            StudioShellHostessStagingFilePlanStatus::Ready
+        );
+        assert_eq!(file_plan.issue_code, None);
+        assert_eq!(file_plan.execution_policy, "not_executed.dry_run_only");
+        assert_eq!(file_plan.staging_owner, "rusty.hostess");
+        assert_eq!(
+            file_plan.preview_path.as_deref(),
+            Some(staging_path.display().to_string().as_str())
+        );
+        assert_eq!(file_plan.ready_preview_group_count, 4);
+        assert_eq!(file_plan.blocked_preview_group_count, 0);
+        assert_eq!(file_plan.planned_file_count, 8);
+        assert!(file_plan.duplicate_artifact_count > 0);
+        assert_eq!(file_plan.request_count, 2);
+        assert_eq!(file_plan.ready_request_count, 2);
+        assert_eq!(file_plan.blocked_request_count, 0);
+        assert_eq!(file_plan.target_request_count, 1);
+        assert_eq!(file_plan.shared_request_count, 1);
+        assert!(file_plan.requests.iter().any(|request| {
+            request.target_key == "shared"
+                && request.status == StudioShellHostessStagingFileRequestStatus::Ready
+                && request
+                    .planned_files
+                    .iter()
+                    .any(|file| file.artifact_kind == "hostess_owner_intake")
+        }));
+        assert!(file_plan.requests.iter().any(|request| {
+            request.target_kind == Some(StudioShellTargetKind::Desktop)
+                && request.status == StudioShellHostessStagingFileRequestStatus::Ready
+                && request.planned_files.iter().any(|file| {
+                    file.artifact_kind == "shell_template_manifest"
+                        && file
+                            .destination_path
+                            .contains("hostess-staging/targets/desktop")
+                })
+        }));
+        assert!(file_plan
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+
+        let file_plan_status = shell_hostess_staging_file_plan_status(&file_plan, &file_plan_path);
+        assert!(file_plan_status.contains("shell Hostess staging file plan ready"));
+        assert!(file_plan_status.contains("not_executed.dry_run_only"));
+        assert!(file_plan_status.contains("planned files 8"));
+        assert!(file_plan_status.contains("target 1; shared 1"));
     }
 
     #[test]

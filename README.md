@@ -134,6 +134,9 @@ Current scope:
 - write a schema-only Hostess staging preview that groups those downstream
   assignments by Hostess/Manifold route and expected artifacts without staging
   generated shells or executing device work;
+- write a schema-only Hostess staging file plan that deduplicates previewed
+  artifacts into shared and per-target dry-run staging requests with expected
+  destination paths;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -208,6 +211,7 @@ cargo run -p rusty-studio-cli -- shell-release-candidate-review-index-promote --
 cargo run -p rusty-studio-cli -- shell-hostess-handoff-package --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-id synthetic-ready-candidate --output target\studio-shell-handoffs\shell-hostess-handoff-package.json
 cargo run -p rusty-studio-cli -- shell-hostess-owner-intake --package target\studio-shell-handoffs\shell-hostess-handoff-package.json --output target\studio-shell-handoffs\shell-hostess-owner-intake.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-preview --intake target\studio-shell-handoffs\shell-hostess-owner-intake.json --output target\studio-shell-handoffs\shell-hostess-staging-preview.json
+cargo run -p rusty-studio-cli -- shell-hostess-staging-file-plan --preview target\studio-shell-handoffs\shell-hostess-staging-preview.json --output target\studio-shell-handoffs\shell-hostess-staging-file-plan.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -302,3 +306,6 @@ sessions, or collect install/launch/device evidence.
 Hostess staging preview manifests group those assignments by downstream route
 and expected descriptor/template/bundle artifacts, but remain preview-only and
 execute nothing.
+Hostess staging file plans deduplicate those preview artifacts into shared and
+per-target dry-run copy requests with expected destination paths, preserving
+source-route provenance while still leaving actual staging to Hostess.
