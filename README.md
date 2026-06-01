@@ -73,6 +73,8 @@ Current scope:
   future Hostess/Manifold-owned routes;
 - validate shell handoff manifests as downstream intake contracts without
   granting Studio install, launch, command-session, or evidence authority;
+- review shell handoff acceptance checklists from Makepad through the same
+  manifest-to-intake-to-checklist core route used by CLI validation;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -137,4 +139,5 @@ classification report for Hostess/Manifold-owned next steps; it does not install
 launch, open command sessions, or collect device evidence. Shell handoff
 acceptance checklists are also declarative: they enumerate downstream readiness
 checks and explicitly prohibit install, launch, command-session opening, and
-device-evidence collection inside Studio.
+device-evidence collection inside Studio. Makepad can review the same checklist
+in memory; it does not write or execute downstream runtime actions.
