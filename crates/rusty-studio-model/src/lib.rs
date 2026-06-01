@@ -66,6 +66,8 @@ pub const SHELL_HOSTESS_STAGING_PREVIEW_MANIFEST_SCHEMA: &str =
     "rusty.studio.shell_hostess_staging_preview_manifest.v1";
 pub const SHELL_HOSTESS_STAGING_FILE_PLAN_SCHEMA: &str =
     "rusty.studio.shell_hostess_staging_file_plan.v1";
+pub const SHELL_HOSTESS_STAGING_HANDOFF_ENVELOPE_SCHEMA: &str =
+    "rusty.studio.shell_hostess_staging_handoff_envelope.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -1822,6 +1824,101 @@ pub struct StudioShellHostessStagingPlannedFile {
     pub route_hints: Vec<String>,
     pub source_action_ids: Vec<String>,
     pub source_route_kinds: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingHandoffEnvelope {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub source_file_plan_schema: String,
+    pub file_plan_path: Option<String>,
+    pub preview_path: Option<String>,
+    pub intake_path: Option<String>,
+    pub package_path: Option<String>,
+    pub handoff_manifest_path: Option<String>,
+    pub selected_candidate_id: Option<String>,
+    pub envelope_id: String,
+    pub manifest_id: Option<String>,
+    pub project_id: Option<String>,
+    pub project_revision: Option<u64>,
+    pub status: StudioShellHostessStagingHandoffEnvelopeStatus,
+    pub issue_code: Option<String>,
+    pub execution_policy: String,
+    pub handoff_owner: String,
+    pub staging_owner: String,
+    pub command_session_authority: Option<String>,
+    pub install_launch_evidence_authority: Option<String>,
+    pub studio_role: Option<String>,
+    pub planned_file_count: usize,
+    pub request_count: usize,
+    pub ready_request_count: usize,
+    pub blocked_request_count: usize,
+    pub target_request_count: usize,
+    pub shared_request_count: usize,
+    pub instruction_count: usize,
+    pub ready_instruction_count: usize,
+    pub blocked_instruction_count: usize,
+    pub provenance: StudioShellHostessStagingHandoffProvenance,
+    pub request_summaries: Vec<StudioShellHostessStagingHandoffRequestSummary>,
+    pub owner_instructions: Vec<StudioShellHostessStagingHandoffInstruction>,
+    pub prohibited_actions: Vec<String>,
+    pub checks: Vec<StudioValidationCheck>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingHandoffEnvelopeStatus {
+    Ready,
+    Blocked,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingHandoffProvenance {
+    pub checksum_algorithm: String,
+    pub plan_checksum: String,
+    pub source_artifact_kinds: Vec<String>,
+    pub source_action_ids: Vec<String>,
+    pub source_route_kinds: Vec<String>,
+    pub target_keys: Vec<String>,
+    pub destination_roots: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingHandoffRequestSummary {
+    pub request_id: String,
+    pub request_kind: String,
+    pub owner: String,
+    pub status: StudioShellHostessStagingFileRequestStatus,
+    pub target_key: String,
+    pub target_kind: Option<StudioShellTargetKind>,
+    pub graph_id: Option<String>,
+    pub consumer_id: Option<String>,
+    pub destination_root: String,
+    pub planned_file_count: usize,
+    pub route_kinds: Vec<String>,
+    pub action_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingHandoffInstruction {
+    pub instruction_id: String,
+    pub owner: String,
+    pub status: StudioShellHostessStagingHandoffInstructionStatus,
+    pub issue_code: Option<String>,
+    pub instruction_kind: String,
+    pub route_kind: String,
+    pub source: String,
+    pub next_required_action: String,
+    pub prohibited_in_studio: bool,
+    pub expected_input_path: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingHandoffInstructionStatus {
+    Ready,
+    Blocked,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

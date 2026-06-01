@@ -137,6 +137,8 @@ Current scope:
 - write a schema-only Hostess staging file plan that deduplicates previewed
   artifacts into shared and per-target dry-run staging requests with expected
   destination paths;
+- write a schema-only Hostess staging handoff envelope that packages the
+  dry-run file plan with checksum/provenance and external-owner instructions;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -212,6 +214,7 @@ cargo run -p rusty-studio-cli -- shell-hostess-handoff-package --review-index ta
 cargo run -p rusty-studio-cli -- shell-hostess-owner-intake --package target\studio-shell-handoffs\shell-hostess-handoff-package.json --output target\studio-shell-handoffs\shell-hostess-owner-intake.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-preview --intake target\studio-shell-handoffs\shell-hostess-owner-intake.json --output target\studio-shell-handoffs\shell-hostess-staging-preview.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-file-plan --preview target\studio-shell-handoffs\shell-hostess-staging-preview.json --output target\studio-shell-handoffs\shell-hostess-staging-file-plan.json
+cargo run -p rusty-studio-cli -- shell-hostess-staging-handoff --file-plan target\studio-shell-handoffs\shell-hostess-staging-file-plan.json --output target\studio-shell-handoffs\shell-hostess-staging-handoff.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -239,7 +242,12 @@ help a Hostess/Manifold owner inspect what would be staged, but Studio still
 does not stage, install, launch, open command sessions, or collect evidence.
 They can be regenerated from an archived shell handoff manifest so stale or
 damaged descriptor/template files are caught as review blockers while intact
-targets remain visible. Saved export-package comparisons let agents review
+targets remain visible. Hostess staging file plans convert the reviewed
+package into dry-run shared/per-target file-copy requests, and staging handoff
+envelopes add a checksum/provenance summary plus explicit external-owner
+instructions for Hostess and Manifold without copying, staging, installing,
+launching, opening command sessions, or collecting evidence. Saved
+export-package comparisons let agents review
 whether a package review stayed unchanged, improved, regressed, or became
 incomparable without opening raw package JSON. Export-package baseline
 manifests and indexes give those saved reviews named slots, default selection,
@@ -309,3 +317,6 @@ execute nothing.
 Hostess staging file plans deduplicate those preview artifacts into shared and
 per-target dry-run copy requests with expected destination paths, preserving
 source-route provenance while still leaving actual staging to Hostess.
+Hostess staging handoff envelopes wrap that file plan with a checksum,
+provenance summary, and explicit Hostess/Manifold owner instructions while
+preserving the same handoff-only, not-executed boundary.
