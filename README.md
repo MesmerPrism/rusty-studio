@@ -143,7 +143,7 @@ cargo run -p rusty-studio-cli -- shell-handoff-acceptance-snapshot --project exa
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-summary --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-summary.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-baseline --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --baseline-id synthetic-ready --label "Synthetic ready acceptance baseline" --output target\studio-shell-handoffs\shell-handoff-acceptance-baseline.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-baseline-index --baseline-manifest target\studio-shell-handoffs\shell-handoff-acceptance-baseline.json --default-baseline-id synthetic-ready --output target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json
-cargo run -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline-manifest target\studio-shell-handoffs\shell-handoff-acceptance-baseline.json --candidate target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json
+cargo run -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline-index target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json --baseline-id synthetic-ready --candidate target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -172,7 +172,9 @@ operators can confirm what they are comparing before opening the full checklist.
 Acceptance baseline indexes are slot lists over those identity manifests; they
 name the default baseline and summarize readiness across saved baselines without
 becoming a runtime registry or execution authority. Makepad writes and inspects
-the same index when it writes or reviews a baseline.
+the same index when it writes or reviews a baseline. Comparisons can select a
+baseline from the index by id, so multi-baseline revision review stays on the
+same CLI/core path as the JSON artifacts.
 Acceptance comparison reports carry that baseline identity when a baseline
 manifest is supplied, but they remain revision-review artifacts only: they
 compare checklist readiness and issue transitions without granting runtime

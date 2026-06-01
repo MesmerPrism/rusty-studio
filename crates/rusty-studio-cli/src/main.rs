@@ -1,13 +1,16 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rusty_studio_core::{
     add_binding_to_graph, add_module_to_graph, add_next_catalog_module_from_package_to_graph,
-    add_next_catalog_module_to_graph, compare_shell_handoff_acceptance_against_baseline_manifest,
+    add_next_catalog_module_to_graph,
+    compare_shell_handoff_acceptance_against_baseline_index_entry,
+    compare_shell_handoff_acceptance_against_baseline_manifest,
     compare_shell_handoff_acceptance_checklists, desktop_shell_handoff_for_bundle, export_plan,
     load_project, load_shell_artifact_manifest, load_shell_descriptor,
-    load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
-    load_shell_handoff_intake_report, load_shell_handoff_manifest, load_shell_template_index,
-    remove_binding_from_graph, remove_module_from_graph, resolve_project,
-    retarget_graph_host_profile, save_json, save_project, save_shell_bundle,
+    load_shell_handoff_acceptance_baseline_index, load_shell_handoff_acceptance_baseline_manifest,
+    load_shell_handoff_acceptance_checklist, load_shell_handoff_intake_report,
+    load_shell_handoff_manifest, load_shell_template_index, remove_binding_from_graph,
+    remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
+    save_project, save_shell_bundle, select_shell_handoff_acceptance_baseline_index_entry,
     selected_shell_bundle_for_graph, shell_artifacts_for_project, shell_descriptor_artifact_path,
     shell_descriptor_for_graph, shell_handoff_acceptance_baseline_index_for_manifests,
     shell_handoff_acceptance_baseline_manifest_for_checklist,
@@ -331,6 +334,10 @@ struct ShellHandoffAcceptanceComparisonArgs {
     baseline: Option<PathBuf>,
     #[arg(long)]
     baseline_manifest: Option<PathBuf>,
+    #[arg(long)]
+    baseline_index: Option<PathBuf>,
+    #[arg(long)]
+    baseline_id: Option<String>,
     #[arg(long)]
     candidate: PathBuf,
     #[arg(long)]
@@ -772,31 +779,83 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Command::ShellHandoffAcceptanceComparison(args) => {
-            let baseline_manifest = args
-                .baseline_manifest
-                .as_ref()
-                .map(|path| load_shell_handoff_acceptance_baseline_manifest(path))
-                .transpose()?;
-            let baseline_path = baseline_manifest
-                .as_ref()
-                .map(|identity| PathBuf::from(&identity.checklist_path))
-                .or(args.baseline.clone())
+            let candidate = load_shell_handoff_acceptance_checklist(&args.candidate)?;
+            let report = if let Some(baseline_index_path) = args.baseline_index.as_ref() {
+                if args.baseline.is_some() || args.baseline_manifest.is_some() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--baseline-index cannot be combined with --baseline or --baseline-manifest",
+                    )
+                    .into());
+                }
+                let baseline_index =
+                    load_shell_handoff_acceptance_baseline_index(baseline_index_path)?;
+                let baseline_index_entry = select_shell_handoff_acceptance_baseline_index_entry(
+                    &baseline_index,
+                    args.baseline_id.as_deref(),
+                )
                 .ok_or_else(|| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
-                        "--baseline or --baseline-manifest is required",
+                        "--baseline-id was not found in --baseline-index",
                     )
                 })?;
-            let baseline = load_shell_handoff_acceptance_checklist(&baseline_path)?;
-            let candidate = load_shell_handoff_acceptance_checklist(&args.candidate)?;
-            let report = if let Some(baseline_manifest) = baseline_manifest.as_ref() {
-                compare_shell_handoff_acceptance_against_baseline_manifest(
-                    baseline_manifest,
+                let baseline_manifest_path = baseline_index_entry
+                    .baseline_manifest_path
+                    .as_ref()
+                    .map(PathBuf::from)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "selected baseline index entry does not include baseline_manifest_path",
+                        )
+                    })?;
+                let baseline_manifest =
+                    load_shell_handoff_acceptance_baseline_manifest(&baseline_manifest_path)?;
+                let baseline_path = PathBuf::from(&baseline_manifest.checklist_path);
+                let baseline = load_shell_handoff_acceptance_checklist(&baseline_path)?;
+                compare_shell_handoff_acceptance_against_baseline_index_entry(
+                    &baseline_index,
+                    Some(baseline_index_path),
+                    baseline_index_entry,
+                    Some(&baseline_manifest_path),
+                    &baseline_manifest,
                     &baseline,
                     &candidate,
                 )
             } else {
-                compare_shell_handoff_acceptance_checklists(&baseline, &candidate)
+                if args.baseline_id.is_some() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--baseline-id requires --baseline-index",
+                    )
+                    .into());
+                }
+                let baseline_manifest = args
+                    .baseline_manifest
+                    .as_ref()
+                    .map(|path| load_shell_handoff_acceptance_baseline_manifest(path))
+                    .transpose()?;
+                let baseline_path = baseline_manifest
+                    .as_ref()
+                    .map(|identity| PathBuf::from(&identity.checklist_path))
+                    .or(args.baseline.clone())
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "--baseline, --baseline-manifest, or --baseline-index is required",
+                        )
+                    })?;
+                let baseline = load_shell_handoff_acceptance_checklist(&baseline_path)?;
+                if let Some(baseline_manifest) = baseline_manifest.as_ref() {
+                    compare_shell_handoff_acceptance_against_baseline_manifest(
+                        baseline_manifest,
+                        &baseline,
+                        &candidate,
+                    )
+                } else {
+                    compare_shell_handoff_acceptance_checklists(&baseline, &candidate)
+                }
             };
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;

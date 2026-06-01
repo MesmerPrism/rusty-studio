@@ -3,11 +3,12 @@ pub use makepad_widgets;
 use makepad_widgets::*;
 use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
-    add_next_catalog_module_to_graph, compare_shell_handoff_acceptance_against_baseline_manifest,
-    load_project, load_shell_handoff_acceptance_baseline_index,
-    load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
-    remove_binding_from_graph, remove_module_from_graph, retarget_graph_host_profile, save_json,
-    save_project, save_shell_bundle, selected_shell_bundle_for_graph,
+    add_next_catalog_module_to_graph,
+    compare_shell_handoff_acceptance_against_baseline_index_entry, load_project,
+    load_shell_handoff_acceptance_baseline_index, load_shell_handoff_acceptance_baseline_manifest,
+    load_shell_handoff_acceptance_checklist, remove_binding_from_graph, remove_module_from_graph,
+    retarget_graph_host_profile, save_json, save_project, save_shell_bundle,
+    select_shell_handoff_acceptance_baseline_index_entry, selected_shell_bundle_for_graph,
     shell_handoff_acceptance_baseline_index_for_manifests,
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
@@ -2136,14 +2137,32 @@ fn shell_handoff_acceptance_comparison_for_project_source(
     ),
     String,
 > {
-    let baseline_path = shell_handoff_acceptance_baseline_manifest_output_path(project_path);
+    let index_path = shell_handoff_acceptance_baseline_index_output_path(project_path);
+    let index = load_shell_handoff_acceptance_baseline_index(&index_path)
+        .map_err(|error| format!("Baseline acceptance index load failed: {error}"))?;
+    let Some(baseline_index_entry) =
+        select_shell_handoff_acceptance_baseline_index_entry(&index, None)
+    else {
+        return Err("Baseline acceptance index does not contain a selected baseline".to_string());
+    };
+    let baseline_path = baseline_index_entry
+        .baseline_manifest_path
+        .as_ref()
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            "Selected baseline index entry does not include a baseline manifest path".to_string()
+        })?;
     let baseline_identity = load_shell_handoff_acceptance_baseline_manifest(&baseline_path)
         .map_err(|error| format!("Baseline acceptance identity load failed: {error}"))?;
     let checklist_path = PathBuf::from(&baseline_identity.checklist_path);
     let baseline = load_shell_handoff_acceptance_checklist(&checklist_path)
         .map_err(|error| format!("Baseline acceptance checklist load failed: {error}"))?;
     let (candidate, bundle_root) = shell_handoff_acceptance_for_project_source(project_path)?;
-    let report = compare_shell_handoff_acceptance_against_baseline_manifest(
+    let report = compare_shell_handoff_acceptance_against_baseline_index_entry(
+        &index,
+        Some(&index_path),
+        baseline_index_entry,
+        Some(&baseline_path),
         &baseline_identity,
         &baseline,
         &candidate,
@@ -3364,6 +3383,15 @@ fn shell_handoff_acceptance_comparison_status(
         .baseline_checklist_path
         .as_deref()
         .unwrap_or("unknown");
+    let baseline_index_path = report.baseline_index_path.as_deref().unwrap_or("not used");
+    let baseline_index_default = report
+        .baseline_index_default_baseline_id
+        .as_deref()
+        .unwrap_or("none");
+    let baseline_index_selected = report
+        .baseline_index_selected_baseline_id
+        .as_deref()
+        .unwrap_or("none");
     let failed_checks = report
         .checks
         .iter()
@@ -3402,7 +3430,7 @@ fn shell_handoff_acceptance_comparison_status(
         .join("\n  ");
 
     format!(
-        "handoff acceptance comparison {status}; ready {}->{}, delta {}; blocked {}->{}, delta {}; rejected {}->{}, delta {}; issue {issue}\n  baseline: {} ({})\n  baseline source: {} rev {}; manifest {}\n  candidate: {} rev {}; manifest {}\n  baseline identity: {}\n  baseline checklist: {}\n  current root: {}\n  checks: {}; failed {}\n  entries:\n  {}",
+        "handoff acceptance comparison {status}; ready {}->{}, delta {}; blocked {}->{}, delta {}; rejected {}->{}, delta {}; issue {issue}\n  baseline: {} ({})\n  baseline source: {} rev {}; manifest {}\n  candidate: {} rev {}; manifest {}\n  baseline identity: {}\n  baseline checklist: {}\n  baseline index: {}; default {}; selected {}\n  current root: {}\n  checks: {}; failed {}\n  entries:\n  {}",
         report.baseline_ready_count,
         report.candidate_ready_count,
         report.ready_delta,
@@ -3422,6 +3450,9 @@ fn shell_handoff_acceptance_comparison_status(
         report.candidate_manifest_id,
         baseline_path.display(),
         baseline_checklist,
+        baseline_index_path,
+        baseline_index_default,
+        baseline_index_selected,
         bundle_root.display(),
         report.checks.len(),
         failed_checks,
@@ -4607,7 +4638,7 @@ mod tests {
             .expect("load view model");
         export_shell_bundle_for_project_source(&project_path, &model, 0)
             .expect("export selected shell bundle");
-        let (_, saved_baseline, _, checklist_path, baseline_path, _, _) =
+        let (_, saved_baseline, _, checklist_path, baseline_path, index_path, _) =
             write_shell_handoff_acceptance_baseline_for_project_source(&project_path)
                 .expect("write baseline checklist");
 
@@ -4634,6 +4665,22 @@ mod tests {
             Some(checklist_path_text.as_str())
         );
         assert_eq!(
+            comparison.baseline_index_schema.as_deref(),
+            Some("rusty.studio.shell_handoff_acceptance_baseline_index.v1")
+        );
+        assert_eq!(
+            comparison.baseline_index_path.as_deref(),
+            Some(index_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            comparison.baseline_index_default_baseline_id.as_deref(),
+            Some(saved_baseline.baseline_id.as_str())
+        );
+        assert_eq!(
+            comparison.baseline_index_selected_baseline_id.as_deref(),
+            Some(saved_baseline.baseline_id.as_str())
+        );
+        assert_eq!(
             comparison.status,
             StudioShellHandoffAcceptanceComparisonStatus::Unchanged
         );
@@ -4652,6 +4699,9 @@ mod tests {
         assert!(status.contains("baseline source: studio.project.makepad_edit rev 1"));
         assert!(status.contains("candidate: studio.project.makepad_edit rev 1"));
         assert!(status.contains("manifest studio.shell_handoffs.studio.project.makepad_edit"));
+        assert!(status.contains(&format!("baseline index: {}", index_path.display())));
+        assert!(status.contains("default studio.project.makepad_edit.rev1.ready"));
+        assert!(status.contains("selected studio.project.makepad_edit.rev1.ready"));
         assert!(status.contains("ready 1->1, delta 0"));
         assert!(status.contains("change unchanged"));
         assert!(status.contains("studio.graph.makepad_edit [desktop]"));
@@ -4667,7 +4717,7 @@ mod tests {
             .expect("load view model");
         export_shell_bundle_for_project_source(&project_path, &model, 0)
             .expect("export selected shell bundle");
-        let (_, _, _, _, baseline_path, _, _) =
+        let (_, _, _, _, baseline_path, index_path, _) =
             write_shell_handoff_acceptance_baseline_for_project_source(&project_path)
                 .expect("write baseline checklist");
         std::fs::remove_dir_all(selected_shell_bundle_root_dir(&project_path))
@@ -4689,6 +4739,10 @@ mod tests {
         assert_eq!(comparison.blocked_delta, 1);
         assert_eq!(comparison.rejected_delta, 0);
         assert_eq!(
+            comparison.baseline_index_path.as_deref(),
+            Some(index_path.display().to_string().as_str())
+        );
+        assert_eq!(
             comparison.entries[0].change,
             StudioShellHandoffAcceptanceComparisonChange::Regressed
         );
@@ -4696,6 +4750,7 @@ mod tests {
             shell_handoff_acceptance_comparison_status(&comparison, &baseline_path, &bundle_root);
         assert!(status.contains("handoff acceptance comparison regressed"));
         assert!(status.contains("baseline: studio.project.makepad_edit.rev1.ready"));
+        assert!(status.contains(&format!("baseline index: {}", index_path.display())));
         assert!(status.contains("ready 1->0, delta -1"));
         assert!(status.contains("blocked 0->1, delta 1"));
         assert!(status.contains("issue studio.issue.shell_bundle_file_missing"));
