@@ -7,7 +7,8 @@ use rusty_studio_model::{
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
-    StudioShellDescriptorValidationReport, StudioShellHandoffKind,
+    StudioShellDescriptorValidationReport, StudioShellHandoffKind, StudioShellHandoffManifest,
+    StudioShellHandoffManifestEntry, StudioShellHandoffManifestTarget,
     StudioShellHandoffReadinessEntry, StudioShellHandoffReadinessReport,
     StudioShellHandoffReadinessTargetSummary, StudioShellHandoffReport, StudioShellHostProfile,
     StudioShellHostRoutes, StudioShellRuntimeAuthority, StudioShellTargetKind,
@@ -19,10 +20,11 @@ use rusty_studio_model::{
     SHELL_ARTIFACT_MANIFEST_SCHEMA, SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA,
     SHELL_ARTIFACT_REPORT_SCHEMA, SHELL_BUNDLE_REPORT_SCHEMA,
     SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
-    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
-    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
-    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
-    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
+    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
+    SHELL_HANDOFF_READINESS_REPORT_SCHEMA, SHELL_HANDOFF_REPORT_SCHEMA,
+    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
+    VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -2875,6 +2877,15 @@ pub fn shell_handoff_readiness_for_project(
     }
 }
 
+pub fn shell_handoff_manifest_for_project(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    bundle_root: &Path,
+) -> StudioShellHandoffManifest {
+    let readiness = shell_handoff_readiness_for_project(project, base_dir, bundle_root);
+    shell_handoff_manifest_from_readiness(&readiness)
+}
+
 pub fn validate_shell_template_index(
     index: &StudioShellTemplateIndex,
     base_dir: Option<&Path>,
@@ -4289,11 +4300,7 @@ fn shell_template_for_artifact(artifact: &StudioShellArtifact) -> StudioShellTem
         host_profile_class: artifact.host_profile_class.clone(),
         source_descriptor_path: artifact.descriptor_path.clone(),
         descriptor_path: shell_template_descriptor_path(&artifact.graph_id),
-        runtime_authority: StudioShellRuntimeAuthority {
-            command_session_authority: "rusty.manifold".to_string(),
-            install_launch_evidence_authority: "rusty.hostess".to_string(),
-            studio_role: "authoring.export_planning".to_string(),
-        },
+        runtime_authority: shell_runtime_authority(),
         host_routes: StudioShellHostRoutes {
             app_id: artifact.app_id.clone(),
             install_route: artifact.install_route.clone(),
@@ -4320,6 +4327,18 @@ fn shell_template_index_entry(artifact: &StudioShellArtifact) -> StudioShellTemp
 
 fn shell_template_id(graph_id: &str) -> String {
     format!("studio.shell_template.{graph_id}")
+}
+
+fn shell_handoff_manifest_id(project_id: &str) -> String {
+    format!("studio.shell_handoffs.{project_id}")
+}
+
+fn shell_runtime_authority() -> StudioShellRuntimeAuthority {
+    StudioShellRuntimeAuthority {
+        command_session_authority: "rusty.manifold".to_string(),
+        install_launch_evidence_authority: "rusty.hostess".to_string(),
+        studio_role: "authoring.export_planning".to_string(),
+    }
 }
 
 fn shell_template_report(
@@ -4590,6 +4609,84 @@ fn shell_handoff_readiness_target_summary(
         missing_bundle_dirs,
         template_index_paths,
     })
+}
+
+fn shell_handoff_manifest_from_readiness(
+    readiness: &StudioShellHandoffReadinessReport,
+) -> StudioShellHandoffManifest {
+    StudioShellHandoffManifest {
+        schema_id: SHELL_HANDOFF_MANIFEST_SCHEMA.to_string(),
+        manifest_id: shell_handoff_manifest_id(&readiness.project_id),
+        project_id: readiness.project_id.clone(),
+        project_revision: readiness.revision,
+        source_readiness_schema: readiness.schema_id.to_string(),
+        bundle_root: readiness.bundle_root.clone(),
+        status: readiness.status,
+        graph_count: readiness.graph_count,
+        ready_count: readiness.ready_count,
+        failed_count: readiness.failed_count,
+        missing_bundle_count: readiness.missing_bundle_count,
+        runtime_authority: shell_runtime_authority(),
+        targets: readiness
+            .target_summaries
+            .iter()
+            .map(shell_handoff_manifest_target)
+            .collect(),
+        handoffs: readiness
+            .entries
+            .iter()
+            .map(shell_handoff_manifest_entry)
+            .collect(),
+    }
+}
+
+fn shell_handoff_manifest_target(
+    summary: &StudioShellHandoffReadinessTargetSummary,
+) -> StudioShellHandoffManifestTarget {
+    StudioShellHandoffManifestTarget {
+        target_kind: summary.target_kind,
+        graph_count: summary.graph_count,
+        ready_count: summary.ready_count,
+        failed_count: summary.failed_count,
+        missing_bundle_count: summary.missing_bundle_count,
+        package_count: summary.package_count,
+        module_count: summary.module_count,
+        operator_shell_count: summary.operator_shell_count,
+        graph_ids: summary.graph_ids.clone(),
+        consumer_ids: summary.consumer_ids.clone(),
+        issue_codes: summary.issue_codes.clone(),
+        bundle_dirs: summary.bundle_dirs.clone(),
+        ready_bundle_dirs: summary.ready_bundle_dirs.clone(),
+        failed_bundle_dirs: summary.failed_bundle_dirs.clone(),
+        missing_bundle_dirs: summary.missing_bundle_dirs.clone(),
+        template_index_paths: summary.template_index_paths.clone(),
+    }
+}
+
+fn shell_handoff_manifest_entry(
+    entry: &StudioShellHandoffReadinessEntry,
+) -> StudioShellHandoffManifestEntry {
+    StudioShellHandoffManifestEntry {
+        export_bundle_id: entry.export_bundle_id.clone(),
+        graph_id: entry.graph_id.clone(),
+        display_name: entry.display_name.clone(),
+        target_host_profile: entry.target_host_profile.clone(),
+        target_kind: entry.target_kind,
+        status: entry.status,
+        issue_code: entry.issue_code.clone(),
+        message: entry.message.clone(),
+        handoff_kind: entry.handoff_kind,
+        consumer_id: entry.consumer_id.clone(),
+        bundle_dir: entry.bundle_dir.clone(),
+        template_index_path: entry.template_index_path.clone(),
+        consumer_args: entry.consumer_args.clone(),
+        runtime_authority: entry.runtime_authority.clone(),
+        package_ids: entry.package_ids.clone(),
+        module_ids: entry.module_ids.clone(),
+        operator_shell_ids: entry.operator_shell_ids.clone(),
+        validation_status: entry.validation_status,
+        failed_check_count: entry.failed_check_count,
+    }
 }
 
 fn shell_handoff_kind_for_target(target_kind: StudioShellTargetKind) -> StudioShellHandoffKind {
@@ -6093,8 +6190,8 @@ mod tests {
         StudioEditOperation, StudioEditStatus, StudioGraphLayout, StudioNode, StudioNodeKind,
         StudioNodeLayout, StudioShellArtifactStatus, StudioShellBundleStatus,
         StudioShellDescriptorStatus, StudioShellHandoffKind, StudioShellTargetKind,
-        StudioShellTemplateStatus, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
-        SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+        StudioShellTemplateStatus, SHELL_HANDOFF_MANIFEST_SCHEMA,
+        SHELL_HANDOFF_READINESS_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
     };
 
     fn valid_project() -> StudioProject {
@@ -7190,6 +7287,116 @@ mod tests {
                 && entry.module_count == 1
                 && entry.operator_shell_count == 1
                 && entry.failed_check_count > 0
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_manifest_archives_readiness_paths() {
+        let root = temp_root("shell-handoff-manifest");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+
+        assert_eq!(manifest.schema_id, SHELL_HANDOFF_MANIFEST_SCHEMA);
+        assert_eq!(
+            manifest.manifest_id,
+            "studio.shell_handoffs.studio.project.test"
+        );
+        assert_eq!(
+            manifest.source_readiness_schema,
+            SHELL_HANDOFF_READINESS_REPORT_SCHEMA
+        );
+        assert_eq!(manifest.status, StudioValidationStatus::Pass);
+        assert_eq!(manifest.graph_count, 3);
+        assert_eq!(manifest.ready_count, 3);
+        assert_eq!(manifest.failed_count, 0);
+        assert_eq!(manifest.missing_bundle_count, 0);
+        assert_eq!(manifest.targets.len(), 3);
+        assert_eq!(manifest.handoffs.len(), 3);
+        assert_eq!(
+            manifest.runtime_authority.command_session_authority,
+            "rusty.manifold"
+        );
+        assert_eq!(
+            manifest.runtime_authority.install_launch_evidence_authority,
+            "rusty.hostess"
+        );
+        assert_eq!(
+            manifest.runtime_authority.studio_role,
+            "authoring.export_planning"
+        );
+        for target_kind in [
+            StudioShellTargetKind::Desktop,
+            StudioShellTargetKind::Phone,
+            StudioShellTargetKind::Quest,
+        ] {
+            let target = manifest
+                .targets
+                .iter()
+                .find(|target| target.target_kind == target_kind)
+                .expect("target manifest row");
+            assert_eq!(target.graph_count, 1);
+            assert_eq!(target.ready_count, 1);
+            assert_eq!(target.failed_count, 0);
+            assert_eq!(target.missing_bundle_count, 0);
+            assert_eq!(target.bundle_dirs.len(), 1);
+            assert_eq!(target.ready_bundle_dirs.len(), 1);
+            assert!(target.failed_bundle_dirs.is_empty());
+            assert!(target.missing_bundle_dirs.is_empty());
+            assert_eq!(target.template_index_paths.len(), 1);
+            assert!(target.template_index_paths[0].ends_with("shell-templates.json"));
+        }
+        assert!(manifest.handoffs.iter().all(|handoff| {
+            handoff.status == StudioValidationStatus::Pass
+                && handoff.validation_status == StudioValidationStatus::Pass
+                && handoff.failed_check_count == 0
+                && handoff.consumer_args.iter().any(|arg| arg == "--templates")
+                && handoff
+                    .template_index_path
+                    .ends_with("shell-templates.json")
+                && handoff.runtime_authority.is_some()
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_manifest_archives_missing_bundle_paths() {
+        let root = temp_root("shell-handoff-manifest-missing");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("missing-selected-shells");
+
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+
+        assert_eq!(manifest.schema_id, SHELL_HANDOFF_MANIFEST_SCHEMA);
+        assert_eq!(manifest.status, StudioValidationStatus::Fail);
+        assert_eq!(manifest.graph_count, 3);
+        assert_eq!(manifest.ready_count, 0);
+        assert_eq!(manifest.failed_count, 3);
+        assert_eq!(manifest.missing_bundle_count, 3);
+        assert_eq!(manifest.targets.len(), 3);
+        assert_eq!(manifest.handoffs.len(), 3);
+        assert!(manifest.targets.iter().all(|target| {
+            target.ready_bundle_dirs.is_empty()
+                && target.failed_bundle_dirs.len() == 1
+                && target.missing_bundle_dirs.len() == 1
+                && target
+                    .issue_codes
+                    .iter()
+                    .any(|issue| issue == "studio.issue.shell_bundle_file_missing")
+                && target.template_index_paths[0].ends_with("shell-templates.json")
+        }));
+        assert!(manifest.handoffs.iter().all(|handoff| {
+            handoff.status == StudioValidationStatus::Fail
+                && handoff.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
+                && handoff.runtime_authority.is_none()
+                && handoff.failed_check_count > 0
         }));
     }
 

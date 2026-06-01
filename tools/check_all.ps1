@@ -31,11 +31,12 @@ try {
     $ShellArtifactsDir = Join-Path $RepoRoot "target\studio-shells"
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
     $SelectedShellBundleRoot = Join-Path $RepoRoot "target\studio-selected-shell"
+    $ShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs.json"
     $SelectedShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_desktop"
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -1355,6 +1356,103 @@ try {
         }
         if (@($Entry.operator_shell_ids).Count -ne 1 -or @($Entry.operator_shell_ids)[0] -ne $RequiredReadiness.Shell) {
             throw "shell handoff readiness operator shell ids mismatch for $($RequiredReadiness.Graph)"
+        }
+    }
+    $HandoffManifestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-manifest --project "examples\synthetic-studio-project.json" --bundle-root $SelectedShellBundleRoot --output $ShellHandoffManifestPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell handoff manifest failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellHandoffManifestPath)) {
+        throw "shell handoff manifest was not written"
+    }
+    $HandoffManifest = ($HandoffManifestOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenHandoffManifest = Get-Content -Raw $ShellHandoffManifestPath | ConvertFrom-Json
+    foreach ($ManifestView in @($HandoffManifest, $WrittenHandoffManifest)) {
+        if ($ManifestView.'$schema' -ne "rusty.studio.shell_handoff_manifest.v1") {
+            throw "shell handoff manifest schema mismatch"
+        }
+        if ($ManifestView.source_readiness_schema -ne "rusty.studio.shell_handoff_readiness_report.v1") {
+            throw "shell handoff manifest source schema mismatch"
+        }
+        if ($ManifestView.status -ne "pass") {
+            throw "shell handoff manifest did not pass"
+        }
+        if ($ManifestView.graph_count -ne 3) {
+            throw "shell handoff manifest graph count mismatch"
+        }
+        if ($ManifestView.ready_count -ne 3) {
+            throw "shell handoff manifest ready count mismatch"
+        }
+        if ($ManifestView.failed_count -ne 0) {
+            throw "shell handoff manifest failed count mismatch"
+        }
+        if ($ManifestView.missing_bundle_count -ne 0) {
+            throw "shell handoff manifest missing bundle count mismatch"
+        }
+        if (@($ManifestView.targets).Count -ne 3) {
+            throw "shell handoff manifest target count mismatch"
+        }
+        if (@($ManifestView.handoffs).Count -ne 3) {
+            throw "shell handoff manifest handoff count mismatch"
+        }
+        if ($ManifestView.runtime_authority.command_session_authority -ne "rusty.manifold") {
+            throw "shell handoff manifest command/session authority mismatch"
+        }
+        if ($ManifestView.runtime_authority.install_launch_evidence_authority -ne "rusty.hostess") {
+            throw "shell handoff manifest install/launch/evidence authority mismatch"
+        }
+        if ($ManifestView.runtime_authority.studio_role -ne "authoring.export_planning") {
+            throw "shell handoff manifest Studio role mismatch"
+        }
+        foreach ($RequiredReadiness in @(
+            @{ Graph = "studio.graph.synthetic_wave_desktop"; HandoffKind = "desktop_shell"; Consumer = "rusty-studio-desktop-shell"; TargetKind = "desktop"; TargetProfile = "host_run.profile.desktop"; Shell = "shell.synthetic_wave.desktop_operator" },
+            @{ Graph = "studio.graph.synthetic_wave_phone"; HandoffKind = "phone_shell"; Consumer = "rusty-studio-phone-shell"; TargetKind = "phone"; TargetProfile = "host_run.profile.mobile"; Shell = "shell.synthetic_wave.phone_operator" },
+            @{ Graph = "studio.graph.synthetic_wave_headset"; HandoffKind = "quest_shell"; Consumer = "rusty-studio-quest-shell"; TargetKind = "quest"; TargetProfile = "host_run.profile.headset"; Shell = "shell.synthetic_wave.quest_operator" }
+        )) {
+            $ManifestTarget = @($ManifestView.targets | Where-Object { $_.target_kind -eq $RequiredReadiness.TargetKind }) | Select-Object -First 1
+            if ($null -eq $ManifestTarget) {
+                throw "shell handoff manifest missing target $($RequiredReadiness.TargetKind)"
+            }
+            if ($ManifestTarget.ready_count -ne 1 -or $ManifestTarget.graph_count -ne 1 -or $ManifestTarget.failed_count -ne 0 -or $ManifestTarget.missing_bundle_count -ne 0) {
+                throw "shell handoff manifest target counts mismatch for $($RequiredReadiness.TargetKind)"
+            }
+            if (@($ManifestTarget.ready_bundle_dirs).Count -ne 1 -or -not (@($ManifestTarget.ready_bundle_dirs)[0] -like "*$($RequiredReadiness.Graph)")) {
+                throw "shell handoff manifest target ready path mismatch for $($RequiredReadiness.TargetKind)"
+            }
+            if (@($ManifestTarget.template_index_paths).Count -ne 1 -or -not (@($ManifestTarget.template_index_paths)[0] -like "*$($RequiredReadiness.Graph)*shell-templates.json")) {
+                throw "shell handoff manifest target template path mismatch for $($RequiredReadiness.TargetKind)"
+            }
+            $ManifestHandoff = @($ManifestView.handoffs | Where-Object { $_.graph_id -eq $RequiredReadiness.Graph }) | Select-Object -First 1
+            if ($null -eq $ManifestHandoff) {
+                throw "shell handoff manifest missing graph $($RequiredReadiness.Graph)"
+            }
+            if ($ManifestHandoff.status -ne "pass" -or $ManifestHandoff.validation_status -ne "pass" -or $ManifestHandoff.failed_check_count -ne 0) {
+                throw "shell handoff manifest handoff status mismatch for $($RequiredReadiness.Graph)"
+            }
+            if ($ManifestHandoff.handoff_kind -ne $RequiredReadiness.HandoffKind -or $ManifestHandoff.consumer_id -ne $RequiredReadiness.Consumer -or $ManifestHandoff.target_kind -ne $RequiredReadiness.TargetKind) {
+                throw "shell handoff manifest handoff route mismatch for $($RequiredReadiness.Graph)"
+            }
+            if ($ManifestHandoff.target_host_profile -ne $RequiredReadiness.TargetProfile) {
+                throw "shell handoff manifest target profile mismatch for $($RequiredReadiness.Graph)"
+            }
+            if (@($ManifestHandoff.consumer_args) -notcontains "--templates") {
+                throw "shell handoff manifest consumer args missing --templates for $($RequiredReadiness.Graph)"
+            }
+            if (-not ($ManifestHandoff.template_index_path -like "*$($RequiredReadiness.Graph)*shell-templates.json")) {
+                throw "shell handoff manifest template index path mismatch for $($RequiredReadiness.Graph)"
+            }
+            if ($ManifestHandoff.runtime_authority.command_session_authority -ne "rusty.manifold") {
+                throw "shell handoff manifest handoff command/session authority mismatch for $($RequiredReadiness.Graph)"
+            }
+            if ($ManifestHandoff.runtime_authority.install_launch_evidence_authority -ne "rusty.hostess") {
+                throw "shell handoff manifest handoff install/launch/evidence authority mismatch for $($RequiredReadiness.Graph)"
+            }
+            if ($ManifestHandoff.runtime_authority.studio_role -ne "authoring.export_planning") {
+                throw "shell handoff manifest handoff Studio role mismatch for $($RequiredReadiness.Graph)"
+            }
+            if (@($ManifestHandoff.operator_shell_ids).Count -ne 1 -or @($ManifestHandoff.operator_shell_ids)[0] -ne $RequiredReadiness.Shell) {
+                throw "shell handoff manifest operator shell ids mismatch for $($RequiredReadiness.Graph)"
+            }
         }
     }
 } finally {

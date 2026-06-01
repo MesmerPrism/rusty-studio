@@ -4,15 +4,16 @@ use makepad_widgets::*;
 use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
     add_next_catalog_module_to_graph, load_project, remove_binding_from_graph,
-    remove_module_from_graph, retarget_graph_host_profile, save_project, save_shell_bundle,
-    selected_shell_bundle_for_graph, shell_handoff_for_bundle, shell_handoff_readiness_for_project,
+    remove_module_from_graph, retarget_graph_host_profile, save_json, save_project,
+    save_shell_bundle, selected_shell_bundle_for_graph, shell_handoff_for_bundle,
+    shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
     validate_selected_shell_bundle, view_model_for_graph, view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
-    StudioShellDescriptorStatus, StudioShellHandoffReadinessReport, StudioShellHandoffReport,
-    StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
+    StudioShellDescriptorStatus, StudioShellHandoffManifest, StudioShellHandoffReadinessReport,
+    StudioShellHandoffReport, StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
 };
 use std::path::{Path, PathBuf};
 
@@ -177,6 +178,7 @@ script_mod! {
             verify_shell_bundle_button := ActionButton{text: "Verify Preview Files"}
             shell_handoff_button := ActionButton{text: "Prepare Operator Shell"}
             shell_readiness_button := ActionButton{text: "Inspect All Handoffs"}
+            shell_manifest_button := ActionButton{text: "Write Handoff Manifest"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1101,6 +1103,26 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn write_shell_handoff_manifest(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match write_shell_handoff_manifest_for_project_source(&source) {
+            Ok((manifest, output_path)) => {
+                self.last_shell_bundle_status =
+                    shell_handoff_manifest_status(&manifest, &output_path);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -1718,6 +1740,13 @@ impl MatchEvent for App {
         }
         if self
             .ui
+            .button(cx, ids!(shell_manifest_button))
+            .clicked(actions)
+        {
+            self.write_shell_handoff_manifest(cx);
+        }
+        if self
+            .ui
             .button(cx, ids!(remove_selected_module_button))
             .clicked(actions)
         {
@@ -1862,6 +1891,20 @@ fn shell_handoff_readiness_for_project_source(
     let bundle_root = selected_shell_bundle_root_dir(project_path);
     let report = shell_handoff_readiness_for_project(&project, project_path.parent(), &bundle_root);
     Ok((report, bundle_root))
+}
+
+fn write_shell_handoff_manifest_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellHandoffManifest, PathBuf), String> {
+    let project =
+        load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
+    let bundle_root = selected_shell_bundle_root_dir(project_path);
+    let manifest =
+        shell_handoff_manifest_for_project(&project, project_path.parent(), &bundle_root);
+    let output_path = shell_handoff_manifest_output_path(project_path);
+    save_json(&output_path, &manifest)
+        .map_err(|error| format!("Shell handoff manifest save failed: {error}"))?;
+    Ok((manifest, output_path))
 }
 
 fn retarget_project_source(
@@ -2054,6 +2097,15 @@ fn selected_shell_bundle_root_dir(project_path: &Path) -> PathBuf {
 
 fn selected_shell_bundle_output_dir(project_path: &Path, graph_id: &str) -> PathBuf {
     selected_shell_bundle_root_dir(project_path).join(graph_id)
+}
+
+fn shell_handoff_manifest_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-handoffs.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -2735,6 +2787,57 @@ fn shell_handoff_readiness_status(
             "none".to_string()
         } else {
             rows
+        }
+    )
+}
+
+fn shell_handoff_manifest_status(
+    manifest: &StudioShellHandoffManifest,
+    output_path: &Path,
+) -> String {
+    let status = validation_status_label(manifest.status);
+    let target_rows = manifest
+        .targets
+        .iter()
+        .map(|target| {
+            let ready_path = target
+                .ready_bundle_dirs
+                .first()
+                .map(|path| format!("; ready {path}"))
+                .unwrap_or_default();
+            let missing_path = target
+                .missing_bundle_dirs
+                .first()
+                .map(|path| format!("; missing {path}"))
+                .unwrap_or_default();
+            format!(
+                "{}: ready {}/{}; failed {}; missing {}; templates {}{}{}",
+                shell_target_kind_label(target.target_kind),
+                target.ready_count,
+                target.graph_count,
+                target.failed_count,
+                target.missing_bundle_count,
+                target.template_index_paths.len(),
+                ready_path,
+                missing_path
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    format!(
+        "handoff manifest {status}; ready {}/{}; failed {}; missing {}\n  path: {}\n  authority: {} / {} / {}\n  targets:\n  {}",
+        manifest.ready_count,
+        manifest.graph_count,
+        manifest.failed_count,
+        manifest.missing_bundle_count,
+        output_path.display(),
+        manifest.runtime_authority.command_session_authority,
+        manifest.runtime_authority.install_launch_evidence_authority,
+        manifest.runtime_authority.studio_role,
+        if target_rows.is_empty() {
+            "none".to_string()
+        } else {
+            target_rows
         }
     )
 }
@@ -3541,6 +3644,47 @@ mod tests {
         assert!(status.contains("studio.graph.makepad_edit [desktop]"));
         assert!(status.contains("profile host_run.profile.desktop"));
         assert!(status.contains("packages 1; modules 0; shell 1"));
+    }
+
+    #[test]
+    fn shell_handoff_manifest_writes_durable_artifact() {
+        let root = temp_root("shell-handoff-manifest");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+
+        let (manifest, output_path) =
+            write_shell_handoff_manifest_for_project_source(&project_path)
+                .expect("write handoff manifest");
+
+        assert!(output_path.is_file());
+        assert_eq!(manifest.schema_id, "rusty.studio.shell_handoff_manifest.v1");
+        assert_eq!(manifest.status, StudioValidationStatus::Pass);
+        assert_eq!(manifest.graph_count, 1);
+        assert_eq!(manifest.ready_count, 1);
+        assert_eq!(manifest.failed_count, 0);
+        assert_eq!(manifest.missing_bundle_count, 0);
+        assert_eq!(manifest.targets.len(), 1);
+        assert_eq!(manifest.handoffs.len(), 1);
+        assert_eq!(
+            manifest.handoffs[0].consumer_id,
+            "rusty-studio-desktop-shell"
+        );
+        assert!(manifest.handoffs[0]
+            .template_index_path
+            .ends_with("shell-templates.json"));
+        let written = std::fs::read_to_string(&output_path).expect("read handoff manifest");
+        assert!(written.contains("\"$schema\": \"rusty.studio.shell_handoff_manifest.v1\""));
+        let status = shell_handoff_manifest_status(&manifest, &output_path);
+        assert!(status.contains("handoff manifest pass"));
+        assert!(status.contains("ready 1/1"));
+        assert!(status.contains("failed 0; missing 0"));
+        assert!(status.contains("rusty.manifold / rusty.hostess / authoring.export_planning"));
+        assert!(status.contains("desktop: ready 1/1; failed 0; missing 0"));
     }
 
     #[test]
