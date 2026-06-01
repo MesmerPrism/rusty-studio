@@ -4,7 +4,7 @@ use makepad_widgets::*;
 use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_to_graph, load_project,
     remove_binding_from_graph, remove_module_from_graph, retarget_graph_host_profile, save_project,
-    view_model_for_graph, view_model_for_graph_issue_and_node,
+    view_model_for_graph, view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView, StudioValidationStatus,
@@ -173,10 +173,14 @@ script_mod! {
         SectionTitle{text: "Inspector"}
         ButtonRow{
             next_node_button := ActionButton{text: "Next Node"}
+            next_edge_button := ActionButton{text: "Next Edge"}
         }
         Row{FieldLabel{text: "selected node"} selected_node := FieldValue{text: ""}}
         Row{FieldLabel{text: "selected ref"} selected_reference := SmallValue{text: ""}}
         Row{FieldLabel{text: "details"} selected_node_details := SmallValue{text: ""}}
+        Rule{}
+        Row{FieldLabel{text: "selected edge"} selected_edge := FieldValue{text: ""}}
+        Row{FieldLabel{text: "edge details"} selected_edge_details := SmallValue{text: ""}}
         Row{FieldLabel{text: "issue focus"} focused_issue := SmallValue{text: ""}}
         Row{FieldLabel{text: "authority"} authority_note := SmallValue{text: ""}}
     }
@@ -255,6 +259,8 @@ pub struct App {
     #[rust]
     selected_node_id: Option<String>,
     #[rust]
+    selected_edge_id: Option<String>,
+    #[rust]
     last_edit_report: Option<StudioEditReport>,
     #[rust]
     last_edit_save_issue: String,
@@ -266,6 +272,7 @@ impl App {
             initial_graph_id_from_args().as_deref(),
             initial_issue_check_id_from_args().as_deref(),
             initial_node_id_from_args().as_deref(),
+            initial_edge_id_from_args().as_deref(),
         ) {
             Ok((source, model)) => self.set_model(cx, source, model),
             Err(error) => self.sync_error(cx, &error),
@@ -276,6 +283,7 @@ impl App {
         self.selected_graph_index = model.selected_graph_index.unwrap_or(0);
         self.selected_issue_check_id = model.selected_issue_check_id.clone();
         self.selected_node_id = model.selected_node_id.clone();
+        self.selected_edge_id = model.selected_edge_id.clone();
         self.project_source = Some(source);
         self.model = Some(model);
         self.sync_loaded_model(cx);
@@ -381,6 +389,12 @@ impl App {
         self.ui
             .label(cx, ids!(selected_node_details))
             .set_text(cx, &selected_node_detail_lines(model));
+        self.ui
+            .label(cx, ids!(selected_edge))
+            .set_text(cx, &selected_edge_line(model));
+        self.ui
+            .label(cx, ids!(selected_edge_details))
+            .set_text(cx, &selected_edge_detail_lines(model));
     }
 
     fn retarget_selected_graph(&mut self, cx: &mut Cx, target_host_profile: &str) {
@@ -639,6 +653,10 @@ impl App {
         self.ui
             .label(cx, ids!(selected_node_details))
             .set_text(cx, "");
+        self.ui.label(cx, ids!(selected_edge)).set_text(cx, "");
+        self.ui
+            .label(cx, ids!(selected_edge_details))
+            .set_text(cx, "");
         self.ui.label(cx, ids!(focused_issue)).set_text(cx, "");
     }
 
@@ -669,11 +687,12 @@ impl App {
         else {
             return;
         };
-        match load_studio_view_model_for_path(&source, Some(&graph_id), None, None) {
+        match load_studio_view_model_for_path(&source, Some(&graph_id), None, None, None) {
             Ok(model) => {
                 self.selected_graph_index = model.selected_graph_index.unwrap_or(graph_index);
                 self.selected_issue_check_id = model.selected_issue_check_id.clone();
                 self.selected_node_id = model.selected_node_id.clone();
+                self.selected_edge_id = model.selected_edge_id.clone();
                 self.model = Some(model);
                 self.sync_loaded_model(cx);
                 self.ui.redraw(cx);
@@ -708,6 +727,7 @@ impl App {
             requested_graph_id,
             Some(&next_issue_check_id),
             None,
+            None,
         ) {
             Ok(model) => {
                 self.selected_graph_index = model
@@ -715,6 +735,7 @@ impl App {
                     .unwrap_or(self.selected_graph_index);
                 self.selected_issue_check_id = model.selected_issue_check_id.clone();
                 self.selected_node_id = model.selected_node_id.clone();
+                self.selected_edge_id = model.selected_edge_id.clone();
                 self.model = Some(model);
                 self.sync_loaded_model(cx);
                 self.ui.redraw(cx);
@@ -743,6 +764,7 @@ impl App {
             model.selected_graph_id.as_deref(),
             model.selected_issue_check_id.as_deref(),
             Some(&next_node_id),
+            model.selected_edge_id.as_deref(),
         ) {
             Ok(model) => {
                 self.selected_graph_index = model
@@ -750,6 +772,44 @@ impl App {
                     .unwrap_or(self.selected_graph_index);
                 self.selected_issue_check_id = model.selected_issue_check_id.clone();
                 self.selected_node_id = model.selected_node_id.clone();
+                self.selected_edge_id = model.selected_edge_id.clone();
+                self.model = Some(model);
+                self.sync_loaded_model(cx);
+                self.ui.redraw(cx);
+            }
+            Err(error) => {
+                self.last_edit_report = None;
+                self.last_edit_save_issue = error;
+                self.sync_edit_report(cx);
+                self.ui.redraw(cx);
+            }
+        }
+    }
+
+    fn select_next_edge(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            return;
+        };
+        let Some(model) = self.model.clone() else {
+            return;
+        };
+        let Some(next_edge_id) = next_edge_id(&model).map(str::to_string) else {
+            return;
+        };
+        match load_studio_view_model_for_path(
+            &source,
+            model.selected_graph_id.as_deref(),
+            model.selected_issue_check_id.as_deref(),
+            model.selected_node_id.as_deref(),
+            Some(&next_edge_id),
+        ) {
+            Ok(model) => {
+                self.selected_graph_index = model
+                    .selected_graph_index
+                    .unwrap_or(self.selected_graph_index);
+                self.selected_issue_check_id = model.selected_issue_check_id.clone();
+                self.selected_node_id = model.selected_node_id.clone();
+                self.selected_edge_id = model.selected_edge_id.clone();
                 self.model = Some(model);
                 self.sync_loaded_model(cx);
                 self.ui.redraw(cx);
@@ -811,6 +871,9 @@ impl MatchEvent for App {
         }
         if self.ui.button(cx, ids!(next_node_button)).clicked(actions) {
             self.select_next_node(cx);
+        }
+        if self.ui.button(cx, ids!(next_edge_button)).clicked(actions) {
+            self.select_next_edge(cx);
         }
         if self
             .ui
@@ -883,6 +946,7 @@ fn load_studio_view_model(
     requested_graph_id: Option<&str>,
     requested_issue_check_id: Option<&str>,
     requested_node_id: Option<&str>,
+    requested_edge_id: Option<&str>,
 ) -> Result<(PathBuf, StudioViewModel), String> {
     let project_path = project_path_from_args()
         .or_else(find_default_project_path)
@@ -892,6 +956,7 @@ fn load_studio_view_model(
         requested_graph_id,
         requested_issue_check_id,
         requested_node_id,
+        requested_edge_id,
     )?;
     Ok((project_path, model))
 }
@@ -901,14 +966,16 @@ fn load_studio_view_model_for_path(
     requested_graph_id: Option<&str>,
     requested_issue_check_id: Option<&str>,
     requested_node_id: Option<&str>,
+    requested_edge_id: Option<&str>,
 ) -> Result<StudioViewModel, String> {
     let project = load_project(&project_path).map_err(|error| error.to_string())?;
-    Ok(view_model_for_graph_issue_and_node(
+    Ok(view_model_for_graph_issue_node_and_edge(
         &project,
         project_path.parent(),
         requested_graph_id,
         requested_issue_check_id,
         requested_node_id,
+        requested_edge_id,
     ))
 }
 
@@ -1122,6 +1189,16 @@ fn initial_node_id_from_args() -> Option<String> {
     None
 }
 
+fn initial_edge_id_from_args() -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--edge" {
+            return args.next();
+        }
+    }
+    None
+}
+
 fn find_default_project_path() -> Option<PathBuf> {
     let current_dir = std::env::current_dir().ok()?;
     let candidates = [
@@ -1311,6 +1388,79 @@ fn next_node_id(model: &StudioViewModel) -> Option<&str> {
         .node_rows
         .get(next_index)
         .map(|node| node.node_id.as_str())
+}
+
+fn selected_edge_line(model: &StudioViewModel) -> String {
+    let Some(edge) = model.selected_edge.as_ref() else {
+        return "none".to_string();
+    };
+    let is_issue_edge = model
+        .focused_issue
+        .as_ref()
+        .and_then(|focus| focus.edge_id.as_deref())
+        == Some(edge.edge_id.as_str());
+    let prefix = if is_issue_edge { "issue: " } else { "" };
+    format!("{prefix}{} [{}]", edge.edge_id, edge.kind)
+}
+
+fn selected_edge_detail_lines(model: &StudioViewModel) -> String {
+    let Some(edge) = model.selected_edge.as_ref() else {
+        if let Some(issue_code) = model.edge_selection_code.as_deref() {
+            return format!("none [{issue_code}]");
+        }
+        return "none".to_string();
+    };
+    let mut lines = Vec::new();
+    if let Some(issue_code) = model.edge_selection_code.as_deref() {
+        lines.push(format!("selection: {issue_code}"));
+    }
+    lines.push(format!("graph: {}", edge.graph_id));
+    lines.push(format!("status: {}", edge.endpoint_status));
+    if edge.validation_issue_count > 0 {
+        lines.push(format!("issues: {}", edge.validation_issue_count));
+    }
+    if let Some(binding_kind) = edge.binding_kind.as_deref() {
+        lines.push(format!("binding: {binding_kind}"));
+    }
+    lines.push(format!(
+        "source: {} / {} / {}",
+        edge.source_node_id,
+        edge.source_kind.as_deref().unwrap_or("missing"),
+        edge.source_reference_id.as_deref().unwrap_or("missing")
+    ));
+    lines.push(format!(
+        "target: {} / {} / {}",
+        edge.target_node_id,
+        edge.target_kind.as_deref().unwrap_or("missing"),
+        edge.target_reference_id.as_deref().unwrap_or("missing")
+    ));
+    lines.join("\n")
+}
+
+fn next_edge_id(model: &StudioViewModel) -> Option<&str> {
+    let selected_graph_id = model.selected_graph_id.as_deref()?;
+    let graph = model
+        .graphs
+        .iter()
+        .find(|graph| graph.graph_id == selected_graph_id)?;
+    if graph.edge_rows.is_empty() {
+        return None;
+    }
+    let current_index = model
+        .selected_edge_id
+        .as_deref()
+        .and_then(|edge_id| {
+            graph
+                .edge_rows
+                .iter()
+                .position(|edge| edge.edge_id == edge_id)
+        })
+        .unwrap_or(0);
+    let next_index = (current_index + 1) % graph.edge_rows.len();
+    graph
+        .edge_rows
+        .get(next_index)
+        .map(|edge| edge.edge_id.as_str())
 }
 
 fn catalog_package_lines(model: &StudioViewModel) -> String {
@@ -1584,7 +1734,7 @@ mod tests {
         write_reference_fixture_tree(&root);
         let project_path = root.join("project.json");
         save_project(&project_path, &editable_project()).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None, None, None)
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
             .expect("load view model");
 
         let (report, refreshed_model) =
@@ -1614,7 +1764,7 @@ mod tests {
         write_reference_fixture_tree(&root);
         let project_path = root.join("project.json");
         save_project(&project_path, &editable_project()).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None, None, None)
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
             .expect("load view model");
 
         let package_lines = catalog_package_lines(&model);
@@ -1632,6 +1782,14 @@ mod tests {
         assert!(detail_lines.contains("node: node.package.synthetic"));
         assert!(detail_lines.contains("ref: package.synthetic [resolved]"));
         assert!(detail_lines.contains("module.synthetic_provider"));
+        assert_eq!(
+            selected_edge_line(&model),
+            "edge.shell_host [shell_targets_host_profile]"
+        );
+        let edge_details = selected_edge_detail_lines(&model);
+        assert!(edge_details.contains("status: endpoints_resolved"));
+        assert!(edge_details.contains("source: node.shell.operator / operator_shell"));
+        assert!(edge_details.contains("target: node.host.profile / host_profile"));
     }
 
     #[test]
@@ -1648,7 +1806,7 @@ mod tests {
             label: "Missing Module".to_string(),
         });
         save_project(&project_path, &project).expect("save invalid project");
-        let model = load_studio_view_model_for_path(&project_path, None, None, None)
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
             .expect("load view model");
 
         let issue_lines = validation_issue_lines(&model);
@@ -1682,6 +1840,7 @@ mod tests {
             Some("studio.graph.makepad_edit"),
             Some("studio.check.graph.studio.graph.makepad_edit.module_refs"),
             None,
+            None,
         )
         .expect("load requested issue view model");
         assert_eq!(requested_model.selected_issue_index, Some(1));
@@ -1703,6 +1862,7 @@ mod tests {
             Some("studio.graph.makepad_edit"),
             None,
             Some("node.host.profile"),
+            None,
         )
         .expect("load requested node view model");
         let requested_node_details = selected_node_detail_lines(&requested_node_model);
@@ -1718,6 +1878,24 @@ mod tests {
             next_node_id(&requested_node_model),
             Some("node.shell.operator")
         );
+
+        let requested_edge_model = load_studio_view_model_for_path(
+            &project_path,
+            Some("studio.graph.makepad_edit"),
+            None,
+            None,
+            Some("edge.shell_host"),
+        )
+        .expect("load requested edge view model");
+        assert_eq!(
+            selected_edge_line(&requested_edge_model),
+            "edge.shell_host [shell_targets_host_profile]"
+        );
+        let requested_edge_details = selected_edge_detail_lines(&requested_edge_model);
+        assert!(requested_edge_details.contains("status: endpoints_resolved"));
+        assert!(requested_edge_details.contains("source: node.shell.operator / operator_shell"));
+        assert!(requested_edge_details.contains("target: node.host.profile / host_profile"));
+        assert_eq!(next_edge_id(&requested_edge_model), Some("edge.shell_host"));
     }
 
     #[test]
@@ -1726,7 +1904,7 @@ mod tests {
         write_reference_fixture_tree(&root);
         let project_path = root.join("project.json");
         save_project(&project_path, &editable_project()).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None, None, None)
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
             .expect("load view model");
 
         let (report, refreshed_model) =
@@ -1752,7 +1930,7 @@ mod tests {
         write_reference_fixture_tree(&root);
         let project_path = root.join("project.json");
         save_project(&project_path, &editable_project()).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None, None, None)
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
             .expect("load view model");
 
         let (report, refreshed_model) = add_module_to_project_source(
@@ -1802,7 +1980,7 @@ mod tests {
             target_node_id: "node.module.synthetic_provider".to_string(),
         });
         save_project(&project_path, &project).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None, None, None)
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
             .expect("load view model");
 
         let (report, refreshed_model) = remove_module_from_project_source(
@@ -1850,7 +2028,7 @@ mod tests {
             target_node_id: "node.module.synthetic_provider".to_string(),
         });
         save_project(&project_path, &project).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None, None, None)
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
             .expect("load view model");
 
         let (report, refreshed_model) = add_binding_to_project_source(
@@ -1904,7 +2082,7 @@ mod tests {
             target_node_id: "node.module.synthetic_provider".to_string(),
         });
         save_project(&project_path, &project).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None, None, None)
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
             .expect("load view model");
 
         let (report, refreshed_model) = remove_binding_from_project_source(

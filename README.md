@@ -21,6 +21,8 @@ Current scope:
   future canvas selection;
 - expose read-only selected node inspector details for package, module, and
   host-profile references through the shared view model;
+- expose read-only selected edge inspector details for graph bindings and
+  endpoint references through the shared view model;
 - add the next available catalog module from that palette through a shared
   core/CLI/Makepad mutation path;
 - render the resolved synthetic project in a Makepad desktop authoring surface;
@@ -62,6 +64,7 @@ cargo run -p rusty-studio-cli -- view-model --project examples\synthetic-studio-
 cargo run -p rusty-studio-cli -- view-model --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-cli -- view-model --project target\studio-diagnostic-project.json --graph studio.graph.synthetic_wave_desktop --issue studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs
 cargo run -p rusty-studio-cli -- view-model --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --node node.host_profile.desktop
+cargo run -p rusty-studio-cli -- view-model --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --edge edge.provider_to_processor
 cargo run -p rusty-studio-cli -- retarget-host --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --host-profile host_run.profile.headset --output target\studio-edit-retarget-headset.json
 cargo run -p rusty-studio-cli -- add-module --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --package package.biosignal_sensor --module module.biosignal_sensor.provider --label "Biosignal Provider" --output target\studio-edit-add-module.json
 cargo run -p rusty-studio-cli -- add-palette-module --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --output target\studio-edit-add-palette-module.json

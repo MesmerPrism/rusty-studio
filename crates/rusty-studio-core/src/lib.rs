@@ -20,8 +20,8 @@ use rusty_studio_model::{
     SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
-    StudioCatalogPackageView, StudioEdgeView, StudioGraphView, StudioNodeHostProfileView,
-    StudioNodeInspectorView, StudioNodeView,
+    StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeView, StudioGraphView,
+    StudioNodeHostProfileView, StudioNodeInspectorView, StudioNodeView,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -310,6 +310,24 @@ pub fn view_model_for_graph_issue_and_node(
     requested_issue_check_id: Option<&str>,
     requested_node_id: Option<&str>,
 ) -> StudioViewModel {
+    view_model_for_graph_issue_node_and_edge(
+        project,
+        base_dir,
+        requested_graph_id,
+        requested_issue_check_id,
+        requested_node_id,
+        None,
+    )
+}
+
+pub fn view_model_for_graph_issue_node_and_edge(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    requested_graph_id: Option<&str>,
+    requested_issue_check_id: Option<&str>,
+    requested_node_id: Option<&str>,
+    requested_edge_id: Option<&str>,
+) -> StudioViewModel {
     let validation = validate_project_with_base(project, base_dir);
     let validation_pass_count = validation
         .checks
@@ -340,6 +358,12 @@ pub fn view_model_for_graph_issue_and_node(
         reference_index.as_ref(),
         issue_selection.focused_issue.as_ref(),
         requested_node_id,
+    );
+    let edge_selection = selected_edge_selection(
+        selected_graph,
+        selected_graph_view,
+        issue_selection.focused_issue.as_ref(),
+        requested_edge_id,
     );
     let catalog_module_count = catalog_packages
         .iter()
@@ -372,6 +396,10 @@ pub fn view_model_for_graph_issue_and_node(
         selected_node_id: node_selection.selected_node_id,
         node_selection_code: node_selection.node_selection_code,
         selected_node: node_selection.selected_node,
+        requested_edge_id: requested_edge_id.map(str::to_string),
+        selected_edge_id: edge_selection.selected_edge_id,
+        edge_selection_code: edge_selection.edge_selection_code,
+        selected_edge: edge_selection.selected_edge,
         catalog_package_count: catalog_packages.len(),
         catalog_module_count,
         host_profile_count: host_profiles.len(),
@@ -2502,6 +2530,114 @@ fn host_profile_inspector(
         evidence_pull_route: reference.evidence_pull_route.clone(),
         required_permissions: reference.required_permissions.clone(),
     })
+}
+
+struct SelectedEdgeSelection {
+    selected_edge: Option<StudioEdgeInspectorView>,
+    selected_edge_id: Option<String>,
+    edge_selection_code: Option<String>,
+}
+
+fn selected_edge_selection(
+    selected_graph: Option<&StudioGraph>,
+    selected_graph_view: Option<&StudioGraphView>,
+    focused_issue: Option<&StudioIssueFocusView>,
+    requested_edge_id: Option<&str>,
+) -> SelectedEdgeSelection {
+    let Some(graph) = selected_graph else {
+        return SelectedEdgeSelection {
+            selected_edge: None,
+            selected_edge_id: None,
+            edge_selection_code: requested_edge_id
+                .map(|_| "studio.issue.edge_selection_missing".to_string()),
+        };
+    };
+    let fallback_edge_id = focused_issue
+        .filter(|focus| focus.graph_id == graph.graph_id)
+        .and_then(|focus| focus.edge_id.as_deref())
+        .filter(|edge_id| graph.edges.iter().any(|edge| edge.edge_id == *edge_id))
+        .or_else(|| graph.edges.first().map(|edge| edge.edge_id.as_str()));
+    let (selected_edge_id, edge_selection_code) = if let Some(requested_edge_id) = requested_edge_id
+    {
+        if graph
+            .edges
+            .iter()
+            .any(|edge| edge.edge_id == requested_edge_id)
+        {
+            (Some(requested_edge_id), None)
+        } else {
+            (
+                fallback_edge_id,
+                Some("studio.issue.edge_selection_missing".to_string()),
+            )
+        }
+    } else {
+        (fallback_edge_id, None)
+    };
+    let selected_edge = selected_edge_id
+        .and_then(|edge_id| graph.edges.iter().find(|edge| edge.edge_id == edge_id))
+        .map(|edge| edge_inspector_view(graph, selected_graph_view, edge));
+    SelectedEdgeSelection {
+        selected_edge_id: selected_edge.as_ref().map(|edge| edge.edge_id.clone()),
+        selected_edge,
+        edge_selection_code,
+    }
+}
+
+fn edge_inspector_view(
+    graph: &StudioGraph,
+    graph_view: Option<&StudioGraphView>,
+    edge: &StudioEdge,
+) -> StudioEdgeInspectorView {
+    let source = graph
+        .nodes
+        .iter()
+        .find(|node| node.node_id == edge.source_node_id);
+    let target = graph
+        .nodes
+        .iter()
+        .find(|node| node.node_id == edge.target_node_id);
+    let validation_issue_count = graph_view
+        .and_then(|graph| {
+            graph
+                .edge_rows
+                .iter()
+                .find(|row| row.edge_id == edge.edge_id)
+        })
+        .map(|row| row.validation_issue_count)
+        .unwrap_or(0);
+    StudioEdgeInspectorView {
+        graph_id: graph.graph_id.clone(),
+        edge_id: edge.edge_id.clone(),
+        kind: edge_kind_label(edge.kind).to_string(),
+        source_node_id: edge.source_node_id.clone(),
+        source_label: source.map(|node| node.label.clone()),
+        source_kind: source.map(|node| node_kind_label(node.kind).to_string()),
+        source_reference_id: source.map(|node| node.reference_id.clone()),
+        target_node_id: edge.target_node_id.clone(),
+        target_label: target.map(|node| node.label.clone()),
+        target_kind: target.map(|node| node_kind_label(node.kind).to_string()),
+        target_reference_id: target.map(|node| node.reference_id.clone()),
+        validation_issue_count,
+        endpoint_status: edge_endpoint_status(source, target).to_string(),
+        binding_kind: binding_kind_for_edge(edge.kind).map(binding_kind_short_label),
+    }
+}
+
+fn edge_endpoint_status(source: Option<&StudioNode>, target: Option<&StudioNode>) -> &'static str {
+    match (source.is_some(), target.is_some()) {
+        (true, true) => "endpoints_resolved",
+        (false, true) => "missing_source",
+        (true, false) => "missing_target",
+        (false, false) => "missing_endpoints",
+    }
+}
+
+fn binding_kind_short_label(kind: StudioBindingKind) -> String {
+    match kind {
+        StudioBindingKind::Stream => "stream".to_string(),
+        StudioBindingKind::Command => "command".to_string(),
+    }
 }
 
 fn next_available_catalog_module(
@@ -5837,6 +5973,20 @@ mod tests {
             selected_node.package_module_ids,
             vec!["module.synthetic_provider".to_string()]
         );
+        assert_eq!(model.requested_edge_id, None);
+        assert_eq!(model.selected_edge_id.as_deref(), Some("edge.package_host"));
+        assert_eq!(model.edge_selection_code, None);
+        let selected_edge = model.selected_edge.as_ref().expect("selected edge");
+        assert_eq!(selected_edge.kind, "shell_targets_host_profile");
+        assert_eq!(selected_edge.endpoint_status, "endpoints_resolved");
+        assert_eq!(
+            selected_edge.source_reference_id.as_deref(),
+            Some("package.synthetic")
+        );
+        assert_eq!(
+            selected_edge.target_reference_id.as_deref(),
+            Some("host_run.profile.desktop")
+        );
         assert_eq!(model.graph_count, 1);
         assert_eq!(model.graphs[0].validation_issue_count, 0);
         assert_eq!(model.graphs[0].node_rows[0].kind, "package");
@@ -5966,6 +6116,34 @@ mod tests {
     }
 
     #[test]
+    fn view_model_selects_focused_edge_for_inspector() {
+        let root = temp_root("view-model-focused-edge");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+        project.graphs[0].edges[0].target_node_id = "node.missing".to_string();
+
+        let model = view_model_for_graph_issue_node_and_edge(
+            &project,
+            Some(&root),
+            Some("studio.graph.test"),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            model.selected_issue_check_id.as_deref(),
+            Some("studio.check.graph.studio.graph.test.edge.edge.package_host.target")
+        );
+        assert_eq!(model.selected_edge_id.as_deref(), Some("edge.package_host"));
+        let selected_edge = model.selected_edge.as_ref().expect("selected edge");
+        assert_eq!(selected_edge.endpoint_status, "missing_target");
+        assert_eq!(selected_edge.validation_issue_count, 1);
+        assert_eq!(selected_edge.target_node_id, "node.missing");
+        assert_eq!(selected_edge.target_kind, None);
+    }
+
+    #[test]
     fn view_model_selects_requested_validation_issue() {
         let root = temp_root("view-model-requested-issue");
         write_reference_fixture_tree(&root);
@@ -6076,6 +6254,67 @@ mod tests {
             model.selected_node_id.as_deref(),
             Some("node.package.synthetic")
         );
+    }
+
+    #[test]
+    fn view_model_selects_requested_edge_for_inspector() {
+        let root = temp_root("view-model-requested-edge");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+
+        let model = view_model_for_graph_issue_node_and_edge(
+            &project,
+            Some(&root),
+            Some("studio.graph.test"),
+            None,
+            None,
+            Some("edge.shell_command"),
+        );
+
+        assert_eq!(
+            model.requested_edge_id.as_deref(),
+            Some("edge.shell_command")
+        );
+        assert_eq!(
+            model.selected_edge_id.as_deref(),
+            Some("edge.shell_command")
+        );
+        assert_eq!(model.edge_selection_code, None);
+        let selected_edge = model.selected_edge.as_ref().expect("selected edge");
+        assert_eq!(selected_edge.kind, "command_binding");
+        assert_eq!(selected_edge.binding_kind.as_deref(), Some("command"));
+        assert_eq!(selected_edge.endpoint_status, "endpoints_resolved");
+        assert_eq!(
+            selected_edge.source_reference_id.as_deref(),
+            Some("shell.synthetic.operator")
+        );
+        assert_eq!(
+            selected_edge.target_reference_id.as_deref(),
+            Some("module.synthetic_provider")
+        );
+    }
+
+    #[test]
+    fn view_model_reports_missing_requested_edge() {
+        let root = temp_root("view-model-missing-requested-edge");
+        write_reference_fixture_tree(&root);
+        let project = valid_project_with_relative_references();
+
+        let model = view_model_for_graph_issue_node_and_edge(
+            &project,
+            Some(&root),
+            Some("studio.graph.test"),
+            None,
+            None,
+            Some("edge.missing"),
+        );
+
+        assert_eq!(model.requested_edge_id.as_deref(), Some("edge.missing"));
+        assert_eq!(
+            model.edge_selection_code.as_deref(),
+            Some("studio.issue.edge_selection_missing")
+        );
+        assert_eq!(model.selected_edge_id.as_deref(), Some("edge.package_host"));
     }
 
     #[test]

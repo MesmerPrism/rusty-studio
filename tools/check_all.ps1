@@ -137,6 +137,21 @@ try {
     if (@($ViewModel.selected_node.package_module_ids) -notcontains "module.synthetic_wave_provider") {
         throw "valid view model selected package missing provider module detail"
     }
+    if ($null -eq $ViewModel.selected_edge) {
+        throw "valid view model should expose selected edge inspector"
+    }
+    if ($ViewModel.selected_edge_id -ne "edge.package_provider") {
+        throw "valid view model selected edge id mismatch"
+    }
+    if ($ViewModel.selected_edge.endpoint_status -ne "endpoints_resolved") {
+        throw "valid view model selected edge endpoints should resolve"
+    }
+    if ($ViewModel.selected_edge.source_reference_id -ne "package.synthetic_wave") {
+        throw "valid view model selected edge source reference mismatch"
+    }
+    if ($ViewModel.selected_edge.target_reference_id -ne "module.synthetic_wave_provider") {
+        throw "valid view model selected edge target reference mismatch"
+    }
     $ViewModelDesktopGraph = $ViewModel.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $ViewModelDesktopGraph) {
         throw "view model missing desktop graph row"
@@ -207,6 +222,42 @@ try {
     }
     if ($MissingRequestedNodeView.selected_node_id -ne "node.package.synthetic_wave") {
         throw "missing requested node view model should fall back to deterministic selected node"
+    }
+    $RequestedEdgeViewOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --edge "edge.provider_to_processor"
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio requested edge view model failed with exit code $LASTEXITCODE"
+    }
+    $RequestedEdgeViewText = $RequestedEdgeViewOutput -join [Environment]::NewLine
+    $RequestedEdgeView = $RequestedEdgeViewText | ConvertFrom-Json
+    if ($RequestedEdgeView.requested_edge_id -ne "edge.provider_to_processor") {
+        throw "requested edge view model requested edge mismatch"
+    }
+    if ($RequestedEdgeView.selected_edge_id -ne "edge.provider_to_processor") {
+        throw "requested edge view model selected edge mismatch"
+    }
+    if ($RequestedEdgeView.selected_edge.kind -ne "stream_binding") {
+        throw "requested edge view model selected edge kind mismatch"
+    }
+    if ($RequestedEdgeView.selected_edge.binding_kind -ne "stream") {
+        throw "requested edge view model binding kind mismatch"
+    }
+    if ($RequestedEdgeView.selected_edge.source_reference_id -ne "module.synthetic_wave_provider") {
+        throw "requested edge view model source reference mismatch"
+    }
+    if ($RequestedEdgeView.selected_edge.target_reference_id -ne "module.synthetic_wave_processor") {
+        throw "requested edge view model target reference mismatch"
+    }
+    $MissingRequestedEdgeViewOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --edge "edge.missing"
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio missing requested edge view model failed with exit code $LASTEXITCODE"
+    }
+    $MissingRequestedEdgeViewText = $MissingRequestedEdgeViewOutput -join [Environment]::NewLine
+    $MissingRequestedEdgeView = $MissingRequestedEdgeViewText | ConvertFrom-Json
+    if ($MissingRequestedEdgeView.edge_selection_code -ne "studio.issue.edge_selection_missing") {
+        throw "missing requested edge view model should expose edge selection code"
+    }
+    if ($MissingRequestedEdgeView.selected_edge_id -ne "edge.package_provider") {
+        throw "missing requested edge view model should fall back to deterministic selected edge"
     }
     $DiagnosticProject = Get-Content -Raw -Path "examples\synthetic-studio-project.json" | ConvertFrom-Json
     $DiagnosticProject.graphs[0].nodes[0].reference_id = "package.missing"

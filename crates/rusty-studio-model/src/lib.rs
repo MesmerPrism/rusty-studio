@@ -448,6 +448,10 @@ pub struct StudioViewModel {
     pub selected_node_id: Option<String>,
     pub node_selection_code: Option<String>,
     pub selected_node: Option<StudioNodeInspectorView>,
+    pub requested_edge_id: Option<String>,
+    pub selected_edge_id: Option<String>,
+    pub edge_selection_code: Option<String>,
+    pub selected_edge: Option<StudioEdgeInspectorView>,
     pub catalog_package_count: usize,
     pub catalog_module_count: usize,
     pub host_profile_count: usize,
@@ -509,6 +513,24 @@ pub struct StudioNodeHostProfileView {
     pub command_bridge: Option<String>,
     pub evidence_pull_route: Option<String>,
     pub required_permissions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioEdgeInspectorView {
+    pub graph_id: String,
+    pub edge_id: String,
+    pub kind: String,
+    pub source_node_id: String,
+    pub source_label: Option<String>,
+    pub source_kind: Option<String>,
+    pub source_reference_id: Option<String>,
+    pub target_node_id: String,
+    pub target_label: Option<String>,
+    pub target_kind: Option<String>,
+    pub target_reference_id: Option<String>,
+    pub validation_issue_count: usize,
+    pub endpoint_status: String,
+    pub binding_kind: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
