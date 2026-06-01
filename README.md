@@ -77,6 +77,8 @@ Current scope:
   manifest-to-intake-to-checklist core route used by CLI validation;
 - compare acceptance checklist artifacts across revisions to detect improved,
   unchanged, regressed, or incomparable downstream handoff readiness;
+- surface acceptance comparison in Makepad as a read-only revision review of a
+  persisted baseline checklist against current generated handoff readiness;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -145,4 +147,5 @@ checks and explicitly prohibit install, launch, command-session opening, and
 device-evidence collection inside Studio. Makepad can review the same checklist
 in memory; it does not write or execute downstream runtime actions. Acceptance
 comparison reports are revision-review artifacts only: they compare checklist
-readiness and issue transitions without granting runtime authority.
+readiness and issue transitions without granting runtime authority. Makepad
+can render the same comparison without becoming the source of truth.
