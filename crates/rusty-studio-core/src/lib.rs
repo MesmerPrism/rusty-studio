@@ -11918,6 +11918,22 @@ fn compare_shell_hostess_staging_acceptance_checklists_with_identity(
     } else {
         Vec::new()
     };
+    let has_entry_contract_drift = entries
+        .iter()
+        .any(|entry| entry.change == StudioShellHostessStagingAcceptanceComparisonChange::Changed);
+    if comparable {
+        push_check(
+            &mut checks,
+            "studio.check.shell_hostess_staging_acceptance_comparison.entry_contracts",
+            !has_entry_contract_drift,
+            "baseline and candidate acceptance entry contracts match",
+            "baseline and candidate acceptance entry contracts drifted",
+            "studio.issue.shell_hostess_staging_acceptance_entry_drift",
+        );
+    }
+    let comparable = checks
+        .iter()
+        .all(|check| check.status == StudioValidationStatus::Pass);
 
     let ready_item_delta = count_delta(candidate.ready_item_count, baseline.ready_item_count);
     let blocked_item_delta = count_delta(candidate.blocked_item_count, baseline.blocked_item_count);
@@ -12386,8 +12402,10 @@ fn shell_hostess_staging_acceptance_comparison_entry(
             }),
         StudioShellHostessStagingAcceptanceComparisonChange::Added
         | StudioShellHostessStagingAcceptanceComparisonChange::Improved
-        | StudioShellHostessStagingAcceptanceComparisonChange::Unchanged
-        | StudioShellHostessStagingAcceptanceComparisonChange::Changed => None,
+        | StudioShellHostessStagingAcceptanceComparisonChange::Unchanged => None,
+        StudioShellHostessStagingAcceptanceComparisonChange::Changed => {
+            Some("studio.issue.shell_hostess_staging_acceptance_entry_drift".to_string())
+        }
     };
 
     StudioShellHostessStagingAcceptanceComparisonEntry {
@@ -19329,6 +19347,62 @@ mod tests {
             .all(|check| check.status == StudioValidationStatus::Pass));
         assert!(direct_comparison.entries.iter().all(|entry| {
             entry.change == StudioShellHostessStagingAcceptanceComparisonChange::Unchanged
+        }));
+
+        let mut changed_contract_candidate = staging_acceptance.clone();
+        changed_contract_candidate
+            .entries
+            .iter_mut()
+            .find(|entry| entry.item_id == "hostess.accept_staging_handoff")
+            .expect("acceptance row")
+            .owner = "rusty.studio".to_string();
+        changed_contract_candidate
+            .entries
+            .iter_mut()
+            .find(|entry| entry.item_id == "hostess.copy_staging_files")
+            .expect("copy row")
+            .route_kind = "hostess.stage.files_from_drifted_plan".to_string();
+        let review_entry = changed_contract_candidate
+            .entries
+            .iter_mut()
+            .find(|entry| entry.item_id == "hostess.review_staging_file_requests")
+            .expect("review row");
+        review_entry.prohibited_in_studio = false;
+        review_entry.expected_input_path = Some("target/drifted-input.json".to_string());
+        let changed_contract_comparison = compare_shell_hostess_staging_acceptance_against_manifest(
+            &ready_acceptance,
+            &staging_acceptance,
+            &changed_contract_candidate,
+        );
+        assert_eq!(
+            changed_contract_comparison.status,
+            StudioShellHostessStagingAcceptanceComparisonStatus::Incomparable
+        );
+        assert_eq!(
+            changed_contract_comparison.issue_code.as_deref(),
+            Some("studio.issue.shell_hostess_staging_acceptance_entry_drift")
+        );
+        assert_eq!(changed_contract_comparison.ready_item_delta, 0);
+        assert_eq!(changed_contract_comparison.blocked_item_delta, 0);
+        assert_eq!(changed_contract_comparison.rejected_item_delta, 0);
+        assert_eq!(
+            changed_contract_comparison
+                .entries
+                .iter()
+                .filter(|entry| entry.change
+                    == StudioShellHostessStagingAcceptanceComparisonChange::Changed)
+                .count(),
+            3
+        );
+        assert!(changed_contract_comparison.entries.iter().all(|entry| {
+            entry.change != StudioShellHostessStagingAcceptanceComparisonChange::Changed
+                || entry.issue_code.as_deref()
+                    == Some("studio.issue.shell_hostess_staging_acceptance_entry_drift")
+        }));
+        assert!(changed_contract_comparison.checks.iter().any(|check| {
+            check.check_id
+                == "studio.check.shell_hostess_staging_acceptance_comparison.entry_contracts"
+                && check.status == StudioValidationStatus::Fail
         }));
 
         let ready_index_entry = select_shell_hostess_staging_acceptance_index_entry(&index, None)

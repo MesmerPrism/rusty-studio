@@ -119,6 +119,8 @@ try {
     $ShellHostessStagingAcceptanceMultiIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-acceptances-multi.json"
     $ShellHostessStagingAcceptancePromotedIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-acceptances-promoted.json"
     $ShellHostessStagingAcceptanceComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-acceptance-comparison.json"
+    $ShellHostessStagingAcceptanceRouteDriftPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-acceptance-route-drift.json"
+    $ShellHostessStagingAcceptanceRouteDriftComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-acceptance-route-drift-comparison.json"
     $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
     $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
     $MissingShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake-missing-bundles.json"
@@ -130,7 +132,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $ShellHostessHandoffPackagePath, $ShellHostessOwnerIntakePath, $ShellHostessStagingPreviewPath, $ShellHostessStagingFilePlanPath, $ShellHostessStagingHandoffPath, $ShellHostessStagingAcceptancePath, $ShellHostessStagingAcceptanceManifestPath, $ShellHostessStagingAcceptanceArchiveManifestPath, $ShellHostessStagingAcceptanceIndexPath, $ShellHostessStagingAcceptanceSelectionPath, $ShellHostessStagingAcceptanceMultiIndexPath, $ShellHostessStagingAcceptancePromotedIndexPath, $ShellHostessStagingAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $ShellHostessHandoffPackagePath, $ShellHostessOwnerIntakePath, $ShellHostessStagingPreviewPath, $ShellHostessStagingFilePlanPath, $ShellHostessStagingHandoffPath, $ShellHostessStagingAcceptancePath, $ShellHostessStagingAcceptanceManifestPath, $ShellHostessStagingAcceptanceArchiveManifestPath, $ShellHostessStagingAcceptanceIndexPath, $ShellHostessStagingAcceptanceSelectionPath, $ShellHostessStagingAcceptanceMultiIndexPath, $ShellHostessStagingAcceptancePromotedIndexPath, $ShellHostessStagingAcceptanceComparisonPath, $ShellHostessStagingAcceptanceRouteDriftPath, $ShellHostessStagingAcceptanceRouteDriftComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -3523,6 +3525,46 @@ try {
         }
         if (@($HostessStagingAcceptanceComparisonView.entries | Where-Object { $_.item_id -eq "manifold.review_command_session_contract" -and $_.owner -eq "rusty.manifold" -and $_.candidate_route_kind -eq "manifold.review.command_session_contract" -and $_.change -eq "unchanged" }).Count -ne 1) {
             throw "shell Hostess staging acceptance comparison Manifold row mismatch"
+        }
+    }
+    $RouteDriftAcceptance = Get-Content -Raw $ShellHostessStagingAcceptancePath | ConvertFrom-Json
+    foreach ($Entry in $RouteDriftAcceptance.entries) {
+        if ($Entry.item_id -eq "hostess.accept_staging_handoff") {
+            $Entry.owner = "rusty.studio"
+        }
+        if ($Entry.item_id -eq "hostess.copy_staging_files") {
+            $Entry.route_kind = "hostess.stage.files_from_drifted_plan"
+        }
+        if ($Entry.item_id -eq "hostess.review_staging_file_requests") {
+            $Entry.prohibited_in_studio = $false
+            $Entry.expected_input_path = "target\drifted-input.json"
+        }
+    }
+    $RouteDriftAcceptance | ConvertTo-Json -Depth 20 | Set-Content -Path $ShellHostessStagingAcceptanceRouteDriftPath
+    $ShellHostessStagingAcceptanceRouteDriftComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-hostess-staging-acceptance-comparison --acceptance-index $ShellHostessStagingAcceptanceIndexPath --acceptance-id "synthetic-hostess-staging-ready" --candidate $ShellHostessStagingAcceptanceRouteDriftPath --output $ShellHostessStagingAcceptanceRouteDriftComparisonPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell Hostess staging acceptance route-drift comparison failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellHostessStagingAcceptanceRouteDriftComparisonPath)) {
+        throw "shell Hostess staging acceptance route-drift comparison was not written"
+    }
+    $ShellHostessStagingAcceptanceRouteDriftComparison = ($ShellHostessStagingAcceptanceRouteDriftComparisonOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellHostessStagingAcceptanceRouteDriftComparison = Get-Content -Raw $ShellHostessStagingAcceptanceRouteDriftComparisonPath | ConvertFrom-Json
+    foreach ($RouteDriftComparisonView in @($ShellHostessStagingAcceptanceRouteDriftComparison, $WrittenShellHostessStagingAcceptanceRouteDriftComparison)) {
+        if ($RouteDriftComparisonView.status -ne "incomparable" -or $RouteDriftComparisonView.issue_code -ne "studio.issue.shell_hostess_staging_acceptance_entry_drift") {
+            throw "shell Hostess staging acceptance route drift did not become incomparable"
+        }
+        if ($RouteDriftComparisonView.ready_item_delta -ne 0 -or $RouteDriftComparisonView.blocked_item_delta -ne 0 -or $RouteDriftComparisonView.rejected_item_delta -ne 0) {
+            throw "shell Hostess staging acceptance route drift deltas changed unexpectedly"
+        }
+        if (@($RouteDriftComparisonView.entries | Where-Object { $_.change -eq "changed" -and $_.issue_code -eq "studio.issue.shell_hostess_staging_acceptance_entry_drift" }).Count -ne 3) {
+            throw "shell Hostess staging acceptance route drift changed-entry count mismatch"
+        }
+        if (@($RouteDriftComparisonView.checks | Where-Object { $_.check_id -eq "studio.check.shell_hostess_staging_acceptance_comparison.entry_contracts" -and $_.status -eq "fail" -and $_.issue_code -eq "studio.issue.shell_hostess_staging_acceptance_entry_drift" }).Count -ne 1) {
+            throw "shell Hostess staging acceptance route drift failed check missing"
+        }
+        if (@($RouteDriftComparisonView.entries | Where-Object { $_.item_id -eq "hostess.copy_staging_files" -and $_.candidate_route_kind -eq "hostess.stage.files_from_drifted_plan" -and $_.change -eq "changed" }).Count -ne 1) {
+            throw "shell Hostess staging acceptance route drift action row mismatch"
         }
     }
     $ShellHostessStagingAcceptanceArchiveManifestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-hostess-staging-acceptance-manifest --checklist $ShellHostessStagingAcceptancePath --acceptance-id "synthetic-hostess-staging-ready-archive" --label "Synthetic Hostess staging ready acceptance archive" --output $ShellHostessStagingAcceptanceArchiveManifestPath
