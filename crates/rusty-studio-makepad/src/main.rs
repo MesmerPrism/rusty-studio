@@ -6,10 +6,10 @@ use rusty_studio_core::{
     add_next_catalog_module_to_graph, compare_shell_handoff_acceptance_checklists, load_project,
     load_shell_handoff_acceptance_checklist, remove_binding_from_graph, remove_module_from_graph,
     retarget_graph_host_profile, save_json, save_project, save_shell_bundle,
-    selected_shell_bundle_for_graph, shell_handoff_acceptance_checklist_for_intake,
-    shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
-    shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
-    validate_selected_shell_bundle, view_model_for_graph, view_model_for_graph_issue_node_and_edge,
+    selected_shell_bundle_for_graph, shell_handoff_acceptance_checklist_for_project,
+    shell_handoff_for_bundle, shell_handoff_manifest_for_project,
+    shell_handoff_readiness_for_project, validate_selected_shell_bundle, view_model_for_graph,
+    view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView,
@@ -1977,10 +1977,11 @@ fn shell_handoff_acceptance_for_project_source(
     let project =
         load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
     let bundle_root = selected_shell_bundle_root_dir(project_path);
-    let manifest =
-        shell_handoff_manifest_for_project(&project, project_path.parent(), &bundle_root);
-    let intake = shell_handoff_intake_for_manifest(&manifest);
-    let report = shell_handoff_acceptance_checklist_for_intake(&intake);
+    let report = shell_handoff_acceptance_checklist_for_project(
+        &project,
+        project_path.parent(),
+        &bundle_root,
+    );
     Ok((report, bundle_root))
 }
 

@@ -3174,6 +3174,16 @@ pub fn shell_handoff_acceptance_checklist_for_intake(
     }
 }
 
+pub fn shell_handoff_acceptance_checklist_for_project(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    bundle_root: &Path,
+) -> StudioShellHandoffAcceptanceChecklistReport {
+    let manifest = shell_handoff_manifest_for_project(project, base_dir, bundle_root);
+    let intake = shell_handoff_intake_for_manifest(&manifest);
+    shell_handoff_acceptance_checklist_for_intake(&intake)
+}
+
 pub fn compare_shell_handoff_acceptance_checklists(
     baseline: &StudioShellHandoffAcceptanceChecklistReport,
     candidate: &StudioShellHandoffAcceptanceChecklistReport,
@@ -9069,6 +9079,60 @@ mod tests {
                     .checks
                     .iter()
                     .all(|check| check.status == StudioValidationStatus::Pass)
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_snapshot_reports_ready_project() {
+        let root = temp_root("shell-handoff-acceptance-snapshot");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        let intake = shell_handoff_intake_for_manifest(&manifest);
+        let expected = shell_handoff_acceptance_checklist_for_intake(&intake);
+
+        let checklist =
+            shell_handoff_acceptance_checklist_for_project(&project, Some(&root), &bundle_root);
+
+        assert_eq!(checklist, expected);
+        assert_eq!(checklist.status, StudioShellHandoffAcceptanceStatus::Ready);
+        assert_eq!(checklist.ready_count, 3);
+        assert_eq!(checklist.blocked_count, 0);
+        assert_eq!(checklist.rejected_count, 0);
+        assert_eq!(checklist.entries.len(), 3);
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_snapshot_blocks_missing_bundles() {
+        let root = temp_root("shell-handoff-acceptance-snapshot-missing");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("missing-selected-shells");
+
+        let checklist =
+            shell_handoff_acceptance_checklist_for_project(&project, Some(&root), &bundle_root);
+
+        assert_eq!(
+            checklist.status,
+            StudioShellHandoffAcceptanceStatus::Blocked
+        );
+        assert_eq!(
+            checklist.issue_code.as_deref(),
+            Some("studio.issue.shell_bundle_file_missing")
+        );
+        assert_eq!(checklist.ready_count, 0);
+        assert_eq!(checklist.blocked_count, 3);
+        assert_eq!(checklist.rejected_count, 0);
+        assert_eq!(checklist.entries.len(), 3);
+        assert!(checklist.entries.iter().all(|entry| {
+            entry.status == StudioShellHandoffAcceptanceStatus::Blocked
+                && entry.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
         }));
     }
 

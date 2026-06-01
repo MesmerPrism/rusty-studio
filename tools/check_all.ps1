@@ -34,6 +34,7 @@ try {
     $ShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs.json"
     $ShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake.json"
     $ShellHandoffAcceptanceChecklistPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json"
+    $ShellHandoffAcceptanceSnapshotPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json"
     $ShellHandoffAcceptanceComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json"
     $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
     $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
@@ -45,7 +46,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -1627,6 +1628,58 @@ try {
                 if (@($ChecklistEntry.checks | Where-Object { $_.owner -eq $RequiredOwner }).Count -lt 1) {
                     throw "shell handoff acceptance checklist missing owner $RequiredOwner for $($RequiredIntake.Graph)"
                 }
+            }
+        }
+    }
+    $HandoffAcceptanceSnapshotOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-snapshot --project "examples\synthetic-studio-project.json" --bundle-root $SelectedShellBundleRoot --output $ShellHandoffAcceptanceSnapshotPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell handoff acceptance snapshot failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellHandoffAcceptanceSnapshotPath)) {
+        throw "shell handoff acceptance snapshot was not written"
+    }
+    $HandoffAcceptanceSnapshot = ($HandoffAcceptanceSnapshotOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenHandoffAcceptanceSnapshot = Get-Content -Raw $ShellHandoffAcceptanceSnapshotPath | ConvertFrom-Json
+    foreach ($SnapshotView in @($HandoffAcceptanceSnapshot, $WrittenHandoffAcceptanceSnapshot)) {
+        if ($SnapshotView.'$schema' -ne "rusty.studio.shell_handoff_acceptance_checklist.v1") {
+            throw "shell handoff acceptance snapshot schema mismatch"
+        }
+        if ($SnapshotView.source_intake_schema -ne "rusty.studio.shell_handoff_intake_report.v1") {
+            throw "shell handoff acceptance snapshot source schema mismatch"
+        }
+        if ($SnapshotView.manifest_id -ne $HandoffAcceptanceChecklist.manifest_id) {
+            throw "shell handoff acceptance snapshot manifest mismatch"
+        }
+        if ($SnapshotView.project_id -ne $HandoffAcceptanceChecklist.project_id) {
+            throw "shell handoff acceptance snapshot project mismatch"
+        }
+        if ($SnapshotView.project_revision -ne $HandoffAcceptanceChecklist.project_revision) {
+            throw "shell handoff acceptance snapshot project revision mismatch"
+        }
+        if ($SnapshotView.status -ne "ready") {
+            throw "shell handoff acceptance snapshot was not ready"
+        }
+        if ($null -ne $SnapshotView.issue_code) {
+            throw "shell handoff acceptance snapshot should not carry a top-level issue"
+        }
+        if ($SnapshotView.ready_count -ne 3 -or $SnapshotView.blocked_count -ne 0 -or $SnapshotView.rejected_count -ne 0) {
+            throw "shell handoff acceptance snapshot counts mismatch"
+        }
+        if (@($SnapshotView.entries).Count -ne 3) {
+            throw "shell handoff acceptance snapshot entry count mismatch"
+        }
+        foreach ($RequiredAction in @("install", "launch", "open_command_session", "collect_device_evidence")) {
+            if (@($SnapshotView.prohibited_actions) -notcontains $RequiredAction) {
+                throw "shell handoff acceptance snapshot missing prohibited action $RequiredAction"
+            }
+        }
+        foreach ($ChecklistEntry in @($HandoffAcceptanceChecklist.entries)) {
+            $SnapshotEntry = @($SnapshotView.entries | Where-Object { $_.graph_id -eq $ChecklistEntry.graph_id }) | Select-Object -First 1
+            if ($null -eq $SnapshotEntry) {
+                throw "shell handoff acceptance snapshot missing graph $($ChecklistEntry.graph_id)"
+            }
+            if ($SnapshotEntry.status -ne $ChecklistEntry.status -or $SnapshotEntry.consumer_id -ne $ChecklistEntry.consumer_id -or $SnapshotEntry.runtime_route_kind -ne $ChecklistEntry.runtime_route_kind) {
+                throw "shell handoff acceptance snapshot entry mismatch for $($ChecklistEntry.graph_id)"
             }
         }
     }
