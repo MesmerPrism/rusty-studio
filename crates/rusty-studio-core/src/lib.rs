@@ -9,13 +9,15 @@ use rusty_studio_model::{
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
     StudioShellDescriptorValidationReport, StudioShellHandoffAcceptanceBaselineIndex,
     StudioShellHandoffAcceptanceBaselineIndexEntry, StudioShellHandoffAcceptanceBaselineManifest,
-    StudioShellHandoffAcceptanceCheck, StudioShellHandoffAcceptanceChecklistEntry,
-    StudioShellHandoffAcceptanceChecklistReport, StudioShellHandoffAcceptanceComparisonChange,
-    StudioShellHandoffAcceptanceComparisonEntry, StudioShellHandoffAcceptanceComparisonReport,
-    StudioShellHandoffAcceptanceComparisonStatus, StudioShellHandoffAcceptanceStatus,
-    StudioShellHandoffAcceptanceSummaryReport, StudioShellHandoffAcceptanceTargetSummary,
-    StudioShellHandoffIntakeDecision, StudioShellHandoffIntakeEntry,
-    StudioShellHandoffIntakeReport, StudioShellHandoffIntakeStatus,
+    StudioShellHandoffAcceptanceBaselineSelectionEntry,
+    StudioShellHandoffAcceptanceBaselineSelectionReport,
+    StudioShellHandoffAcceptanceBaselineSelectionStatus, StudioShellHandoffAcceptanceCheck,
+    StudioShellHandoffAcceptanceChecklistEntry, StudioShellHandoffAcceptanceChecklistReport,
+    StudioShellHandoffAcceptanceComparisonChange, StudioShellHandoffAcceptanceComparisonEntry,
+    StudioShellHandoffAcceptanceComparisonReport, StudioShellHandoffAcceptanceComparisonStatus,
+    StudioShellHandoffAcceptanceStatus, StudioShellHandoffAcceptanceSummaryReport,
+    StudioShellHandoffAcceptanceTargetSummary, StudioShellHandoffIntakeDecision,
+    StudioShellHandoffIntakeEntry, StudioShellHandoffIntakeReport, StudioShellHandoffIntakeStatus,
     StudioShellHandoffIntakeTargetSummary, StudioShellHandoffKind, StudioShellHandoffManifest,
     StudioShellHandoffManifestEntry, StudioShellHandoffManifestTarget,
     StudioShellHandoffManifestValidationReport, StudioShellHandoffReadinessEntry,
@@ -31,7 +33,8 @@ use rusty_studio_model::{
     SHELL_BUNDLE_REPORT_SCHEMA, SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA,
     SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
     SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA,
-    SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA,
+    SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA,
+    SHELL_HANDOFF_ACCEPTANCE_BASELINE_SELECTION_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA,
     SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA,
     SHELL_HANDOFF_INTAKE_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
     SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
@@ -3378,6 +3381,70 @@ pub fn select_shell_handoff_acceptance_baseline_index_entry<'a>(
                 .then(|| index.entries.first())
                 .flatten()
         })
+}
+
+pub fn summarize_shell_handoff_acceptance_baseline_index_selection(
+    index: &StudioShellHandoffAcceptanceBaselineIndex,
+    index_path: Option<&Path>,
+    requested_baseline_id: Option<&str>,
+) -> StudioShellHandoffAcceptanceBaselineSelectionReport {
+    let selected_entry =
+        select_shell_handoff_acceptance_baseline_index_entry(index, requested_baseline_id);
+    let selected_baseline_id = selected_entry.map(|entry| entry.baseline_id.clone());
+    let status = if index.entries.is_empty() {
+        StudioShellHandoffAcceptanceBaselineSelectionStatus::Empty
+    } else if selected_entry.is_some() {
+        StudioShellHandoffAcceptanceBaselineSelectionStatus::Selected
+    } else {
+        StudioShellHandoffAcceptanceBaselineSelectionStatus::Missing
+    };
+    let issue_code = match status {
+        StudioShellHandoffAcceptanceBaselineSelectionStatus::Selected => None,
+        StudioShellHandoffAcceptanceBaselineSelectionStatus::Missing => {
+            Some("studio.issue.shell_handoff_acceptance_baseline_not_found".to_string())
+        }
+        StudioShellHandoffAcceptanceBaselineSelectionStatus::Empty => {
+            Some("studio.issue.shell_handoff_acceptance_baseline_index_empty".to_string())
+        }
+    };
+
+    StudioShellHandoffAcceptanceBaselineSelectionReport {
+        schema_id: SHELL_HANDOFF_ACCEPTANCE_BASELINE_SELECTION_SCHEMA.to_string(),
+        source_index_schema: index.schema_id.clone(),
+        index_path: index_path.map(|path| path.display().to_string()),
+        requested_baseline_id: requested_baseline_id.map(str::to_string),
+        default_baseline_id: index.default_baseline_id.clone(),
+        selected_baseline_id: selected_baseline_id.clone(),
+        status,
+        issue_code,
+        baseline_count: index.baseline_count,
+        ready_baseline_count: index.ready_baseline_count,
+        blocked_baseline_count: index.blocked_baseline_count,
+        rejected_baseline_count: index.rejected_baseline_count,
+        project_ids: index.project_ids.clone(),
+        manifest_ids: index.manifest_ids.clone(),
+        entries: index
+            .entries
+            .iter()
+            .map(|entry| StudioShellHandoffAcceptanceBaselineSelectionEntry {
+                baseline_id: entry.baseline_id.clone(),
+                label: entry.label.clone(),
+                selected: selected_baseline_id.as_deref() == Some(entry.baseline_id.as_str()),
+                default: index.default_baseline_id.as_deref() == Some(entry.baseline_id.as_str()),
+                baseline_manifest_path: entry.baseline_manifest_path.clone(),
+                checklist_path: entry.checklist_path.clone(),
+                project_id: entry.project_id.clone(),
+                project_revision: entry.project_revision,
+                status: entry.status,
+                issue_code: entry.issue_code.clone(),
+                ready_count: entry.ready_count,
+                blocked_count: entry.blocked_count,
+                rejected_count: entry.rejected_count,
+                entry_count: entry.entry_count,
+                target_count: entry.target_count,
+            })
+            .collect(),
+    }
 }
 
 pub fn compare_shell_handoff_acceptance_checklists(
@@ -9909,6 +9976,183 @@ mod tests {
         assert!(
             select_shell_handoff_acceptance_baseline_index_entry(&index, Some("missing")).is_none()
         );
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_baseline_selection_reports_default_entry() {
+        let root = temp_root("shell-handoff-acceptance-baseline-selection");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let ready_bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&ready_bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let ready_checklist = shell_handoff_acceptance_checklist_for_project(
+            &project,
+            Some(&root),
+            &ready_bundle_root,
+        );
+        let blocked_checklist = shell_handoff_acceptance_checklist_for_project(
+            &project,
+            Some(&root),
+            &root.join("missing-selected-shells"),
+        );
+        let ready_checklist_path = root.join("ready-checklist.json");
+        let blocked_checklist_path = root.join("blocked-checklist.json");
+        let ready_manifest_path = root.join("ready-baseline.json");
+        let blocked_manifest_path = root.join("blocked-baseline.json");
+        let ready_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &ready_checklist,
+            &ready_checklist_path,
+            Some("synthetic-ready"),
+            Some("Synthetic ready acceptance baseline"),
+        );
+        let blocked_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &blocked_checklist,
+            &blocked_checklist_path,
+            Some("synthetic-blocked"),
+            Some("Synthetic blocked acceptance baseline"),
+        );
+        let index = shell_handoff_acceptance_baseline_index_for_manifests(
+            vec![
+                (ready_baseline, Some(ready_manifest_path.clone())),
+                (blocked_baseline, Some(blocked_manifest_path)),
+            ],
+            Some("synthetic-ready"),
+        );
+        let index_path = root.join("shell-handoff-acceptance-baselines.json");
+
+        let selection = summarize_shell_handoff_acceptance_baseline_index_selection(
+            &index,
+            Some(&index_path),
+            None,
+        );
+
+        assert_eq!(
+            selection.schema_id,
+            SHELL_HANDOFF_ACCEPTANCE_BASELINE_SELECTION_SCHEMA
+        );
+        assert_eq!(
+            selection.source_index_schema,
+            SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA
+        );
+        assert_eq!(
+            selection.index_path.as_deref(),
+            Some(index_path.display().to_string().as_str())
+        );
+        assert_eq!(selection.requested_baseline_id, None);
+        assert_eq!(
+            selection.default_baseline_id.as_deref(),
+            Some("synthetic-ready")
+        );
+        assert_eq!(
+            selection.selected_baseline_id.as_deref(),
+            Some("synthetic-ready")
+        );
+        assert_eq!(
+            selection.status,
+            StudioShellHandoffAcceptanceBaselineSelectionStatus::Selected
+        );
+        assert_eq!(selection.issue_code, None);
+        assert_eq!(selection.baseline_count, 2);
+        assert_eq!(selection.ready_baseline_count, 1);
+        assert_eq!(selection.blocked_baseline_count, 1);
+        assert_eq!(selection.project_ids, vec!["studio.project.test"]);
+        assert_eq!(selection.entries.len(), 2);
+        let selected = selection
+            .entries
+            .iter()
+            .find(|entry| entry.baseline_id == "synthetic-ready")
+            .expect("selected entry");
+        assert!(selected.selected);
+        assert!(selected.default);
+        assert_eq!(
+            selected.baseline_manifest_path.as_deref(),
+            Some(ready_manifest_path.display().to_string().as_str())
+        );
+        assert_eq!(selected.status, StudioShellHandoffAcceptanceStatus::Ready);
+        assert_eq!(selected.ready_count, 3);
+        assert_eq!(selected.entry_count, 3);
+        assert_eq!(selected.target_count, 3);
+        let blocked = selection
+            .entries
+            .iter()
+            .find(|entry| entry.baseline_id == "synthetic-blocked")
+            .expect("blocked entry");
+        assert!(!blocked.selected);
+        assert!(!blocked.default);
+        assert_eq!(blocked.status, StudioShellHandoffAcceptanceStatus::Blocked);
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_baseline_selection_reports_missing_request() {
+        let root = temp_root("shell-handoff-acceptance-baseline-selection-missing");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let checklist =
+            shell_handoff_acceptance_checklist_for_project(&project, Some(&root), &bundle_root);
+        let checklist_path = root.join("ready-checklist.json");
+        let baseline_path = root.join("ready-baseline.json");
+        let baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &checklist,
+            &checklist_path,
+            Some("synthetic-ready"),
+            Some("Synthetic ready acceptance baseline"),
+        );
+        let index = shell_handoff_acceptance_baseline_index_for_manifests(
+            vec![(baseline, Some(baseline_path))],
+            Some("synthetic-ready"),
+        );
+
+        let selection = summarize_shell_handoff_acceptance_baseline_index_selection(
+            &index,
+            None,
+            Some("synthetic-missing"),
+        );
+
+        assert_eq!(
+            selection.status,
+            StudioShellHandoffAcceptanceBaselineSelectionStatus::Missing
+        );
+        assert_eq!(
+            selection.issue_code.as_deref(),
+            Some("studio.issue.shell_handoff_acceptance_baseline_not_found")
+        );
+        assert_eq!(
+            selection.requested_baseline_id.as_deref(),
+            Some("synthetic-missing")
+        );
+        assert_eq!(selection.selected_baseline_id, None);
+        assert_eq!(selection.baseline_count, 1);
+        assert!(selection.entries.iter().all(|entry| !entry.selected));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_baseline_selection_reports_empty_index() {
+        let index = shell_handoff_acceptance_baseline_index_for_manifests(Vec::new(), None);
+
+        let selection =
+            summarize_shell_handoff_acceptance_baseline_index_selection(&index, None, None);
+
+        assert_eq!(
+            selection.status,
+            StudioShellHandoffAcceptanceBaselineSelectionStatus::Empty
+        );
+        assert_eq!(
+            selection.issue_code.as_deref(),
+            Some("studio.issue.shell_handoff_acceptance_baseline_index_empty")
+        );
+        assert_eq!(selection.baseline_count, 0);
+        assert_eq!(selection.selected_baseline_id, None);
+        assert!(selection.entries.is_empty());
     }
 
     #[test]

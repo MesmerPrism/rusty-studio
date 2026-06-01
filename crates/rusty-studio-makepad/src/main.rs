@@ -13,17 +13,21 @@ use rusty_studio_core::{
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
-    validate_selected_shell_bundle, view_model_for_graph, view_model_for_graph_issue_node_and_edge,
+    summarize_shell_handoff_acceptance_baseline_index_selection, validate_selected_shell_bundle,
+    view_model_for_graph, view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
     StudioShellDescriptorStatus, StudioShellHandoffAcceptanceBaselineIndex,
-    StudioShellHandoffAcceptanceBaselineManifest, StudioShellHandoffAcceptanceChecklistReport,
-    StudioShellHandoffAcceptanceComparisonChange, StudioShellHandoffAcceptanceComparisonReport,
-    StudioShellHandoffAcceptanceComparisonStatus, StudioShellHandoffAcceptanceStatus,
-    StudioShellHandoffManifest, StudioShellHandoffReadinessReport, StudioShellHandoffReport,
-    StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
+    StudioShellHandoffAcceptanceBaselineManifest,
+    StudioShellHandoffAcceptanceBaselineSelectionReport,
+    StudioShellHandoffAcceptanceBaselineSelectionStatus,
+    StudioShellHandoffAcceptanceChecklistReport, StudioShellHandoffAcceptanceComparisonChange,
+    StudioShellHandoffAcceptanceComparisonReport, StudioShellHandoffAcceptanceComparisonStatus,
+    StudioShellHandoffAcceptanceStatus, StudioShellHandoffManifest,
+    StudioShellHandoffReadinessReport, StudioShellHandoffReport, StudioShellTargetKind,
+    StudioValidationStatus, StudioViewModel,
 };
 use std::path::{Path, PathBuf};
 
@@ -3201,12 +3205,15 @@ fn shell_handoff_acceptance_baseline_status(
     index_path: &Path,
     bundle_root: &Path,
 ) -> String {
+    let selection =
+        summarize_shell_handoff_acceptance_baseline_index_selection(index, Some(index_path), None);
     format!(
-        "acceptance baseline written\n  baseline: {} ({})\n  identity: {}\n  checklist: {}\n{}\n{}",
+        "acceptance baseline written\n  baseline: {} ({})\n  identity: {}\n  checklist: {}\n{}\n{}\n{}",
         baseline.baseline_id,
         baseline.label,
         baseline_path.display(),
         checklist_path.display(),
+        shell_handoff_acceptance_baseline_selection_status(&selection),
         shell_handoff_acceptance_baseline_index_status(index, index_path),
         shell_handoff_acceptance_status(report, bundle_root)
     )
@@ -3269,12 +3276,64 @@ fn shell_handoff_acceptance_baseline_index_status(
     )
 }
 
+fn shell_handoff_acceptance_baseline_selection_status(
+    report: &StudioShellHandoffAcceptanceBaselineSelectionReport,
+) -> String {
+    let status = shell_handoff_acceptance_baseline_selection_status_label(report.status);
+    let requested = report.requested_baseline_id.as_deref().unwrap_or("none");
+    let default = report.default_baseline_id.as_deref().unwrap_or("none");
+    let selected = report.selected_baseline_id.as_deref().unwrap_or("none");
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let index_path = report.index_path.as_deref().unwrap_or("not saved");
+    let rows = report
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let entry_status = shell_handoff_acceptance_status_label(entry.status);
+            let entry_issue = entry.issue_code.as_deref().unwrap_or("none");
+            let manifest_path = entry.baseline_manifest_path.as_deref().unwrap_or("unknown");
+            let selected_flag = if entry.selected { "yes" } else { "no" };
+            let default_flag = if entry.default { "yes" } else { "no" };
+            format!(
+                "{} [{}] selected {}; default {}; ready {}; blocked {}; rejected {}; manifest {}; issue {}",
+                entry.baseline_id,
+                entry_status,
+                selected_flag,
+                default_flag,
+                entry.ready_count,
+                entry.blocked_count,
+                entry.rejected_count,
+                manifest_path,
+                entry_issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "baseline selection {status}; requested {requested}; default {default}; selected {selected}; slots {}; ready {}; blocked {}; rejected {}; issue {issue}\n  index: {}\n  entries:\n  {}",
+        report.baseline_count,
+        report.ready_baseline_count,
+        report.blocked_baseline_count,
+        report.rejected_baseline_count,
+        index_path,
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
 fn shell_handoff_acceptance_summary_status(
     baseline: &StudioShellHandoffAcceptanceBaselineManifest,
     index: &StudioShellHandoffAcceptanceBaselineIndex,
     baseline_path: &Path,
     index_path: &Path,
 ) -> String {
+    let selection =
+        summarize_shell_handoff_acceptance_baseline_index_selection(index, Some(index_path), None);
     let summary = &baseline.summary;
     let status = shell_handoff_acceptance_status_label(summary.status);
     let issue = summary.issue_code.as_deref().unwrap_or("none");
@@ -3312,7 +3371,7 @@ fn shell_handoff_acceptance_summary_status(
         .collect::<Vec<_>>()
         .join("\n  ");
     format!(
-        "acceptance baseline summary {status}; baseline {} ({}); project {} rev {}; manifest {}; ready {}; blocked {}; rejected {}; entries {}; issue {issue}\n  identity: {}\n  checklist: {}\n  intake checks: {}; failed {}\n  targets:\n  {}\n{}",
+        "acceptance baseline summary {status}; baseline {} ({}); project {} rev {}; manifest {}; ready {}; blocked {}; rejected {}; entries {}; issue {issue}\n  identity: {}\n  checklist: {}\n  intake checks: {}; failed {}\n  targets:\n  {}\n{}\n{}",
         baseline.baseline_id,
         baseline.label,
         summary.project_id,
@@ -3331,8 +3390,19 @@ fn shell_handoff_acceptance_summary_status(
         } else {
             target_rows
         },
+        shell_handoff_acceptance_baseline_selection_status(&selection),
         shell_handoff_acceptance_baseline_index_status(index, index_path)
     )
+}
+
+fn shell_handoff_acceptance_baseline_selection_status_label(
+    status: StudioShellHandoffAcceptanceBaselineSelectionStatus,
+) -> &'static str {
+    match status {
+        StudioShellHandoffAcceptanceBaselineSelectionStatus::Selected => "selected",
+        StudioShellHandoffAcceptanceBaselineSelectionStatus::Missing => "missing",
+        StudioShellHandoffAcceptanceBaselineSelectionStatus::Empty => "empty",
+    }
 }
 
 fn shell_handoff_acceptance_owner_summary(
@@ -4502,6 +4572,10 @@ mod tests {
         assert!(status.contains(&format!("identity: {}", baseline_path.display())));
         assert!(status.contains(&format!("checklist: {}", output_path.display())));
         assert!(status.contains(&format!("index: {}", index_path.display())));
+        assert!(status.contains(
+            "baseline selection selected; requested none; default studio.project.makepad_edit.rev1.ready; selected studio.project.makepad_edit.rev1.ready"
+        ));
+        assert!(status.contains("selected yes; default yes"));
         assert!(status
             .contains("baseline index slots 1; default studio.project.makepad_edit.rev1.ready"));
         assert!(status.contains("handoff acceptance ready"));
@@ -4584,6 +4658,9 @@ mod tests {
         assert!(status.contains(&format!("identity: {}", baseline_path.display())));
         assert!(status.contains(&format!("checklist: {}", checklist_path.display())));
         assert!(status.contains(&format!("index: {}", index_path.display())));
+        assert!(status.contains(
+            "baseline selection selected; requested none; default studio.project.makepad_edit.rev1.ready; selected studio.project.makepad_edit.rev1.ready"
+        ));
         assert!(status.contains("baseline index slots 1"));
         assert!(status.contains("desktop: ready 1/1; blocked 0; rejected 0"));
         assert!(status.contains("consumers rusty-studio-desktop-shell"));

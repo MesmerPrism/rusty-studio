@@ -38,6 +38,7 @@ try {
     $ShellHandoffAcceptanceSummaryPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-summary.json"
     $ShellHandoffAcceptanceBaselinePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-baseline.json"
     $ShellHandoffAcceptanceBaselineIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json"
+    $ShellHandoffAcceptanceBaselineSelectionPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-baseline-selection.json"
     $ShellHandoffAcceptanceComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json"
     $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
     $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
@@ -49,7 +50,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -1837,6 +1838,84 @@ try {
         if ($BaselineIndexEntry.status -ne "ready" -or $BaselineIndexEntry.ready_count -ne 3 -or $BaselineIndexEntry.blocked_count -ne 0 -or $BaselineIndexEntry.rejected_count -ne 0 -or $BaselineIndexEntry.entry_count -ne 3 -or $BaselineIndexEntry.target_count -ne 3) {
             throw "shell handoff acceptance baseline index entry readiness mismatch"
         }
+    }
+    $HandoffAcceptanceBaselineSelectionOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-baseline-selection --baseline-index $ShellHandoffAcceptanceBaselineIndexPath --baseline-id "synthetic-ready" --output $ShellHandoffAcceptanceBaselineSelectionPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell handoff acceptance baseline selection failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellHandoffAcceptanceBaselineSelectionPath)) {
+        throw "shell handoff acceptance baseline selection was not written"
+    }
+    $HandoffAcceptanceBaselineSelection = ($HandoffAcceptanceBaselineSelectionOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenHandoffAcceptanceBaselineSelection = Get-Content -Raw $ShellHandoffAcceptanceBaselineSelectionPath | ConvertFrom-Json
+    foreach ($BaselineSelectionView in @($HandoffAcceptanceBaselineSelection, $WrittenHandoffAcceptanceBaselineSelection)) {
+        if ($BaselineSelectionView.'$schema' -ne "rusty.studio.shell_handoff_acceptance_baseline_selection.v1") {
+            throw "shell handoff acceptance baseline selection schema mismatch"
+        }
+        if ($BaselineSelectionView.source_index_schema -ne "rusty.studio.shell_handoff_acceptance_baseline_index.v1") {
+            throw "shell handoff acceptance baseline selection source index schema mismatch"
+        }
+        if ($BaselineSelectionView.index_path -ne $ShellHandoffAcceptanceBaselineIndexPath) {
+            throw "shell handoff acceptance baseline selection index path mismatch"
+        }
+        if ($BaselineSelectionView.requested_baseline_id -ne "synthetic-ready" -or $BaselineSelectionView.default_baseline_id -ne "synthetic-ready" -or $BaselineSelectionView.selected_baseline_id -ne "synthetic-ready") {
+            throw "shell handoff acceptance baseline selection id mismatch"
+        }
+        if ($BaselineSelectionView.status -ne "selected") {
+            throw "shell handoff acceptance baseline selection status mismatch"
+        }
+        if ($null -ne $BaselineSelectionView.issue_code) {
+            throw "selected shell handoff acceptance baseline selection should not carry an issue"
+        }
+        if ($BaselineSelectionView.baseline_count -ne 1 -or $BaselineSelectionView.ready_baseline_count -ne 1 -or $BaselineSelectionView.blocked_baseline_count -ne 0 -or $BaselineSelectionView.rejected_baseline_count -ne 0) {
+            throw "shell handoff acceptance baseline selection counts mismatch"
+        }
+        if (@($BaselineSelectionView.project_ids).Count -ne 1 -or @($BaselineSelectionView.project_ids)[0] -ne $HandoffAcceptanceChecklist.project_id) {
+            throw "shell handoff acceptance baseline selection project ids mismatch"
+        }
+        if (@($BaselineSelectionView.manifest_ids).Count -ne 1 -or @($BaselineSelectionView.manifest_ids)[0] -ne $HandoffAcceptanceChecklist.manifest_id) {
+            throw "shell handoff acceptance baseline selection manifest ids mismatch"
+        }
+        if (@($BaselineSelectionView.entries).Count -ne 1) {
+            throw "shell handoff acceptance baseline selection entry count mismatch"
+        }
+        $BaselineSelectionEntry = @($BaselineSelectionView.entries)[0]
+        $BaselineSelectionEntryDefault = $BaselineSelectionEntry.PSObject.Properties["default"].Value
+        if ($BaselineSelectionEntry.baseline_id -ne "synthetic-ready" -or $BaselineSelectionEntry.label -ne "Synthetic ready acceptance baseline") {
+            throw "shell handoff acceptance baseline selection entry identity mismatch"
+        }
+        if (-not $BaselineSelectionEntry.selected -or -not $BaselineSelectionEntryDefault) {
+            throw "shell handoff acceptance baseline selection entry selection flags mismatch"
+        }
+        if ($BaselineSelectionEntry.baseline_manifest_path -ne $ShellHandoffAcceptanceBaselinePath) {
+            throw "shell handoff acceptance baseline selection entry manifest path mismatch"
+        }
+        if ($BaselineSelectionEntry.checklist_path -ne $ShellHandoffAcceptanceChecklistPath) {
+            throw "shell handoff acceptance baseline selection entry checklist path mismatch"
+        }
+        if ($BaselineSelectionEntry.project_id -ne $HandoffAcceptanceChecklist.project_id -or $BaselineSelectionEntry.project_revision -ne $HandoffAcceptanceChecklist.project_revision) {
+            throw "shell handoff acceptance baseline selection entry source metadata mismatch"
+        }
+        if ($BaselineSelectionEntry.status -ne "ready" -or $BaselineSelectionEntry.ready_count -ne 3 -or $BaselineSelectionEntry.blocked_count -ne 0 -or $BaselineSelectionEntry.rejected_count -ne 0 -or $BaselineSelectionEntry.entry_count -ne 3 -or $BaselineSelectionEntry.target_count -ne 3) {
+            throw "shell handoff acceptance baseline selection entry readiness mismatch"
+        }
+    }
+    $MissingBaselineSelectionOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-baseline-selection --baseline-index $ShellHandoffAcceptanceBaselineIndexPath --baseline-id "synthetic-missing"
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio missing shell handoff acceptance baseline selection failed with exit code $LASTEXITCODE"
+    }
+    $MissingBaselineSelection = ($MissingBaselineSelectionOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($MissingBaselineSelection.status -ne "missing") {
+        throw "missing shell handoff acceptance baseline selection should report missing"
+    }
+    if ($MissingBaselineSelection.issue_code -ne "studio.issue.shell_handoff_acceptance_baseline_not_found") {
+        throw "missing shell handoff acceptance baseline selection issue mismatch"
+    }
+    if ($MissingBaselineSelection.requested_baseline_id -ne "synthetic-missing") {
+        throw "missing shell handoff acceptance baseline selection requested id mismatch"
+    }
+    if ($null -ne $MissingBaselineSelection.selected_baseline_id) {
+        throw "missing shell handoff acceptance baseline selection should not select a baseline"
     }
     $HandoffAcceptanceComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline-index $ShellHandoffAcceptanceBaselineIndexPath --baseline-id "synthetic-ready" --candidate $ShellHandoffAcceptanceChecklistPath --output $ShellHandoffAcceptanceComparisonPath
     if ($LASTEXITCODE -ne 0) {
