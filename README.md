@@ -41,6 +41,8 @@ Current scope:
   incident-edge cleanup and validation before commit;
 - add and remove typed graph bindings through a shared core/CLI/Makepad
   mutation path with endpoint-kind checks and revision bumps;
+- remove the selected module node or selected binding edge from Makepad by
+  deriving the same core edit request used by CLI commands;
 - export and validate a schema-only shell descriptor for a selected graph;
 - export a schema-only shell artifact manifest for desktop, phone, and Quest
   operator shell descriptors;

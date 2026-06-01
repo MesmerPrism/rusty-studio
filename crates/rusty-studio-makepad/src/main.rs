@@ -14,7 +14,6 @@ use std::path::{Path, PathBuf};
 
 app_main!(App);
 
-const DEFAULT_REMOVE_MODULE_REF: &str = "module.biosignal_sensor.provider";
 const DEFAULT_COMMAND_SOURCE_NODE: &str = "node.shell.operator";
 const DEFAULT_COMMAND_TARGET_NODE: &str = "node.module.synthetic_wave_provider";
 const CANVAS_EDGE_HIT_DISTANCE: f64 = 8.0;
@@ -186,9 +185,9 @@ script_mod! {
             target_headset_button := ActionButton{text: "Target Headset"}
         }
         ButtonRow{
-            remove_biosignal_module_button := ActionButton{text: "Remove Biosignal"}
+            remove_selected_module_button := ActionButton{text: "Remove Selected Module"}
             add_command_binding_button := ActionButton{text: "Add Command"}
-            remove_command_binding_button := ActionButton{text: "Remove Command"}
+            remove_selected_binding_button := ActionButton{text: "Remove Selected Binding"}
         }
         Row{FieldLabel{text: "status"} edit_status := FieldValue{text: "no edits requested"}}
         Row{FieldLabel{text: "message"} edit_message := SmallValue{text: ""}}
@@ -325,6 +324,13 @@ enum StudioGraphCanvasAction {
 enum StudioGraphCanvasHit {
     Node(String),
     Edge(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SelectedBindingRequest {
+    binding_kind: StudioBindingKind,
+    source_node_id: String,
+    target_node_id: String,
 }
 
 impl StudioGraphCanvasModel {
@@ -990,6 +996,27 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn remove_selected_module_from_selected_graph(&mut self, cx: &mut Cx) {
+        let Some(model) = self.model.clone() else {
+            self.last_edit_report = None;
+            self.last_edit_save_issue = "No view model is loaded".to_string();
+            self.sync_edit_report(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match selected_module_reference_id(&model) {
+            Ok(module_reference_id) => {
+                self.remove_module_from_selected_graph(cx, &module_reference_id);
+            }
+            Err(error) => {
+                self.last_edit_report = None;
+                self.last_edit_save_issue = error;
+                self.sync_edit_report(cx);
+                self.ui.redraw(cx);
+            }
+        }
+    }
+
     fn add_binding_to_selected_graph(
         &mut self,
         cx: &mut Cx,
@@ -1084,6 +1111,32 @@ impl App {
         }
         self.sync_loaded_model(cx);
         self.ui.redraw(cx);
+    }
+
+    fn remove_selected_binding_from_selected_graph(&mut self, cx: &mut Cx) {
+        let Some(model) = self.model.clone() else {
+            self.last_edit_report = None;
+            self.last_edit_save_issue = "No view model is loaded".to_string();
+            self.sync_edit_report(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match selected_binding_request(&model) {
+            Ok(request) => {
+                self.remove_binding_from_selected_graph(
+                    cx,
+                    request.binding_kind,
+                    &request.source_node_id,
+                    &request.target_node_id,
+                );
+            }
+            Err(error) => {
+                self.last_edit_report = None;
+                self.last_edit_save_issue = error;
+                self.sync_edit_report(cx);
+                self.ui.redraw(cx);
+            }
+        }
     }
 
     fn sync_edit_report(&mut self, cx: &mut Cx) {
@@ -1460,10 +1513,10 @@ impl MatchEvent for App {
         }
         if self
             .ui
-            .button(cx, ids!(remove_biosignal_module_button))
+            .button(cx, ids!(remove_selected_module_button))
             .clicked(actions)
         {
-            self.remove_module_from_selected_graph(cx, DEFAULT_REMOVE_MODULE_REF);
+            self.remove_selected_module_from_selected_graph(cx);
         }
         if self
             .ui
@@ -1479,15 +1532,10 @@ impl MatchEvent for App {
         }
         if self
             .ui
-            .button(cx, ids!(remove_command_binding_button))
+            .button(cx, ids!(remove_selected_binding_button))
             .clicked(actions)
         {
-            self.remove_binding_from_selected_graph(
-                cx,
-                StudioBindingKind::Command,
-                DEFAULT_COMMAND_SOURCE_NODE,
-                DEFAULT_COMMAND_TARGET_NODE,
-            );
+            self.remove_selected_binding_from_selected_graph(cx);
         }
     }
 }
@@ -2134,6 +2182,48 @@ fn edit_validation_line(report: &StudioEditReport) -> String {
         StudioValidationStatus::Fail => "fail",
     };
     format!("{status}; {} check(s)", report.validation.checks.len())
+}
+
+fn selected_module_reference_id(model: &StudioViewModel) -> Result<String, String> {
+    let Some(node) = model.selected_node.as_ref() else {
+        return Err("No node is selected".to_string());
+    };
+    if node.kind != "module" {
+        return Err(format!(
+            "Selected node {} is {}; select a module node to remove a module",
+            node.node_id, node.kind
+        ));
+    }
+    Ok(node.reference_id.clone())
+}
+
+fn selected_binding_request(model: &StudioViewModel) -> Result<SelectedBindingRequest, String> {
+    let Some(edge) = model.selected_edge.as_ref() else {
+        return Err("No edge is selected".to_string());
+    };
+    let Some(binding_kind) = edge
+        .binding_kind
+        .as_deref()
+        .and_then(studio_binding_kind_from_view)
+    else {
+        return Err(format!(
+            "Selected edge {} is {}; select a stream or command binding to remove a binding",
+            edge.edge_id, edge.kind
+        ));
+    };
+    Ok(SelectedBindingRequest {
+        binding_kind,
+        source_node_id: edge.source_node_id.clone(),
+        target_node_id: edge.target_node_id.clone(),
+    })
+}
+
+fn studio_binding_kind_from_view(value: &str) -> Option<StudioBindingKind> {
+    match value {
+        "stream" => Some(StudioBindingKind::Stream),
+        "command" => Some(StudioBindingKind::Command),
+        _ => None,
+    }
 }
 
 fn graph_canvas_model(model: &StudioViewModel, graph: &StudioGraphView) -> StudioGraphCanvasModel {
@@ -2879,6 +2969,48 @@ mod tests {
     }
 
     #[test]
+    fn selected_module_reference_drives_remove_module_request() {
+        let root = temp_root("selected-module-remove-source");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        let mut project = editable_project();
+        project.graphs[0].nodes.push(StudioNode {
+            node_id: "node.module.synthetic_provider".to_string(),
+            kind: StudioNodeKind::Module,
+            reference_id: "module.synthetic_provider".to_string(),
+            label: "Synthetic Provider".to_string(),
+        });
+        project.graphs[0].edges.push(StudioEdge {
+            edge_id: "edge.package_module".to_string(),
+            kind: StudioEdgeKind::PackageProvidesModule,
+            source_node_id: "node.package.synthetic".to_string(),
+            target_node_id: "node.module.synthetic_provider".to_string(),
+        });
+        save_project(&project_path, &project).expect("save editable project");
+        let model = load_studio_view_model_for_path(
+            &project_path,
+            Some("studio.graph.makepad_edit"),
+            None,
+            Some("node.module.synthetic_provider"),
+            None,
+        )
+        .expect("load selected module view model");
+
+        let module_reference_id =
+            selected_module_reference_id(&model).expect("selected module reference");
+        assert_eq!(module_reference_id, "module.synthetic_provider");
+        let (report, refreshed_model) =
+            remove_module_from_project_source(&project_path, &model, 0, &module_reference_id)
+                .expect("remove selected module from project source");
+        let refreshed_model = refreshed_model.expect("refreshed model after applied edit");
+
+        assert_eq!(report.operation, StudioEditOperation::RemoveModule);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.requested_reference_id, "module.synthetic_provider");
+        assert_eq!(refreshed_model.graphs[0].module_count, 0);
+    }
+
+    #[test]
     fn add_binding_to_project_source_saves_and_refreshes_view_model() {
         let root = temp_root("add-binding-source");
         write_reference_fixture_tree(&root);
@@ -2977,6 +3109,64 @@ mod tests {
                 && edge.target_node_id == "node.module.synthetic_provider"
         }));
         assert_eq!(refreshed_model.revision, 2);
+        assert_eq!(refreshed_model.graphs[0].edge_count, 2);
+    }
+
+    #[test]
+    fn selected_binding_drives_remove_binding_request() {
+        let root = temp_root("selected-binding-remove-source");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        let mut project = editable_project();
+        project.graphs[0].nodes.push(StudioNode {
+            node_id: "node.module.synthetic_provider".to_string(),
+            kind: StudioNodeKind::Module,
+            reference_id: "module.synthetic_provider".to_string(),
+            label: "Synthetic Provider".to_string(),
+        });
+        project.graphs[0].edges.push(StudioEdge {
+            edge_id: "edge.package_module".to_string(),
+            kind: StudioEdgeKind::PackageProvidesModule,
+            source_node_id: "node.package.synthetic".to_string(),
+            target_node_id: "node.module.synthetic_provider".to_string(),
+        });
+        project.graphs[0].edges.push(StudioEdge {
+            edge_id: "edge.shell_command".to_string(),
+            kind: StudioEdgeKind::CommandBinding,
+            source_node_id: "node.shell.operator".to_string(),
+            target_node_id: "node.module.synthetic_provider".to_string(),
+        });
+        save_project(&project_path, &project).expect("save editable project");
+        let model = load_studio_view_model_for_path(
+            &project_path,
+            Some("studio.graph.makepad_edit"),
+            None,
+            None,
+            Some("edge.shell_command"),
+        )
+        .expect("load selected binding view model");
+
+        let request = selected_binding_request(&model).expect("selected binding request");
+        assert_eq!(request.binding_kind, StudioBindingKind::Command);
+        assert_eq!(request.source_node_id, "node.shell.operator");
+        assert_eq!(request.target_node_id, "node.module.synthetic_provider");
+        let (report, refreshed_model) = remove_binding_from_project_source(
+            &project_path,
+            &model,
+            0,
+            request.binding_kind,
+            &request.source_node_id,
+            &request.target_node_id,
+        )
+        .expect("remove selected binding from project source");
+        let refreshed_model = refreshed_model.expect("refreshed model after applied edit");
+
+        assert_eq!(report.operation, StudioEditOperation::RemoveBinding);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(
+            report.requested_reference_id,
+            "edge.command_binding.node.shell.operator.node.module.synthetic_provider"
+        );
         assert_eq!(refreshed_model.graphs[0].edge_count, 2);
     }
 }
