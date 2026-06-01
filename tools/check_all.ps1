@@ -80,6 +80,8 @@ try {
     $DamagedTemplateShellBundleRoot = Join-Path $RepoRoot "target\studio-damaged-template-selected-shell"
     $DamagedTemplateShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-damaged-template.json"
     $DamagedTemplateShellExportPackagePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-damaged-template.json"
+    $ShellExportPackageComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-comparison.json"
+    $RegressedShellExportPackageComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-comparison-regressed.json"
     $ShellHandoffAcceptanceChecklistPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json"
     $ShellHandoffAcceptanceSnapshotPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json"
     $ShellHandoffAcceptanceSummaryPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-summary.json"
@@ -100,7 +102,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -2003,6 +2005,104 @@ try {
             if (@($ReadyEntry.runbook_cli_request).Count -lt 7 -or -not (@($ReadyEntry.runbook_cli_request) -contains "--templates")) {
                 throw "damaged template shell export package ready graph CLI request mismatch for $ReadyGraph"
             }
+        }
+    }
+    $ShellExportPackageComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package-comparison --baseline $ShellExportPackagePath --candidate $ShellExportPackagePath --output $ShellExportPackageComparisonPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell export package comparison failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellExportPackageComparisonPath)) {
+        throw "shell export package comparison was not written"
+    }
+    $ShellExportPackageComparison = ($ShellExportPackageComparisonOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellExportPackageComparison = Get-Content -Raw $ShellExportPackageComparisonPath | ConvertFrom-Json
+    foreach ($ExportComparisonView in @($ShellExportPackageComparison, $WrittenShellExportPackageComparison)) {
+        if ($ExportComparisonView.'$schema' -ne "rusty.studio.shell_export_package_comparison.v1") {
+            throw "shell export package comparison schema mismatch"
+        }
+        if ($ExportComparisonView.baseline_schema -ne "rusty.studio.shell_export_package_report.v1" -or $ExportComparisonView.candidate_schema -ne "rusty.studio.shell_export_package_report.v1") {
+            throw "shell export package comparison source schema mismatch"
+        }
+        if ($ExportComparisonView.baseline_package_id -ne $ShellExportPackage.package_id -or $ExportComparisonView.candidate_package_id -ne $ShellExportPackage.package_id) {
+            throw "shell export package comparison package id mismatch"
+        }
+        if ($ExportComparisonView.baseline_manifest_id -ne $ShellExportPackage.manifest_id -or $ExportComparisonView.candidate_manifest_id -ne $ShellExportPackage.manifest_id) {
+            throw "shell export package comparison manifest id mismatch"
+        }
+        if ($ExportComparisonView.status -ne "unchanged") {
+            throw "shell export package comparison should be unchanged"
+        }
+        if ($null -ne $ExportComparisonView.issue_code) {
+            throw "unchanged shell export package comparison should not carry an issue"
+        }
+        if ($ExportComparisonView.baseline_status -ne "ready" -or $ExportComparisonView.candidate_status -ne "ready") {
+            throw "shell export package comparison status inputs mismatch"
+        }
+        if ($ExportComparisonView.ready_delta -ne 0 -or $ExportComparisonView.blocked_delta -ne 0 -or $ExportComparisonView.rejected_delta -ne 0 -or $ExportComparisonView.descriptor_delta -ne 0 -or $ExportComparisonView.template_manifest_delta -ne 0 -or $ExportComparisonView.runbook_entry_delta -ne 0) {
+            throw "shell export package comparison deltas should be zero"
+        }
+        if (@($ExportComparisonView.entries).Count -ne 3) {
+            throw "shell export package comparison entry count mismatch"
+        }
+        if (@($ExportComparisonView.entries | Where-Object { $_.change -ne "unchanged" }).Count -ne 0) {
+            throw "shell export package comparison should not report changed entries"
+        }
+        if (@($ExportComparisonView.entries | Where-Object { -not $_.baseline_descriptor_present -or -not $_.candidate_descriptor_present -or -not $_.baseline_template_manifest_present -or -not $_.candidate_template_manifest_present -or -not $_.baseline_runbook_cli_request_present -or -not $_.candidate_runbook_cli_request_present }).Count -ne 0) {
+            throw "unchanged shell export package comparison entry artifact flags mismatch"
+        }
+        if (@($ExportComparisonView.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
+            throw "shell export package comparison checks reported failures"
+        }
+    }
+    $RegressedShellExportPackageComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package-comparison --baseline $ShellExportPackagePath --candidate $DamagedTemplateShellExportPackagePath --output $RegressedShellExportPackageComparisonPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio regressed shell export package comparison failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $RegressedShellExportPackageComparisonPath)) {
+        throw "regressed shell export package comparison was not written"
+    }
+    $RegressedShellExportPackageComparison = ($RegressedShellExportPackageComparisonOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenRegressedShellExportPackageComparison = Get-Content -Raw $RegressedShellExportPackageComparisonPath | ConvertFrom-Json
+    foreach ($RegressedExportComparisonView in @($RegressedShellExportPackageComparison, $WrittenRegressedShellExportPackageComparison)) {
+        if ($RegressedExportComparisonView.'$schema' -ne "rusty.studio.shell_export_package_comparison.v1") {
+            throw "regressed shell export package comparison schema mismatch"
+        }
+        if ($RegressedExportComparisonView.status -ne "regressed") {
+            throw "regressed shell export package comparison status mismatch"
+        }
+        if ($RegressedExportComparisonView.issue_code -ne "studio.issue.shell_export_package_template_load_failed") {
+            throw "regressed shell export package comparison issue mismatch"
+        }
+        if ($RegressedExportComparisonView.baseline_status -ne "ready" -or $RegressedExportComparisonView.candidate_status -ne "blocked") {
+            throw "regressed shell export package comparison input status mismatch"
+        }
+        if ($RegressedExportComparisonView.ready_delta -ne -1 -or $RegressedExportComparisonView.blocked_delta -ne 1 -or $RegressedExportComparisonView.rejected_delta -ne 0) {
+            throw "regressed shell export package comparison readiness deltas mismatch"
+        }
+        if ($RegressedExportComparisonView.descriptor_delta -ne 0 -or $RegressedExportComparisonView.template_manifest_delta -ne -1 -or $RegressedExportComparisonView.runbook_entry_delta -ne 0) {
+            throw "regressed shell export package comparison artifact deltas mismatch"
+        }
+        if (@($RegressedExportComparisonView.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
+            throw "regressed shell export package comparison checks reported failures"
+        }
+        $RegressedPhoneEntry = @($RegressedExportComparisonView.entries | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_phone" }) | Select-Object -First 1
+        if ($null -eq $RegressedPhoneEntry) {
+            throw "regressed shell export package comparison missing phone entry"
+        }
+        if ($RegressedPhoneEntry.change -ne "regressed" -or $RegressedPhoneEntry.score_delta -ne -1 -or $RegressedPhoneEntry.issue_code -ne "studio.issue.shell_export_package_template_load_failed") {
+            throw "regressed shell export package comparison phone entry mismatch"
+        }
+        if (-not $RegressedPhoneEntry.baseline_descriptor_present -or -not $RegressedPhoneEntry.candidate_descriptor_present) {
+            throw "regressed shell export package comparison phone descriptor flags mismatch"
+        }
+        if (-not $RegressedPhoneEntry.baseline_template_manifest_present -or $RegressedPhoneEntry.candidate_template_manifest_present) {
+            throw "regressed shell export package comparison phone template flags mismatch"
+        }
+        if (-not $RegressedPhoneEntry.baseline_runbook_cli_request_present -or $RegressedPhoneEntry.candidate_runbook_cli_request_present) {
+            throw "regressed shell export package comparison phone runbook flags mismatch"
+        }
+        if (@($RegressedExportComparisonView.entries | Where-Object { $_.graph_id -ne "studio.graph.synthetic_wave_phone" -and $_.change -ne "unchanged" }).Count -ne 0) {
+            throw "regressed shell export package comparison should keep undamaged entries unchanged"
         }
     }
     $HandoffAcceptanceChecklistOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake $ShellHandoffIntakePath --output $ShellHandoffAcceptanceChecklistPath

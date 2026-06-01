@@ -157,6 +157,7 @@ cargo run -p rusty-studio-cli -- shell-handoff-intake --manifest target\studio-s
 cargo run -p rusty-studio-cli -- shell-runbook --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-runbook.json
 cargo run -p rusty-studio-cli -- shell-export-package --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-export-package.json
 cargo run -p rusty-studio-cli -- shell-export-package --manifest target\studio-shell-handoffs\shell-handoffs.json --output target\studio-shell-handoffs\shell-export-package.json
+cargo run -p rusty-studio-cli -- shell-export-package-comparison --baseline target\studio-shell-handoffs\shell-export-package.json --candidate target\studio-shell-handoffs\shell-export-package.json --output target\studio-shell-handoffs\shell-export-package-comparison.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake target\studio-shell-handoffs\shell-handoff-intake.json --output target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-snapshot --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-summary --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-summary.json
@@ -187,7 +188,9 @@ help a Hostess/Manifold owner inspect what would be staged, but Studio still
 does not stage, install, launch, open command sessions, or collect evidence.
 They can be regenerated from an archived shell handoff manifest so stale or
 damaged descriptor/template files are caught as review blockers while intact
-targets remain visible.
+targets remain visible. Saved export-package comparisons let agents review
+whether a package review stayed unchanged, improved, regressed, or became
+incomparable without opening raw package JSON.
 Shell handoff acceptance checklists are also declarative: they
 enumerate downstream readiness
 checks and explicitly prohibit install, launch, command-session opening, and

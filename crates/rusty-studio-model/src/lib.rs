@@ -31,6 +31,8 @@ pub const SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA: &str =
 pub const SHELL_HANDOFF_INTAKE_REPORT_SCHEMA: &str = "rusty.studio.shell_handoff_intake_report.v1";
 pub const SHELL_RUNBOOK_REPORT_SCHEMA: &str = "rusty.studio.shell_runbook_report.v1";
 pub const SHELL_EXPORT_PACKAGE_REPORT_SCHEMA: &str = "rusty.studio.shell_export_package_report.v1";
+pub const SHELL_EXPORT_PACKAGE_COMPARISON_SCHEMA: &str =
+    "rusty.studio.shell_export_package_comparison.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_checklist.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA: &str =
@@ -888,6 +890,87 @@ pub struct StudioShellExportPackageTemplateRef {
     pub target_host_profile: String,
     pub host_routes: StudioShellHostRoutes,
     pub runtime_authority: StudioShellRuntimeAuthority,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellExportPackageComparisonReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub baseline_schema: String,
+    pub candidate_schema: String,
+    pub baseline_package_id: String,
+    pub candidate_package_id: String,
+    pub baseline_manifest_id: String,
+    pub candidate_manifest_id: String,
+    pub baseline_project_id: String,
+    pub candidate_project_id: String,
+    pub baseline_project_revision: u64,
+    pub candidate_project_revision: u64,
+    pub baseline_status: StudioShellExportPackageStatus,
+    pub candidate_status: StudioShellExportPackageStatus,
+    pub status: StudioShellExportPackageComparisonStatus,
+    pub issue_code: Option<String>,
+    pub baseline_ready_count: usize,
+    pub candidate_ready_count: usize,
+    pub ready_delta: isize,
+    pub baseline_blocked_count: usize,
+    pub candidate_blocked_count: usize,
+    pub blocked_delta: isize,
+    pub baseline_rejected_count: usize,
+    pub candidate_rejected_count: usize,
+    pub rejected_delta: isize,
+    pub baseline_descriptor_count: usize,
+    pub candidate_descriptor_count: usize,
+    pub descriptor_delta: isize,
+    pub baseline_template_manifest_count: usize,
+    pub candidate_template_manifest_count: usize,
+    pub template_manifest_delta: isize,
+    pub baseline_runbook_entry_count: usize,
+    pub candidate_runbook_entry_count: usize,
+    pub runbook_entry_delta: isize,
+    pub checks: Vec<StudioValidationCheck>,
+    pub entries: Vec<StudioShellExportPackageComparisonEntry>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellExportPackageComparisonStatus {
+    Improved,
+    Unchanged,
+    Regressed,
+    Incomparable,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellExportPackageComparisonEntry {
+    pub graph_id: String,
+    pub target_kind: Option<StudioShellTargetKind>,
+    pub baseline_status: Option<StudioShellExportPackageStatus>,
+    pub candidate_status: Option<StudioShellExportPackageStatus>,
+    pub change: StudioShellExportPackageComparisonChange,
+    pub score_delta: isize,
+    pub baseline_consumer_id: Option<String>,
+    pub candidate_consumer_id: Option<String>,
+    pub baseline_descriptor_present: bool,
+    pub candidate_descriptor_present: bool,
+    pub baseline_template_manifest_present: bool,
+    pub candidate_template_manifest_present: bool,
+    pub baseline_runbook_cli_request_present: bool,
+    pub candidate_runbook_cli_request_present: bool,
+    pub baseline_issue_code: Option<String>,
+    pub candidate_issue_code: Option<String>,
+    pub issue_code: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellExportPackageComparisonChange {
+    Added,
+    Removed,
+    Improved,
+    Unchanged,
+    Regressed,
+    Changed,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

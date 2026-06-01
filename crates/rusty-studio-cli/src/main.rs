@@ -2,13 +2,13 @@ use clap::{Parser, Subcommand, ValueEnum};
 use rusty_studio_core::{
     add_binding_to_graph, add_module_to_graph, add_next_catalog_module_from_package_to_graph,
     add_next_catalog_module_to_graph, append_shell_handoff_acceptance_baseline_index_manifests,
-    compare_shell_handoff_acceptance_against_baseline_index_entry,
+    compare_shell_export_packages, compare_shell_handoff_acceptance_against_baseline_index_entry,
     compare_shell_handoff_acceptance_against_baseline_manifest,
     compare_shell_handoff_acceptance_checklists, desktop_shell_handoff_for_bundle, export_plan,
     load_project, load_shell_artifact_manifest, load_shell_descriptor,
-    load_shell_handoff_acceptance_baseline_index, load_shell_handoff_acceptance_baseline_manifest,
-    load_shell_handoff_acceptance_checklist, load_shell_handoff_intake_report,
-    load_shell_handoff_manifest, load_shell_template_index,
+    load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
+    load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
+    load_shell_handoff_intake_report, load_shell_handoff_manifest, load_shell_template_index,
     promote_shell_handoff_acceptance_baseline_index_default, remove_binding_from_graph,
     remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
     save_project, save_shell_bundle, select_shell_handoff_acceptance_baseline_index_entry,
@@ -69,6 +69,7 @@ enum Command {
     ShellHandoffIntake(ShellHandoffIntakeArgs),
     ShellRunbook(ShellRunbookArgs),
     ShellExportPackage(ShellExportPackageArgs),
+    ShellExportPackageComparison(ShellExportPackageComparisonArgs),
     ShellHandoffAcceptanceChecklist(ShellHandoffAcceptanceChecklistArgs),
     ShellHandoffAcceptanceSnapshot(ShellHandoffAcceptanceSnapshotArgs),
     ShellHandoffAcceptanceSummary(ShellHandoffAcceptanceSummaryArgs),
@@ -307,6 +308,16 @@ struct ShellExportPackageArgs {
     bundle_root: Option<PathBuf>,
     #[arg(long)]
     manifest: Option<PathBuf>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellExportPackageComparisonArgs {
+    #[arg(long)]
+    baseline: PathBuf,
+    #[arg(long)]
+    candidate: PathBuf,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -806,6 +817,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let project = load_project(project_path)?;
                 shell_export_package_for_project(&project, project_path.parent(), bundle_root)
             };
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellExportPackageComparison(args) => {
+            let baseline = load_shell_export_package_report(&args.baseline)?;
+            let candidate = load_shell_export_package_report(&args.candidate)?;
+            let report = compare_shell_export_packages(&baseline, &candidate);
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }

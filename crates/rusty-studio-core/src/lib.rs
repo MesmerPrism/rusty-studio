@@ -7,7 +7,9 @@ use rusty_studio_model::{
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
-    StudioShellDescriptorValidationReport, StudioShellExportPackageDescriptorRef,
+    StudioShellDescriptorValidationReport, StudioShellExportPackageComparisonChange,
+    StudioShellExportPackageComparisonEntry, StudioShellExportPackageComparisonReport,
+    StudioShellExportPackageComparisonStatus, StudioShellExportPackageDescriptorRef,
     StudioShellExportPackageEntry, StudioShellExportPackageReport, StudioShellExportPackageStatus,
     StudioShellExportPackageTargetSummary, StudioShellExportPackageTemplateRef,
     StudioShellHandoffAcceptanceBaselineIndex, StudioShellHandoffAcceptanceBaselineIndexEntry,
@@ -36,8 +38,8 @@ use rusty_studio_model::{
     SHELL_ARTIFACT_MANIFEST_SCHEMA, SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA,
     SHELL_ARTIFACT_REPORT_SCHEMA, SHELL_BUNDLE_REPORT_SCHEMA,
     SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
-    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_EXPORT_PACKAGE_REPORT_SCHEMA,
-    SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA,
+    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_EXPORT_PACKAGE_COMPARISON_SCHEMA,
+    SHELL_EXPORT_PACKAGE_REPORT_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA,
     SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA,
     SHELL_HANDOFF_ACCEPTANCE_BASELINE_SELECTION_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA,
     SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA,
@@ -124,6 +126,12 @@ pub enum StudioCoreError {
     },
     #[error("{path}: {source}")]
     ParseShellHandoffAcceptanceBaselineIndex {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellExportPackageReport {
         path: String,
         #[source]
         source: serde_json::Error,
@@ -273,6 +281,19 @@ pub fn load_shell_handoff_acceptance_baseline_index(
             path: path.display().to_string(),
             source,
         }
+    })
+}
+
+pub fn load_shell_export_package_report(
+    path: &Path,
+) -> Result<StudioShellExportPackageReport, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| StudioCoreError::ParseShellExportPackageReport {
+        path: path.display().to_string(),
+        source,
     })
 }
 
@@ -3744,6 +3765,325 @@ fn shell_export_package_target_summary(
                 .filter_map(|entry| entry.issue_code.clone()),
         ),
     })
+}
+
+pub fn compare_shell_export_packages(
+    baseline: &StudioShellExportPackageReport,
+    candidate: &StudioShellExportPackageReport,
+) -> StudioShellExportPackageComparisonReport {
+    let checks = shell_export_package_comparison_checks(baseline, candidate);
+    let comparable = checks
+        .iter()
+        .all(|check| check.status == StudioValidationStatus::Pass);
+
+    let entries = if comparable {
+        shell_export_package_comparison_entries(baseline, candidate)
+    } else {
+        Vec::new()
+    };
+
+    let ready_delta = count_delta(candidate.ready_count, baseline.ready_count);
+    let blocked_delta = count_delta(candidate.blocked_count, baseline.blocked_count);
+    let rejected_delta = count_delta(candidate.rejected_count, baseline.rejected_count);
+    let descriptor_delta = count_delta(candidate.descriptor_count, baseline.descriptor_count);
+    let template_manifest_delta = count_delta(
+        candidate.template_manifest_count,
+        baseline.template_manifest_count,
+    );
+    let runbook_entry_delta =
+        count_delta(candidate.runbook_entry_count, baseline.runbook_entry_count);
+
+    let status = if !comparable {
+        StudioShellExportPackageComparisonStatus::Incomparable
+    } else if export_package_status_score(candidate.status)
+        < export_package_status_score(baseline.status)
+        || ready_delta < 0
+        || blocked_delta > 0
+        || rejected_delta > 0
+        || descriptor_delta < 0
+        || template_manifest_delta < 0
+        || runbook_entry_delta < 0
+        || entries.iter().any(|entry| {
+            matches!(
+                entry.change,
+                StudioShellExportPackageComparisonChange::Regressed
+                    | StudioShellExportPackageComparisonChange::Removed
+                    | StudioShellExportPackageComparisonChange::Changed
+            )
+        })
+    {
+        StudioShellExportPackageComparisonStatus::Regressed
+    } else if export_package_status_score(candidate.status)
+        > export_package_status_score(baseline.status)
+        || ready_delta > 0
+        || blocked_delta < 0
+        || rejected_delta < 0
+        || descriptor_delta > 0
+        || template_manifest_delta > 0
+        || runbook_entry_delta > 0
+        || entries
+            .iter()
+            .any(|entry| entry.change == StudioShellExportPackageComparisonChange::Improved)
+    {
+        StudioShellExportPackageComparisonStatus::Improved
+    } else {
+        StudioShellExportPackageComparisonStatus::Unchanged
+    };
+
+    let issue_code = match status {
+        StudioShellExportPackageComparisonStatus::Incomparable => {
+            first_failed_validation_check_issue_code(&checks)
+        }
+        StudioShellExportPackageComparisonStatus::Regressed => entries
+            .iter()
+            .find(|entry| {
+                matches!(
+                    entry.change,
+                    StudioShellExportPackageComparisonChange::Regressed
+                        | StudioShellExportPackageComparisonChange::Removed
+                        | StudioShellExportPackageComparisonChange::Changed
+                )
+            })
+            .and_then(|entry| entry.issue_code.clone())
+            .or_else(|| Some("studio.issue.shell_export_package_regressed".to_string())),
+        StudioShellExportPackageComparisonStatus::Improved
+        | StudioShellExportPackageComparisonStatus::Unchanged => None,
+    };
+
+    StudioShellExportPackageComparisonReport {
+        schema_id: SHELL_EXPORT_PACKAGE_COMPARISON_SCHEMA.to_string(),
+        baseline_schema: baseline.schema_id.clone(),
+        candidate_schema: candidate.schema_id.clone(),
+        baseline_package_id: baseline.package_id.clone(),
+        candidate_package_id: candidate.package_id.clone(),
+        baseline_manifest_id: baseline.manifest_id.clone(),
+        candidate_manifest_id: candidate.manifest_id.clone(),
+        baseline_project_id: baseline.project_id.clone(),
+        candidate_project_id: candidate.project_id.clone(),
+        baseline_project_revision: baseline.project_revision,
+        candidate_project_revision: candidate.project_revision,
+        baseline_status: baseline.status,
+        candidate_status: candidate.status,
+        status,
+        issue_code,
+        baseline_ready_count: baseline.ready_count,
+        candidate_ready_count: candidate.ready_count,
+        ready_delta,
+        baseline_blocked_count: baseline.blocked_count,
+        candidate_blocked_count: candidate.blocked_count,
+        blocked_delta,
+        baseline_rejected_count: baseline.rejected_count,
+        candidate_rejected_count: candidate.rejected_count,
+        rejected_delta,
+        baseline_descriptor_count: baseline.descriptor_count,
+        candidate_descriptor_count: candidate.descriptor_count,
+        descriptor_delta,
+        baseline_template_manifest_count: baseline.template_manifest_count,
+        candidate_template_manifest_count: candidate.template_manifest_count,
+        template_manifest_delta,
+        baseline_runbook_entry_count: baseline.runbook_entry_count,
+        candidate_runbook_entry_count: candidate.runbook_entry_count,
+        runbook_entry_delta,
+        checks,
+        entries,
+    }
+}
+
+fn shell_export_package_comparison_checks(
+    baseline: &StudioShellExportPackageReport,
+    candidate: &StudioShellExportPackageReport,
+) -> Vec<StudioValidationCheck> {
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.shell_export_package_comparison.baseline_schema",
+        baseline.schema_id == SHELL_EXPORT_PACKAGE_REPORT_SCHEMA,
+        "baseline export-package schema id is supported",
+        "baseline export-package schema id is unsupported",
+        "studio.issue.shell_export_package_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_export_package_comparison.candidate_schema",
+        candidate.schema_id == SHELL_EXPORT_PACKAGE_REPORT_SCHEMA,
+        "candidate export-package schema id is supported",
+        "candidate export-package schema id is unsupported",
+        "studio.issue.shell_export_package_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_export_package_comparison.baseline_source_schemas",
+        baseline.source_manifest_schema == SHELL_HANDOFF_MANIFEST_SCHEMA
+            && baseline.source_runbook_schema == SHELL_RUNBOOK_REPORT_SCHEMA,
+        "baseline source schemas are supported",
+        "baseline source schemas are unsupported",
+        "studio.issue.shell_export_package_source_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_export_package_comparison.candidate_source_schemas",
+        candidate.source_manifest_schema == SHELL_HANDOFF_MANIFEST_SCHEMA
+            && candidate.source_runbook_schema == SHELL_RUNBOOK_REPORT_SCHEMA,
+        "candidate source schemas are supported",
+        "candidate source schemas are unsupported",
+        "studio.issue.shell_export_package_source_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_export_package_comparison.project_id",
+        baseline.project_id == candidate.project_id,
+        "baseline and candidate project ids match",
+        "baseline and candidate project ids differ",
+        "studio.issue.shell_export_package_project_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_export_package_comparison.execution_policy",
+        baseline.execution_policy == candidate.execution_policy
+            && baseline.execution_policy == "not_executed.review_only",
+        "baseline and candidate use review-only execution policy",
+        "baseline and candidate execution policies differ or are executable",
+        "studio.issue.shell_export_package_execution_policy_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_export_package_comparison.authority",
+        baseline.command_session_authority == candidate.command_session_authority
+            && baseline.command_session_authority == "rusty.manifold"
+            && baseline.install_launch_evidence_authority
+                == candidate.install_launch_evidence_authority
+            && baseline.install_launch_evidence_authority == "rusty.hostess"
+            && baseline.studio_role == candidate.studio_role
+            && baseline.studio_role == "authoring.export_planning",
+        "baseline and candidate keep Manifold/Hostess/Studio authority",
+        "baseline and candidate authority fields differ or drifted",
+        "studio.issue.shell_export_package_authority_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_export_package_comparison.prohibited_actions",
+        string_set(&baseline.prohibited_actions) == string_set(&candidate.prohibited_actions),
+        "baseline and candidate prohibited actions match",
+        "baseline and candidate prohibited actions differ",
+        "studio.issue.shell_export_package_prohibited_actions_mismatch",
+    );
+    checks
+}
+
+fn shell_export_package_comparison_entries(
+    baseline: &StudioShellExportPackageReport,
+    candidate: &StudioShellExportPackageReport,
+) -> Vec<StudioShellExportPackageComparisonEntry> {
+    let baseline_entries = baseline
+        .entries
+        .iter()
+        .map(|entry| (entry.graph_id.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+    let candidate_entries = candidate
+        .entries
+        .iter()
+        .map(|entry| (entry.graph_id.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+    let graph_ids = baseline_entries
+        .keys()
+        .chain(candidate_entries.keys())
+        .map(|graph_id| (*graph_id).to_string())
+        .collect::<BTreeSet<_>>();
+
+    graph_ids
+        .into_iter()
+        .map(|graph_id| {
+            shell_export_package_comparison_entry(
+                &graph_id,
+                baseline_entries.get(graph_id.as_str()).copied(),
+                candidate_entries.get(graph_id.as_str()).copied(),
+            )
+        })
+        .collect()
+}
+
+fn shell_export_package_comparison_entry(
+    graph_id: &str,
+    baseline: Option<&StudioShellExportPackageEntry>,
+    candidate: Option<&StudioShellExportPackageEntry>,
+) -> StudioShellExportPackageComparisonEntry {
+    let baseline_score = baseline.map(|entry| export_package_status_score(entry.status));
+    let candidate_score = candidate.map(|entry| export_package_status_score(entry.status));
+    let score_delta = candidate_score.unwrap_or(0) - baseline_score.unwrap_or(0);
+    let change = match (baseline, candidate) {
+        (None, Some(_)) => StudioShellExportPackageComparisonChange::Added,
+        (Some(_), None) => StudioShellExportPackageComparisonChange::Removed,
+        (Some(_), Some(_)) if score_delta > 0 => StudioShellExportPackageComparisonChange::Improved,
+        (Some(_), Some(_)) if score_delta < 0 => {
+            StudioShellExportPackageComparisonChange::Regressed
+        }
+        (Some(baseline), Some(candidate))
+            if baseline.consumer_id != candidate.consumer_id
+                || baseline.issue_code != candidate.issue_code
+                || baseline.descriptor.is_some() != candidate.descriptor.is_some()
+                || baseline.template_manifest.is_some()
+                    != candidate.template_manifest.is_some()
+                || baseline.runbook_cli_request.is_empty()
+                    != candidate.runbook_cli_request.is_empty() =>
+        {
+            StudioShellExportPackageComparisonChange::Changed
+        }
+        (Some(_), Some(_)) => StudioShellExportPackageComparisonChange::Unchanged,
+        (None, None) => StudioShellExportPackageComparisonChange::Unchanged,
+    };
+    let issue_code = match change {
+        StudioShellExportPackageComparisonChange::Regressed
+        | StudioShellExportPackageComparisonChange::Removed => candidate
+            .and_then(|entry| entry.issue_code.clone())
+            .or_else(|| baseline.and_then(|entry| entry.issue_code.clone()))
+            .or_else(|| Some("studio.issue.shell_export_package_regressed".to_string())),
+        StudioShellExportPackageComparisonChange::Added
+        | StudioShellExportPackageComparisonChange::Improved
+        | StudioShellExportPackageComparisonChange::Unchanged
+        | StudioShellExportPackageComparisonChange::Changed => None,
+    };
+
+    StudioShellExportPackageComparisonEntry {
+        graph_id: graph_id.to_string(),
+        target_kind: candidate
+            .map(|entry| entry.target_kind)
+            .or_else(|| baseline.map(|entry| entry.target_kind)),
+        baseline_status: baseline.map(|entry| entry.status),
+        candidate_status: candidate.map(|entry| entry.status),
+        change,
+        score_delta,
+        baseline_consumer_id: baseline.map(|entry| entry.consumer_id.clone()),
+        candidate_consumer_id: candidate.map(|entry| entry.consumer_id.clone()),
+        baseline_descriptor_present: baseline
+            .map(|entry| entry.descriptor.is_some())
+            .unwrap_or(false),
+        candidate_descriptor_present: candidate
+            .map(|entry| entry.descriptor.is_some())
+            .unwrap_or(false),
+        baseline_template_manifest_present: baseline
+            .map(|entry| entry.template_manifest.is_some())
+            .unwrap_or(false),
+        candidate_template_manifest_present: candidate
+            .map(|entry| entry.template_manifest.is_some())
+            .unwrap_or(false),
+        baseline_runbook_cli_request_present: baseline
+            .map(|entry| !entry.runbook_cli_request.is_empty())
+            .unwrap_or(false),
+        candidate_runbook_cli_request_present: candidate
+            .map(|entry| !entry.runbook_cli_request.is_empty())
+            .unwrap_or(false),
+        baseline_issue_code: baseline.and_then(|entry| entry.issue_code.clone()),
+        candidate_issue_code: candidate.and_then(|entry| entry.issue_code.clone()),
+        issue_code,
+    }
+}
+
+fn export_package_status_score(status: StudioShellExportPackageStatus) -> isize {
+    match status {
+        StudioShellExportPackageStatus::Rejected => 0,
+        StudioShellExportPackageStatus::Blocked => 1,
+        StudioShellExportPackageStatus::Ready => 2,
+    }
 }
 
 pub fn shell_handoff_acceptance_checklist_for_intake(
@@ -10702,6 +11042,146 @@ mod tests {
             phone_summary.issue_codes,
             vec!["studio.issue.shell_export_package_template_load_failed"]
         );
+    }
+
+    #[test]
+    fn shell_export_package_comparison_reports_unchanged_ready_packages() {
+        let root = temp_root("shell-export-package-comparison");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let package = shell_export_package_for_project(&project, Some(&root), &bundle_root);
+
+        let comparison = compare_shell_export_packages(&package, &package);
+
+        assert_eq!(comparison.schema_id, SHELL_EXPORT_PACKAGE_COMPARISON_SCHEMA);
+        assert_eq!(
+            comparison.baseline_schema,
+            SHELL_EXPORT_PACKAGE_REPORT_SCHEMA
+        );
+        assert_eq!(
+            comparison.status,
+            StudioShellExportPackageComparisonStatus::Unchanged
+        );
+        assert_eq!(comparison.issue_code, None);
+        assert_eq!(comparison.ready_delta, 0);
+        assert_eq!(comparison.blocked_delta, 0);
+        assert_eq!(comparison.rejected_delta, 0);
+        assert_eq!(comparison.descriptor_delta, 0);
+        assert_eq!(comparison.template_manifest_delta, 0);
+        assert_eq!(comparison.runbook_entry_delta, 0);
+        assert_eq!(comparison.entries.len(), 3);
+        assert!(comparison.entries.iter().all(|entry| {
+            entry.change == StudioShellExportPackageComparisonChange::Unchanged
+                && entry.baseline_descriptor_present
+                && entry.candidate_descriptor_present
+                && entry.baseline_template_manifest_present
+                && entry.candidate_template_manifest_present
+                && entry.baseline_runbook_cli_request_present
+                && entry.candidate_runbook_cli_request_present
+        }));
+        assert!(comparison
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+    }
+
+    #[test]
+    fn shell_export_package_comparison_reports_regressed_damaged_template() {
+        let root = temp_root("shell-export-package-comparison-damaged-template");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        let baseline = shell_export_package_for_manifest(&manifest);
+        assert_eq!(baseline.status, StudioShellExportPackageStatus::Ready);
+
+        std::fs::remove_file(
+            bundle_root
+                .join("studio.graph.phone")
+                .join("shells/phone/studio.graph.phone.shell-template.json"),
+        )
+        .expect("remove phone template manifest");
+        let candidate = shell_export_package_for_manifest(&manifest);
+
+        let comparison = compare_shell_export_packages(&baseline, &candidate);
+
+        assert_eq!(
+            comparison.status,
+            StudioShellExportPackageComparisonStatus::Regressed
+        );
+        assert_eq!(
+            comparison.issue_code.as_deref(),
+            Some("studio.issue.shell_export_package_template_load_failed")
+        );
+        assert_eq!(comparison.ready_delta, -1);
+        assert_eq!(comparison.blocked_delta, 1);
+        assert_eq!(comparison.rejected_delta, 0);
+        assert_eq!(comparison.descriptor_delta, 0);
+        assert_eq!(comparison.template_manifest_delta, -1);
+        assert_eq!(comparison.runbook_entry_delta, 0);
+        let phone = comparison
+            .entries
+            .iter()
+            .find(|entry| entry.graph_id == "studio.graph.phone")
+            .expect("phone comparison entry");
+        assert_eq!(
+            phone.change,
+            StudioShellExportPackageComparisonChange::Regressed
+        );
+        assert_eq!(phone.score_delta, -1);
+        assert!(phone.baseline_descriptor_present);
+        assert!(phone.candidate_descriptor_present);
+        assert!(phone.baseline_template_manifest_present);
+        assert!(!phone.candidate_template_manifest_present);
+        assert!(phone.baseline_runbook_cli_request_present);
+        assert!(!phone.candidate_runbook_cli_request_present);
+        assert_eq!(
+            phone.issue_code.as_deref(),
+            Some("studio.issue.shell_export_package_template_load_failed")
+        );
+    }
+
+    #[test]
+    fn shell_export_package_comparison_rejects_mismatched_projects() {
+        let root = temp_root("shell-export-package-comparison-mismatch");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let baseline = shell_export_package_for_project(&project, Some(&root), &bundle_root);
+        let mut candidate = baseline.clone();
+        candidate.project_id = "studio.project.other".to_string();
+
+        let comparison = compare_shell_export_packages(&baseline, &candidate);
+
+        assert_eq!(
+            comparison.status,
+            StudioShellExportPackageComparisonStatus::Incomparable
+        );
+        assert_eq!(
+            comparison.issue_code.as_deref(),
+            Some("studio.issue.shell_export_package_project_mismatch")
+        );
+        assert!(comparison.entries.is_empty());
+        assert!(comparison.checks.iter().any(|check| {
+            check.check_id == "studio.check.shell_export_package_comparison.project_id"
+                && check.status == StudioValidationStatus::Fail
+        }));
     }
 
     #[test]
