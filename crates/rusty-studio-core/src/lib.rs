@@ -284,6 +284,15 @@ pub fn view_model_for_graph(
     base_dir: Option<&Path>,
     requested_graph_id: Option<&str>,
 ) -> StudioViewModel {
+    view_model_for_graph_and_issue(project, base_dir, requested_graph_id, None)
+}
+
+pub fn view_model_for_graph_and_issue(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    requested_graph_id: Option<&str>,
+    requested_issue_check_id: Option<&str>,
+) -> StudioViewModel {
     let validation = validate_project_with_base(project, base_dir);
     let validation_pass_count = validation
         .checks
@@ -302,7 +311,7 @@ pub fn view_model_for_graph(
         .and_then(|index| graphs.get(index))
         .map(|graph| graph.graph_id.clone());
     let validation_issues = validation_issue_views(&validation, selected_graph_id.as_deref());
-    let focused_issue = focused_issue_view(&validation_issues);
+    let issue_selection = focused_issue_selection(&validation_issues, requested_issue_check_id);
     let selected_graph = selected_graph_index.and_then(|index| project.graphs.get(index));
     let reference_index = reference_index_for_project(project, base_dir);
     let catalog_packages = catalog_package_views(reference_index.as_ref(), selected_graph);
@@ -324,7 +333,11 @@ pub fn view_model_for_graph(
         validation_pass_count,
         validation_fail_count,
         validation_issues,
-        focused_issue,
+        focused_issue: issue_selection.focused_issue,
+        requested_issue_check_id: requested_issue_check_id.map(str::to_string),
+        selected_issue_index: issue_selection.selected_issue_index,
+        selected_issue_check_id: issue_selection.selected_issue_check_id,
+        issue_selection_code: issue_selection.issue_selection_code,
         graph_count: project.graphs.len(),
         requested_graph_id: requested_graph_id.map(str::to_string),
         selected_graph_index,
@@ -3957,13 +3970,58 @@ fn validation_issue_views(
         .collect()
 }
 
-fn focused_issue_view(issues: &[StudioValidationIssueView]) -> Option<StudioIssueFocusView> {
-    let issue = issues
+struct FocusedIssueSelection {
+    focused_issue: Option<StudioIssueFocusView>,
+    selected_issue_index: Option<usize>,
+    selected_issue_check_id: Option<String>,
+    issue_selection_code: Option<String>,
+}
+
+fn focused_issue_selection(
+    issues: &[StudioValidationIssueView],
+    requested_issue_check_id: Option<&str>,
+) -> FocusedIssueSelection {
+    let (selected_issue_index, issue_selection_code) =
+        if let Some(requested_issue_check_id) = requested_issue_check_id {
+            match issues
+                .iter()
+                .position(|issue| issue.check_id == requested_issue_check_id)
+            {
+                Some(index) => (Some(index), None),
+                None => (
+                    fallback_issue_index(issues),
+                    Some("studio.issue.validation_issue_selection_missing".to_string()),
+                ),
+            }
+        } else {
+            (fallback_issue_index(issues), None)
+        };
+    let selected_issue_check_id = selected_issue_index.map(|index| issues[index].check_id.clone());
+    let focused_issue =
+        selected_issue_index.and_then(|index| focused_issue_view(index, &issues[index]));
+    FocusedIssueSelection {
+        focused_issue,
+        selected_issue_index,
+        selected_issue_check_id,
+        issue_selection_code,
+    }
+}
+
+fn fallback_issue_index(issues: &[StudioValidationIssueView]) -> Option<usize> {
+    issues
         .iter()
-        .find(|issue| issue.targets_selected_graph)
-        .or_else(|| issues.first())?;
+        .position(|issue| issue.targets_selected_graph)
+        .or_else(|| issues.iter().position(|issue| issue.graph_id.is_some()))
+        .or_else(|| (!issues.is_empty()).then_some(0))
+}
+
+fn focused_issue_view(
+    issue_index: usize,
+    issue: &StudioValidationIssueView,
+) -> Option<StudioIssueFocusView> {
     let graph_id = issue.graph_id.clone()?;
     Some(StudioIssueFocusView {
+        issue_index,
         check_id: issue.check_id.clone(),
         issue_code: issue.issue_code.clone(),
         evidence: issue.evidence.clone(),
@@ -5548,6 +5606,10 @@ mod tests {
         assert_eq!(model.validation_fail_count, 0);
         assert!(model.validation_issues.is_empty());
         assert!(model.focused_issue.is_none());
+        assert_eq!(model.requested_issue_check_id, None);
+        assert_eq!(model.selected_issue_index, None);
+        assert_eq!(model.selected_issue_check_id, None);
+        assert_eq!(model.issue_selection_code, None);
         assert_eq!(model.graph_count, 1);
         assert_eq!(model.graphs[0].validation_issue_count, 0);
         assert_eq!(model.graphs[0].node_rows[0].kind, "package");
@@ -5640,6 +5702,7 @@ mod tests {
             .expect("package node row");
         assert_eq!(package_row.validation_issue_count, 1);
         let focused_issue = model.focused_issue.expect("focused issue");
+        assert_eq!(focused_issue.issue_index, 0);
         assert_eq!(
             focused_issue.check_id,
             "studio.check.graph.studio.graph.test.package_refs"
@@ -5657,6 +5720,88 @@ mod tests {
         assert_eq!(
             focused_issue.reference_id.as_deref(),
             Some("package.missing")
+        );
+        assert_eq!(model.requested_issue_check_id, None);
+        assert_eq!(model.selected_issue_index, Some(0));
+        assert_eq!(
+            model.selected_issue_check_id.as_deref(),
+            Some("studio.check.graph.studio.graph.test.package_refs")
+        );
+        assert_eq!(model.issue_selection_code, None);
+    }
+
+    #[test]
+    fn view_model_selects_requested_validation_issue() {
+        let root = temp_root("view-model-requested-issue");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+        project.graphs[0].nodes[0].reference_id = "package.missing".to_string();
+        project.graphs[0].nodes.push(StudioNode {
+            node_id: "node.module.missing".to_string(),
+            kind: StudioNodeKind::Module,
+            reference_id: "module.missing".to_string(),
+            label: "Missing Module".to_string(),
+        });
+
+        let model = view_model_for_graph_and_issue(
+            &project,
+            Some(&root),
+            Some("studio.graph.test"),
+            Some("studio.check.graph.studio.graph.test.module_refs"),
+        );
+
+        assert_eq!(
+            model.requested_issue_check_id.as_deref(),
+            Some("studio.check.graph.studio.graph.test.module_refs")
+        );
+        assert_eq!(model.issue_selection_code, None);
+        assert_eq!(model.selected_issue_index, Some(1));
+        assert_eq!(
+            model.selected_issue_check_id.as_deref(),
+            Some("studio.check.graph.studio.graph.test.module_refs")
+        );
+        let focused_issue = model.focused_issue.expect("focused issue");
+        assert_eq!(focused_issue.issue_index, 1);
+        assert_eq!(
+            focused_issue.issue_code.as_deref(),
+            Some("studio.issue.module_reference_missing")
+        );
+        assert_eq!(
+            focused_issue.node_id.as_deref(),
+            Some("node.module.missing")
+        );
+        assert_eq!(
+            focused_issue.reference_id.as_deref(),
+            Some("module.missing")
+        );
+    }
+
+    #[test]
+    fn view_model_reports_missing_requested_validation_issue() {
+        let root = temp_root("view-model-missing-requested-issue");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+        project.graphs[0].nodes[0].reference_id = "package.missing".to_string();
+
+        let model = view_model_for_graph_and_issue(
+            &project,
+            Some(&root),
+            Some("studio.graph.test"),
+            Some("studio.check.graph.studio.graph.test.missing"),
+        );
+
+        assert_eq!(
+            model.requested_issue_check_id.as_deref(),
+            Some("studio.check.graph.studio.graph.test.missing")
+        );
+        assert_eq!(
+            model.issue_selection_code.as_deref(),
+            Some("studio.issue.validation_issue_selection_missing")
+        );
+        assert_eq!(model.selected_issue_index, Some(0));
+        assert_eq!(
+            model.selected_issue_check_id.as_deref(),
+            Some("studio.check.graph.studio.graph.test.package_refs")
         );
     }
 

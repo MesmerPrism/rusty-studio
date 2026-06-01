@@ -435,6 +435,10 @@ pub struct StudioViewModel {
     pub validation_fail_count: usize,
     pub validation_issues: Vec<StudioValidationIssueView>,
     pub focused_issue: Option<StudioIssueFocusView>,
+    pub requested_issue_check_id: Option<String>,
+    pub selected_issue_index: Option<usize>,
+    pub selected_issue_check_id: Option<String>,
+    pub issue_selection_code: Option<String>,
     pub graph_count: usize,
     pub requested_graph_id: Option<String>,
     pub selected_graph_index: Option<usize>,
@@ -466,6 +470,7 @@ pub struct StudioValidationIssueView {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StudioIssueFocusView {
+    pub issue_index: usize,
     pub check_id: String,
     pub issue_code: Option<String>,
     pub evidence: String,

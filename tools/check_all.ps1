@@ -116,6 +116,15 @@ try {
     if ($null -ne $ViewModel.focused_issue) {
         throw "valid view model should not expose focused issue"
     }
+    if ($null -ne $ViewModel.requested_issue_check_id) {
+        throw "valid view model should not expose requested issue"
+    }
+    if ($null -ne $ViewModel.selected_issue_check_id) {
+        throw "valid view model should not expose selected issue"
+    }
+    if ($null -ne $ViewModel.issue_selection_code) {
+        throw "valid view model should not expose issue selection code"
+    }
     $ViewModelDesktopGraph = $ViewModel.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $ViewModelDesktopGraph) {
         throw "view model missing desktop graph row"
@@ -207,6 +216,12 @@ try {
     if ($DiagnosticView.focused_issue.reference_id -ne "package.missing") {
         throw "diagnostic focused issue reference id mismatch"
     }
+    if ($DiagnosticView.selected_issue_check_id -ne "studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs") {
+        throw "diagnostic selected issue check id mismatch"
+    }
+    if ($DiagnosticView.selected_issue_index -ne 0) {
+        throw "diagnostic selected issue index mismatch"
+    }
     $DiagnosticGraph = $DiagnosticView.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $DiagnosticGraph) {
         throw "diagnostic view model missing desktop graph row"
@@ -220,6 +235,33 @@ try {
     }
     if ($DiagnosticPackageNode.validation_issue_count -lt 1) {
         throw "diagnostic package node row should expose validation issue count"
+    }
+    $RequestedDiagnosticViewOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project $DiagnosticProjectOutput --graph "studio.graph.synthetic_wave_desktop" --issue "studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs"
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio requested diagnostic view model failed with exit code $LASTEXITCODE"
+    }
+    $RequestedDiagnosticViewText = $RequestedDiagnosticViewOutput -join [Environment]::NewLine
+    $RequestedDiagnosticView = $RequestedDiagnosticViewText | ConvertFrom-Json
+    if ($RequestedDiagnosticView.requested_issue_check_id -ne "studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs") {
+        throw "requested diagnostic view model requested issue mismatch"
+    }
+    if ($RequestedDiagnosticView.selected_issue_check_id -ne "studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs") {
+        throw "requested diagnostic view model selected issue mismatch"
+    }
+    if ($null -ne $RequestedDiagnosticView.issue_selection_code) {
+        throw "requested diagnostic view model should not expose issue selection code"
+    }
+    $MissingRequestedIssueViewOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project $DiagnosticProjectOutput --graph "studio.graph.synthetic_wave_desktop" --issue "studio.check.graph.studio.graph.synthetic_wave_desktop.missing"
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio missing requested issue view model failed with exit code $LASTEXITCODE"
+    }
+    $MissingRequestedIssueViewText = $MissingRequestedIssueViewOutput -join [Environment]::NewLine
+    $MissingRequestedIssueView = $MissingRequestedIssueViewText | ConvertFrom-Json
+    if ($MissingRequestedIssueView.issue_selection_code -ne "studio.issue.validation_issue_selection_missing") {
+        throw "missing requested issue view model should expose issue selection code"
+    }
+    if ($MissingRequestedIssueView.selected_issue_check_id -ne "studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs") {
+        throw "missing requested issue view model should fall back to deterministic focused issue"
     }
     Invoke-Checked "studio view model selected graph" "cargo" @(
         "run",

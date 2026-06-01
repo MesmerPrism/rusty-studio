@@ -7,7 +7,7 @@ use rusty_studio_core::{
     shell_descriptor_artifact_path, shell_descriptor_for_graph,
     shell_templates_for_artifact_manifest, validate_project_with_base,
     validate_shell_artifact_manifest, validate_shell_descriptor, validate_shell_template_index,
-    view_model_for_graph,
+    view_model_for_graph_and_issue,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditStatus, StudioShellArtifactStatus, StudioShellDescriptorStatus,
@@ -56,6 +56,8 @@ struct ViewModelArgs {
     project: PathBuf,
     #[arg(long)]
     graph: Option<String>,
+    #[arg(long)]
+    issue: Option<String>,
 }
 
 #[derive(Debug, Parser)]
@@ -226,8 +228,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::ViewModel(args) => {
             let project = load_project(&args.project)?;
-            let model =
-                view_model_for_graph(&project, args.project.parent(), args.graph.as_deref());
+            let model = view_model_for_graph_and_issue(
+                &project,
+                args.project.parent(),
+                args.graph.as_deref(),
+                args.issue.as_deref(),
+            );
             println!("{}", serde_json::to_string_pretty(&model)?);
             Ok(())
         }

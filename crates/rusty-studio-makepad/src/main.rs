@@ -4,7 +4,7 @@ use makepad_widgets::*;
 use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_to_graph, load_project,
     remove_binding_from_graph, remove_module_from_graph, retarget_graph_host_profile, save_project,
-    view_model_for_graph,
+    view_model_for_graph, view_model_for_graph_and_issue,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView, StudioValidationStatus,
@@ -117,6 +117,9 @@ script_mod! {
 
     let DiagnosticsPanel = Panel{
         SectionTitle{text: "Validation Diagnostics"}
+        ButtonRow{
+            next_issue_button := ActionButton{text: "Next Issue"}
+        }
         Row{FieldLabel{text: "issues"} validation_issues := SmallValue{text: ""}}
     }
 
@@ -244,6 +247,8 @@ pub struct App {
     #[rust]
     selected_graph_index: usize,
     #[rust]
+    selected_issue_check_id: Option<String>,
+    #[rust]
     last_edit_report: Option<StudioEditReport>,
     #[rust]
     last_edit_save_issue: String,
@@ -251,7 +256,10 @@ pub struct App {
 
 impl App {
     fn sync_project(&mut self, cx: &mut Cx) {
-        match load_studio_view_model(initial_graph_id_from_args().as_deref()) {
+        match load_studio_view_model(
+            initial_graph_id_from_args().as_deref(),
+            initial_issue_check_id_from_args().as_deref(),
+        ) {
             Ok((source, model)) => self.set_model(cx, source, model),
             Err(error) => self.sync_error(cx, &error),
         }
@@ -259,6 +267,7 @@ impl App {
 
     fn set_model(&mut self, cx: &mut Cx, source: PathBuf, model: StudioViewModel) {
         self.selected_graph_index = model.selected_graph_index.unwrap_or(0);
+        self.selected_issue_check_id = model.selected_issue_check_id.clone();
         self.project_source = Some(source);
         self.model = Some(model);
         self.sync_loaded_model(cx);
@@ -671,13 +680,82 @@ impl App {
         if graph_count == 0 {
             return;
         }
-        self.selected_graph_index = if self.selected_graph_index == 0 {
+        let next_index = if self.selected_graph_index == 0 {
             graph_count - 1
         } else {
             self.selected_graph_index - 1
         };
-        self.sync_loaded_model(cx);
-        self.ui.redraw(cx);
+        self.select_graph_index(cx, next_index);
+    }
+
+    fn select_graph_index(&mut self, cx: &mut Cx, graph_index: usize) {
+        let Some(source) = self.project_source.clone() else {
+            return;
+        };
+        let Some(model) = self.model.clone() else {
+            return;
+        };
+        let Some(graph_id) = model
+            .graphs
+            .get(graph_index)
+            .map(|graph| graph.graph_id.clone())
+        else {
+            return;
+        };
+        match load_studio_view_model_for_path(&source, Some(&graph_id), None) {
+            Ok(model) => {
+                self.selected_graph_index = model.selected_graph_index.unwrap_or(graph_index);
+                self.selected_issue_check_id = model.selected_issue_check_id.clone();
+                self.model = Some(model);
+                self.sync_loaded_model(cx);
+                self.ui.redraw(cx);
+            }
+            Err(error) => {
+                self.last_edit_report = None;
+                self.last_edit_save_issue = error;
+                self.sync_edit_report(cx);
+                self.ui.redraw(cx);
+            }
+        }
+    }
+
+    fn select_next_issue(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            return;
+        };
+        let Some(model) = self.model.clone() else {
+            return;
+        };
+        let Some(next_issue_check_id) = next_issue_check_id(&model).map(str::to_string) else {
+            return;
+        };
+        let requested_graph_id = model
+            .validation_issues
+            .iter()
+            .find(|issue| issue.check_id == next_issue_check_id)
+            .and_then(|issue| issue.graph_id.as_deref())
+            .or(model.selected_graph_id.as_deref());
+        match load_studio_view_model_for_path(
+            &source,
+            requested_graph_id,
+            Some(&next_issue_check_id),
+        ) {
+            Ok(model) => {
+                self.selected_graph_index = model
+                    .selected_graph_index
+                    .unwrap_or(self.selected_graph_index);
+                self.selected_issue_check_id = model.selected_issue_check_id.clone();
+                self.model = Some(model);
+                self.sync_loaded_model(cx);
+                self.ui.redraw(cx);
+            }
+            Err(error) => {
+                self.last_edit_report = None;
+                self.last_edit_save_issue = error;
+                self.sync_edit_report(cx);
+                self.ui.redraw(cx);
+            }
+        }
     }
 
     fn select_next_graph(&mut self, cx: &mut Cx) {
@@ -685,9 +763,7 @@ impl App {
         if graph_count == 0 {
             return;
         }
-        self.selected_graph_index = (self.selected_graph_index + 1) % graph_count;
-        self.sync_loaded_model(cx);
-        self.ui.redraw(cx);
+        self.select_graph_index(cx, (self.selected_graph_index + 1) % graph_count);
     }
 
     fn sync_error(&mut self, cx: &mut Cx, error: &str) {
@@ -724,6 +800,9 @@ impl MatchEvent for App {
         }
         if self.ui.button(cx, ids!(next_graph_button)).clicked(actions) {
             self.select_next_graph(cx);
+        }
+        if self.ui.button(cx, ids!(next_issue_button)).clicked(actions) {
+            self.select_next_issue(cx);
         }
         if self
             .ui
@@ -794,23 +873,30 @@ impl AppMain for App {
 
 fn load_studio_view_model(
     requested_graph_id: Option<&str>,
+    requested_issue_check_id: Option<&str>,
 ) -> Result<(PathBuf, StudioViewModel), String> {
     let project_path = project_path_from_args()
         .or_else(find_default_project_path)
         .ok_or_else(|| "no project path supplied and default example was not found".to_string())?;
-    let model = load_studio_view_model_for_path(&project_path, requested_graph_id)?;
+    let model = load_studio_view_model_for_path(
+        &project_path,
+        requested_graph_id,
+        requested_issue_check_id,
+    )?;
     Ok((project_path, model))
 }
 
 fn load_studio_view_model_for_path(
     project_path: &Path,
     requested_graph_id: Option<&str>,
+    requested_issue_check_id: Option<&str>,
 ) -> Result<StudioViewModel, String> {
     let project = load_project(&project_path).map_err(|error| error.to_string())?;
-    Ok(view_model_for_graph(
+    Ok(view_model_for_graph_and_issue(
         &project,
         project_path.parent(),
         requested_graph_id,
+        requested_issue_check_id,
     ))
 }
 
@@ -1004,6 +1090,16 @@ fn initial_graph_id_from_args() -> Option<String> {
     None
 }
 
+fn initial_issue_check_id_from_args() -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--issue" {
+            return args.next();
+        }
+    }
+    None
+}
+
 fn find_default_project_path() -> Option<PathBuf> {
     let current_dir = std::env::current_dir().ok()?;
     let candidates = [
@@ -1061,10 +1157,21 @@ fn validation_issue_lines(model: &StudioViewModel) -> String {
 
 fn issue_focus_line(model: &StudioViewModel) -> String {
     let Some(focus) = model.focused_issue.as_ref() else {
+        if let Some(issue_code) = model.issue_selection_code.as_deref() {
+            return format!("none [{issue_code}]");
+        }
         return "none".to_string();
     };
     let issue_code = focus.issue_code.as_deref().unwrap_or("unknown_issue");
-    let mut lines = vec![format!("{} [{}]", focus.check_id, issue_code)];
+    let mut lines = vec![format!(
+        "#{} {} [{}]",
+        focus.issue_index + 1,
+        focus.check_id,
+        issue_code
+    )];
+    if let Some(selection_issue_code) = model.issue_selection_code.as_deref() {
+        lines.push(format!("  selection: {selection_issue_code}"));
+    }
     lines.push(format!("  graph: {}", focus.graph_id));
     if let Some(node_id) = focus.node_id.as_deref() {
         lines.push(format!("  node: {node_id}"));
@@ -1077,6 +1184,20 @@ fn issue_focus_line(model: &StudioViewModel) -> String {
     }
     lines.push(format!("  {}", focus.evidence));
     lines.join("\n")
+}
+
+fn next_issue_check_id(model: &StudioViewModel) -> Option<&str> {
+    if model.validation_issues.is_empty() {
+        return None;
+    }
+    let next_index = model
+        .selected_issue_index
+        .map(|index| (index + 1) % model.validation_issues.len())
+        .unwrap_or(0);
+    model
+        .validation_issues
+        .get(next_index)
+        .map(|issue| issue.check_id.as_str())
 }
 
 fn catalog_package_lines(model: &StudioViewModel) -> String {
@@ -1350,7 +1471,8 @@ mod tests {
         write_reference_fixture_tree(&root);
         let project_path = root.join("project.json");
         save_project(&project_path, &editable_project()).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+        let model =
+            load_studio_view_model_for_path(&project_path, None, None).expect("load view model");
 
         let (report, refreshed_model) =
             retarget_project_source(&project_path, &model, 0, "host_run.profile.headset")
@@ -1379,7 +1501,8 @@ mod tests {
         write_reference_fixture_tree(&root);
         let project_path = root.join("project.json");
         save_project(&project_path, &editable_project()).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+        let model =
+            load_studio_view_model_for_path(&project_path, None, None).expect("load view model");
 
         let package_lines = catalog_package_lines(&model);
         assert!(package_lines.contains("package.synthetic [selected; 1 module(s)]"));
@@ -1399,11 +1522,19 @@ mod tests {
         let project_path = root.join("project.json");
         let mut project = editable_project();
         project.graphs[0].nodes[0].reference_id = "package.missing".to_string();
+        project.graphs[0].nodes.push(StudioNode {
+            node_id: "node.module.missing".to_string(),
+            kind: StudioNodeKind::Module,
+            reference_id: "module.missing".to_string(),
+            label: "Missing Module".to_string(),
+        });
         save_project(&project_path, &project).expect("save invalid project");
-        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+        let model =
+            load_studio_view_model_for_path(&project_path, None, None).expect("load view model");
 
         let issue_lines = validation_issue_lines(&model);
         assert!(issue_lines.contains("studio.check.graph.studio.graph.makepad_edit.package_refs"));
+        assert!(issue_lines.contains("studio.check.graph.studio.graph.makepad_edit.module_refs"));
         assert!(issue_lines.contains("studio.issue.package_reference_missing"));
         assert!(issue_lines.contains("selected graph: studio.graph.makepad_edit"));
         assert!(issue_lines.contains("refs: package.missing"));
@@ -1417,6 +1548,27 @@ mod tests {
         let node_lines = node_lines(&model.graphs[0]);
         assert!(node_lines.contains("Package [package]"));
         assert!(node_lines.contains("issues: 1"));
+
+        assert_eq!(
+            next_issue_check_id(&model),
+            Some("studio.check.graph.studio.graph.makepad_edit.module_refs")
+        );
+
+        let requested_model = load_studio_view_model_for_path(
+            &project_path,
+            Some("studio.graph.makepad_edit"),
+            Some("studio.check.graph.studio.graph.makepad_edit.module_refs"),
+        )
+        .expect("load requested issue view model");
+        assert_eq!(requested_model.selected_issue_index, Some(1));
+        let requested_focus_line = issue_focus_line(&requested_model);
+        assert!(requested_focus_line
+            .contains("#2 studio.check.graph.studio.graph.makepad_edit.module_refs"));
+        assert!(requested_focus_line.contains("node: node.module.missing"));
+        assert_eq!(
+            next_issue_check_id(&requested_model),
+            Some("studio.check.graph.studio.graph.makepad_edit.package_refs")
+        );
     }
 
     #[test]
@@ -1425,7 +1577,8 @@ mod tests {
         write_reference_fixture_tree(&root);
         let project_path = root.join("project.json");
         save_project(&project_path, &editable_project()).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+        let model =
+            load_studio_view_model_for_path(&project_path, None, None).expect("load view model");
 
         let (report, refreshed_model) =
             add_next_catalog_module_to_project_source(&project_path, &model, 0)
@@ -1450,7 +1603,8 @@ mod tests {
         write_reference_fixture_tree(&root);
         let project_path = root.join("project.json");
         save_project(&project_path, &editable_project()).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+        let model =
+            load_studio_view_model_for_path(&project_path, None, None).expect("load view model");
 
         let (report, refreshed_model) = add_module_to_project_source(
             &project_path,
@@ -1499,7 +1653,8 @@ mod tests {
             target_node_id: "node.module.synthetic_provider".to_string(),
         });
         save_project(&project_path, &project).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+        let model =
+            load_studio_view_model_for_path(&project_path, None, None).expect("load view model");
 
         let (report, refreshed_model) = remove_module_from_project_source(
             &project_path,
@@ -1546,7 +1701,8 @@ mod tests {
             target_node_id: "node.module.synthetic_provider".to_string(),
         });
         save_project(&project_path, &project).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+        let model =
+            load_studio_view_model_for_path(&project_path, None, None).expect("load view model");
 
         let (report, refreshed_model) = add_binding_to_project_source(
             &project_path,
@@ -1599,7 +1755,8 @@ mod tests {
             target_node_id: "node.module.synthetic_provider".to_string(),
         });
         save_project(&project_path, &project).expect("save editable project");
-        let model = load_studio_view_model_for_path(&project_path, None).expect("load view model");
+        let model =
+            load_studio_view_model_for_path(&project_path, None, None).expect("load view model");
 
         let (report, refreshed_model) = remove_binding_from_project_source(
             &project_path,

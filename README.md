@@ -17,8 +17,8 @@ Current scope:
   through the shared view model and Makepad surface;
 - expose validation issue counts on graph, node, and edge rows for future
   issue-to-row canvas focus;
-- expose a deterministic focused validation issue for inspector and future
-  canvas selection;
+- expose deterministic and requested validation issue focus for inspector and
+  future canvas selection;
 - add the next available catalog module from that palette through a shared
   core/CLI/Makepad mutation path;
 - render the resolved synthetic project in a Makepad desktop authoring surface;
@@ -58,6 +58,7 @@ cargo run -p rusty-studio-cli -- resolve --project examples\synthetic-studio-pro
 cargo run -p rusty-studio-cli -- export-plan --project examples\synthetic-studio-project.json
 cargo run -p rusty-studio-cli -- view-model --project examples\synthetic-studio-project.json
 cargo run -p rusty-studio-cli -- view-model --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
+cargo run -p rusty-studio-cli -- view-model --project target\studio-diagnostic-project.json --graph studio.graph.synthetic_wave_desktop --issue studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs
 cargo run -p rusty-studio-cli -- retarget-host --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --host-profile host_run.profile.headset --output target\studio-edit-retarget-headset.json
 cargo run -p rusty-studio-cli -- add-module --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --package package.biosignal_sensor --module module.biosignal_sensor.provider --label "Biosignal Provider" --output target\studio-edit-add-module.json
 cargo run -p rusty-studio-cli -- add-palette-module --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --output target\studio-edit-add-palette-module.json
