@@ -30,6 +30,7 @@ pub const SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA: &str =
     "rusty.studio.shell_handoff_manifest_validation_report.v1";
 pub const SHELL_HANDOFF_INTAKE_REPORT_SCHEMA: &str = "rusty.studio.shell_handoff_intake_report.v1";
 pub const SHELL_RUNBOOK_REPORT_SCHEMA: &str = "rusty.studio.shell_runbook_report.v1";
+pub const SHELL_EXPORT_PACKAGE_REPORT_SCHEMA: &str = "rusty.studio.shell_export_package_report.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_checklist.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA: &str =
@@ -785,6 +786,108 @@ pub struct StudioShellRunbookEntry {
     pub package_ids: Vec<String>,
     pub module_ids: Vec<String>,
     pub operator_shell_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellExportPackageReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub source_manifest_schema: String,
+    pub source_runbook_schema: String,
+    pub package_id: String,
+    pub manifest_id: String,
+    pub project_id: String,
+    pub project_revision: u64,
+    pub bundle_root: String,
+    pub status: StudioShellExportPackageStatus,
+    pub issue_code: Option<String>,
+    pub execution_policy: String,
+    pub review_owner: String,
+    pub command_session_authority: String,
+    pub install_launch_evidence_authority: String,
+    pub studio_role: String,
+    pub ready_count: usize,
+    pub blocked_count: usize,
+    pub rejected_count: usize,
+    pub descriptor_count: usize,
+    pub template_manifest_count: usize,
+    pub runbook_entry_count: usize,
+    pub target_summaries: Vec<StudioShellExportPackageTargetSummary>,
+    pub prohibited_actions: Vec<String>,
+    pub entries: Vec<StudioShellExportPackageEntry>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellExportPackageStatus {
+    Ready,
+    Blocked,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellExportPackageTargetSummary {
+    pub target_kind: StudioShellTargetKind,
+    pub ready_count: usize,
+    pub blocked_count: usize,
+    pub rejected_count: usize,
+    pub descriptor_count: usize,
+    pub template_manifest_count: usize,
+    pub graph_ids: Vec<String>,
+    pub consumer_ids: Vec<String>,
+    pub responsible_owners: Vec<String>,
+    pub issue_codes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellExportPackageEntry {
+    pub export_bundle_id: String,
+    pub graph_id: String,
+    pub display_name: String,
+    pub target_host_profile: String,
+    pub target_kind: StudioShellTargetKind,
+    pub status: StudioShellExportPackageStatus,
+    pub issue_code: Option<String>,
+    pub responsible_owner: String,
+    pub execution_policy: String,
+    pub consumer_id: String,
+    pub runtime_route_kind: String,
+    pub next_required_action: String,
+    pub bundle_dir: String,
+    pub descriptor: Option<StudioShellExportPackageDescriptorRef>,
+    pub template_manifest: Option<StudioShellExportPackageTemplateRef>,
+    pub runbook_cli_request: Vec<String>,
+    pub host_routes: StudioShellHostRoutes,
+    pub package_ids: Vec<String>,
+    pub module_ids: Vec<String>,
+    pub operator_shell_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellExportPackageDescriptorRef {
+    pub descriptor_path: String,
+    pub descriptor_id: String,
+    pub graph_id: String,
+    pub shell_id: String,
+    pub target_host_profile: String,
+    pub package_count: usize,
+    pub module_count: usize,
+    pub command_binding_count: usize,
+    pub stream_binding_count: usize,
+    pub validation_slot_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellExportPackageTemplateRef {
+    pub template_index_path: String,
+    pub template_manifest_path: String,
+    pub template_id: String,
+    pub artifact_id: String,
+    pub graph_id: String,
+    pub shell_id: String,
+    pub target_host_profile: String,
+    pub host_routes: StudioShellHostRoutes,
+    pub runtime_authority: StudioShellRuntimeAuthority,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -13,7 +13,8 @@ use rusty_studio_core::{
     remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
     save_project, save_shell_bundle, select_shell_handoff_acceptance_baseline_index_entry,
     selected_shell_bundle_for_graph, shell_artifacts_for_project, shell_descriptor_artifact_path,
-    shell_descriptor_for_graph, shell_handoff_acceptance_baseline_index_for_manifests,
+    shell_descriptor_for_graph, shell_export_package_for_project,
+    shell_handoff_acceptance_baseline_index_for_manifests,
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_intake, shell_handoff_acceptance_checklist_for_project,
     shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
@@ -67,6 +68,7 @@ enum Command {
     ValidateShellHandoffManifest(HandoffManifestArgs),
     ShellHandoffIntake(ShellHandoffIntakeArgs),
     ShellRunbook(ShellRunbookArgs),
+    ShellExportPackage(ShellExportPackageArgs),
     ShellHandoffAcceptanceChecklist(ShellHandoffAcceptanceChecklistArgs),
     ShellHandoffAcceptanceSnapshot(ShellHandoffAcceptanceSnapshotArgs),
     ShellHandoffAcceptanceSummary(ShellHandoffAcceptanceSummaryArgs),
@@ -289,6 +291,16 @@ struct ShellHandoffIntakeArgs {
 
 #[derive(Debug, Parser)]
 struct ShellRunbookArgs {
+    #[arg(long)]
+    project: PathBuf,
+    #[arg(long)]
+    bundle_root: PathBuf,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellExportPackageArgs {
     #[arg(long)]
     project: PathBuf,
     #[arg(long)]
@@ -766,6 +778,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let project = load_project(&args.project)?;
             let report =
                 shell_runbook_for_project(&project, args.project.parent(), &args.bundle_root);
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellExportPackage(args) => {
+            let project = load_project(&args.project)?;
+            let report = shell_export_package_for_project(
+                &project,
+                args.project.parent(),
+                &args.bundle_root,
+            );
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }

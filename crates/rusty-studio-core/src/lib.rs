@@ -7,8 +7,11 @@ use rusty_studio_model::{
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
-    StudioShellDescriptorValidationReport, StudioShellHandoffAcceptanceBaselineIndex,
-    StudioShellHandoffAcceptanceBaselineIndexEntry, StudioShellHandoffAcceptanceBaselineManifest,
+    StudioShellDescriptorValidationReport, StudioShellExportPackageDescriptorRef,
+    StudioShellExportPackageEntry, StudioShellExportPackageReport, StudioShellExportPackageStatus,
+    StudioShellExportPackageTargetSummary, StudioShellExportPackageTemplateRef,
+    StudioShellHandoffAcceptanceBaselineIndex, StudioShellHandoffAcceptanceBaselineIndexEntry,
+    StudioShellHandoffAcceptanceBaselineManifest,
     StudioShellHandoffAcceptanceBaselineSelectionEntry,
     StudioShellHandoffAcceptanceBaselineSelectionReport,
     StudioShellHandoffAcceptanceBaselineSelectionStatus, StudioShellHandoffAcceptanceCheck,
@@ -33,7 +36,8 @@ use rusty_studio_model::{
     SHELL_ARTIFACT_MANIFEST_SCHEMA, SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA,
     SHELL_ARTIFACT_REPORT_SCHEMA, SHELL_BUNDLE_REPORT_SCHEMA,
     SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
-    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA,
+    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_EXPORT_PACKAGE_REPORT_SCHEMA,
+    SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA,
     SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA,
     SHELL_HANDOFF_ACCEPTANCE_BASELINE_SELECTION_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA,
     SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA,
@@ -3393,6 +3397,340 @@ fn shell_runbook_target_summary(
             target_entries
                 .iter()
                 .map(|entry| entry.runtime_route_kind.clone()),
+        ),
+        issue_codes: unique_strings(
+            target_entries
+                .iter()
+                .filter_map(|entry| entry.issue_code.clone()),
+        ),
+    })
+}
+
+pub fn shell_export_package_for_project(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    bundle_root: &Path,
+) -> StudioShellExportPackageReport {
+    let manifest = shell_handoff_manifest_for_project(project, base_dir, bundle_root);
+    shell_export_package_for_manifest(&manifest)
+}
+
+pub fn shell_export_package_for_manifest(
+    manifest: &StudioShellHandoffManifest,
+) -> StudioShellExportPackageReport {
+    let runbook = shell_runbook_for_manifest(manifest);
+    let entries = runbook
+        .entries
+        .iter()
+        .map(shell_export_package_entry)
+        .collect::<Vec<_>>();
+    let ready_count = entries
+        .iter()
+        .filter(|entry| entry.status == StudioShellExportPackageStatus::Ready)
+        .count();
+    let blocked_count = entries
+        .iter()
+        .filter(|entry| entry.status == StudioShellExportPackageStatus::Blocked)
+        .count();
+    let rejected_count = if runbook.status == StudioShellRunbookStatus::Rejected {
+        1
+    } else {
+        entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellExportPackageStatus::Rejected)
+            .count()
+    };
+    let descriptor_count = entries
+        .iter()
+        .filter(|entry| entry.descriptor.is_some())
+        .count();
+    let template_manifest_count = entries
+        .iter()
+        .filter(|entry| entry.template_manifest.is_some())
+        .count();
+    let status = if runbook.status == StudioShellRunbookStatus::Rejected {
+        StudioShellExportPackageStatus::Rejected
+    } else if blocked_count > 0 || entries.is_empty() {
+        StudioShellExportPackageStatus::Blocked
+    } else {
+        StudioShellExportPackageStatus::Ready
+    };
+    let issue_code = match status {
+        StudioShellExportPackageStatus::Ready => None,
+        StudioShellExportPackageStatus::Blocked => entries
+            .iter()
+            .find(|entry| entry.status == StudioShellExportPackageStatus::Blocked)
+            .and_then(|entry| entry.issue_code.clone()),
+        StudioShellExportPackageStatus::Rejected => runbook.issue_code.clone(),
+    };
+
+    StudioShellExportPackageReport {
+        schema_id: SHELL_EXPORT_PACKAGE_REPORT_SCHEMA.to_string(),
+        source_manifest_schema: manifest.schema_id.clone(),
+        source_runbook_schema: runbook.schema_id.clone(),
+        package_id: format!("studio.shell_export_package.{}", manifest.project_id),
+        manifest_id: manifest.manifest_id.clone(),
+        project_id: manifest.project_id.clone(),
+        project_revision: manifest.project_revision,
+        bundle_root: manifest.bundle_root.clone(),
+        status,
+        issue_code,
+        execution_policy: "not_executed.review_only".to_string(),
+        review_owner: "rusty.hostess".to_string(),
+        command_session_authority: manifest.runtime_authority.command_session_authority.clone(),
+        install_launch_evidence_authority: manifest
+            .runtime_authority
+            .install_launch_evidence_authority
+            .clone(),
+        studio_role: manifest.runtime_authority.studio_role.clone(),
+        ready_count,
+        blocked_count,
+        rejected_count,
+        descriptor_count,
+        template_manifest_count,
+        runbook_entry_count: runbook.entries.len(),
+        target_summaries: shell_export_package_target_summaries(&entries),
+        prohibited_actions: runbook.prohibited_actions,
+        entries,
+    }
+}
+
+fn shell_export_package_entry(entry: &StudioShellRunbookEntry) -> StudioShellExportPackageEntry {
+    let (descriptor, template_manifest, package_issue_code) =
+        shell_export_package_artifact_refs(entry);
+    let source_status = match entry.status {
+        StudioShellRunbookStatus::Ready => StudioShellExportPackageStatus::Ready,
+        StudioShellRunbookStatus::Blocked => StudioShellExportPackageStatus::Blocked,
+        StudioShellRunbookStatus::Rejected => StudioShellExportPackageStatus::Rejected,
+    };
+    let status = if source_status == StudioShellExportPackageStatus::Ready
+        && descriptor.is_some()
+        && template_manifest.is_some()
+    {
+        StudioShellExportPackageStatus::Ready
+    } else if source_status == StudioShellExportPackageStatus::Rejected {
+        StudioShellExportPackageStatus::Rejected
+    } else {
+        StudioShellExportPackageStatus::Blocked
+    };
+    let issue_code = match status {
+        StudioShellExportPackageStatus::Ready => None,
+        StudioShellExportPackageStatus::Blocked => package_issue_code
+            .or_else(|| entry.issue_code.clone())
+            .or_else(|| Some("studio.issue.shell_export_package_blocked".to_string())),
+        StudioShellExportPackageStatus::Rejected => entry.issue_code.clone(),
+    };
+    let responsible_owner = if status == StudioShellExportPackageStatus::Ready {
+        entry.responsible_owner.clone()
+    } else {
+        "rusty.studio".to_string()
+    };
+
+    StudioShellExportPackageEntry {
+        export_bundle_id: entry.export_bundle_id.clone(),
+        graph_id: entry.graph_id.clone(),
+        display_name: entry.display_name.clone(),
+        target_host_profile: entry.target_host_profile.clone(),
+        target_kind: entry.target_kind,
+        status,
+        issue_code,
+        responsible_owner,
+        execution_policy: "not_executed.review_only".to_string(),
+        consumer_id: entry.consumer_id.clone(),
+        runtime_route_kind: entry.runtime_route_kind.clone(),
+        next_required_action: "review_with_runtime_owner".to_string(),
+        bundle_dir: entry.bundle_dir.clone(),
+        descriptor,
+        template_manifest,
+        runbook_cli_request: entry.cli_request.clone(),
+        host_routes: entry.host_routes.clone(),
+        package_ids: entry.package_ids.clone(),
+        module_ids: entry.module_ids.clone(),
+        operator_shell_ids: entry.operator_shell_ids.clone(),
+    }
+}
+
+fn shell_export_package_artifact_refs(
+    entry: &StudioShellRunbookEntry,
+) -> (
+    Option<StudioShellExportPackageDescriptorRef>,
+    Option<StudioShellExportPackageTemplateRef>,
+    Option<String>,
+) {
+    if entry.status != StudioShellRunbookStatus::Ready {
+        return (None, None, entry.issue_code.clone());
+    }
+
+    let index = match load_shell_template_index(Path::new(&entry.template_index_path)) {
+        Ok(index) => index,
+        Err(_) => {
+            return (
+                None,
+                None,
+                Some("studio.issue.shell_export_package_template_index_load_failed".to_string()),
+            );
+        }
+    };
+    let Some(template_entry) = index
+        .templates
+        .iter()
+        .find(|template| template.graph_id == entry.graph_id)
+    else {
+        return (
+            None,
+            None,
+            Some("studio.issue.shell_export_package_template_missing".to_string()),
+        );
+    };
+
+    let descriptor_path = relative_output_path(
+        Path::new(&entry.bundle_dir),
+        &template_entry.descriptor_path,
+    );
+    let template_manifest_path =
+        relative_output_path(Path::new(&entry.bundle_dir), &template_entry.template_path);
+
+    let (descriptor_ref, descriptor_issue_code) = match load_shell_descriptor(&descriptor_path) {
+        Ok(descriptor)
+            if descriptor.graph_id == entry.graph_id
+                && descriptor.shell_id == template_entry.shell_id =>
+        {
+            (
+                Some(shell_export_package_descriptor_ref(
+                    &descriptor,
+                    &descriptor_path,
+                )),
+                None,
+            )
+        }
+        Ok(_) => (
+            None,
+            Some("studio.issue.shell_export_package_descriptor_mismatch".to_string()),
+        ),
+        Err(_) => (
+            None,
+            Some("studio.issue.shell_export_package_descriptor_load_failed".to_string()),
+        ),
+    };
+
+    let (template_ref, template_issue_code) =
+        match load_shell_template_manifest(&template_manifest_path) {
+            Ok(template)
+                if template.graph_id == entry.graph_id
+                    && template.template_id == template_entry.template_id
+                    && template.artifact_id == template_entry.artifact_id =>
+            {
+                (
+                    Some(shell_export_package_template_ref(
+                        &template,
+                        &entry.template_index_path,
+                        &template_manifest_path,
+                    )),
+                    None,
+                )
+            }
+            Ok(_) => (
+                None,
+                Some("studio.issue.shell_export_package_template_mismatch".to_string()),
+            ),
+            Err(_) => (
+                None,
+                Some("studio.issue.shell_export_package_template_load_failed".to_string()),
+            ),
+        };
+
+    (
+        descriptor_ref,
+        template_ref,
+        descriptor_issue_code.or(template_issue_code),
+    )
+}
+
+fn shell_export_package_descriptor_ref(
+    descriptor: &StudioShellDescriptor,
+    descriptor_path: &Path,
+) -> StudioShellExportPackageDescriptorRef {
+    StudioShellExportPackageDescriptorRef {
+        descriptor_path: descriptor_path.display().to_string(),
+        descriptor_id: descriptor.descriptor_id.clone(),
+        graph_id: descriptor.graph_id.clone(),
+        shell_id: descriptor.shell_id.clone(),
+        target_host_profile: descriptor.target_host_profile.clone(),
+        package_count: descriptor.package_ids.len(),
+        module_count: descriptor.module_ids.len(),
+        command_binding_count: descriptor.command_bindings.len(),
+        stream_binding_count: descriptor.stream_bindings.len(),
+        validation_slot_count: descriptor.validation_slot_ids.len(),
+    }
+}
+
+fn shell_export_package_template_ref(
+    template: &StudioShellTemplateManifest,
+    template_index_path: &str,
+    template_manifest_path: &Path,
+) -> StudioShellExportPackageTemplateRef {
+    StudioShellExportPackageTemplateRef {
+        template_index_path: template_index_path.to_string(),
+        template_manifest_path: template_manifest_path.display().to_string(),
+        template_id: template.template_id.clone(),
+        artifact_id: template.artifact_id.clone(),
+        graph_id: template.graph_id.clone(),
+        shell_id: template.shell_id.clone(),
+        target_host_profile: template.target_host_profile.clone(),
+        host_routes: template.host_routes.clone(),
+        runtime_authority: template.runtime_authority.clone(),
+    }
+}
+
+fn shell_export_package_target_summaries(
+    entries: &[StudioShellExportPackageEntry],
+) -> Vec<StudioShellExportPackageTargetSummary> {
+    shell_target_kinds()
+        .iter()
+        .filter_map(|target_kind| shell_export_package_target_summary(entries, *target_kind))
+        .collect()
+}
+
+fn shell_export_package_target_summary(
+    entries: &[StudioShellExportPackageEntry],
+    target_kind: StudioShellTargetKind,
+) -> Option<StudioShellExportPackageTargetSummary> {
+    let target_entries = entries
+        .iter()
+        .filter(|entry| entry.target_kind == target_kind)
+        .collect::<Vec<_>>();
+    if target_entries.is_empty() {
+        return None;
+    }
+
+    Some(StudioShellExportPackageTargetSummary {
+        target_kind,
+        ready_count: target_entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellExportPackageStatus::Ready)
+            .count(),
+        blocked_count: target_entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellExportPackageStatus::Blocked)
+            .count(),
+        rejected_count: target_entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellExportPackageStatus::Rejected)
+            .count(),
+        descriptor_count: target_entries
+            .iter()
+            .filter(|entry| entry.descriptor.is_some())
+            .count(),
+        template_manifest_count: target_entries
+            .iter()
+            .filter(|entry| entry.template_manifest.is_some())
+            .count(),
+        graph_ids: unique_strings(target_entries.iter().map(|entry| entry.graph_id.clone())),
+        consumer_ids: unique_strings(target_entries.iter().map(|entry| entry.consumer_id.clone())),
+        responsible_owners: unique_strings(
+            target_entries
+                .iter()
+                .map(|entry| entry.responsible_owner.clone()),
         ),
         issue_codes: unique_strings(
             target_entries
@@ -10038,6 +10376,163 @@ mod tests {
             entry.issue_code.as_deref(),
             Some("studio.issue.shell_runbook_template_missing")
         );
+    }
+
+    #[test]
+    fn shell_export_package_groups_descriptors_templates_and_runbook_rows() {
+        let root = temp_root("shell-export-package");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+
+        let package = shell_export_package_for_project(&project, Some(&root), &bundle_root);
+
+        assert_eq!(package.schema_id, SHELL_EXPORT_PACKAGE_REPORT_SCHEMA);
+        assert_eq!(
+            package.source_manifest_schema,
+            SHELL_HANDOFF_MANIFEST_SCHEMA
+        );
+        assert_eq!(package.source_runbook_schema, SHELL_RUNBOOK_REPORT_SCHEMA);
+        assert_eq!(
+            package.package_id,
+            "studio.shell_export_package.studio.project.test"
+        );
+        assert_eq!(package.status, StudioShellExportPackageStatus::Ready);
+        assert_eq!(package.issue_code, None);
+        assert_eq!(package.execution_policy, "not_executed.review_only");
+        assert_eq!(package.review_owner, "rusty.hostess");
+        assert_eq!(package.command_session_authority, "rusty.manifold");
+        assert_eq!(package.install_launch_evidence_authority, "rusty.hostess");
+        assert_eq!(package.studio_role, "authoring.export_planning");
+        assert_eq!(package.ready_count, 3);
+        assert_eq!(package.blocked_count, 0);
+        assert_eq!(package.rejected_count, 0);
+        assert_eq!(package.descriptor_count, 3);
+        assert_eq!(package.template_manifest_count, 3);
+        assert_eq!(package.runbook_entry_count, 3);
+        assert_eq!(package.target_summaries.len(), 3);
+        assert_eq!(
+            package.prohibited_actions,
+            vec![
+                "install".to_string(),
+                "launch".to_string(),
+                "open_command_session".to_string(),
+                "collect_device_evidence".to_string(),
+            ]
+        );
+        for target_kind in [
+            StudioShellTargetKind::Desktop,
+            StudioShellTargetKind::Phone,
+            StudioShellTargetKind::Quest,
+        ] {
+            let summary = package
+                .target_summaries
+                .iter()
+                .find(|summary| summary.target_kind == target_kind)
+                .expect("export package target summary");
+            assert_eq!(summary.ready_count, 1);
+            assert_eq!(summary.blocked_count, 0);
+            assert_eq!(summary.rejected_count, 0);
+            assert_eq!(summary.descriptor_count, 1);
+            assert_eq!(summary.template_manifest_count, 1);
+            assert_eq!(summary.responsible_owners, vec!["rusty.hostess"]);
+            assert!(summary.issue_codes.is_empty());
+        }
+
+        let desktop = package
+            .entries
+            .iter()
+            .find(|entry| entry.target_kind == StudioShellTargetKind::Desktop)
+            .expect("desktop export package row");
+        assert_eq!(desktop.status, StudioShellExportPackageStatus::Ready);
+        assert_eq!(desktop.responsible_owner, "rusty.hostess");
+        assert_eq!(desktop.execution_policy, "not_executed.review_only");
+        assert_eq!(desktop.next_required_action, "review_with_runtime_owner");
+        assert_eq!(desktop.runtime_route_kind, "desktop_operator_shell");
+        assert_eq!(
+            desktop.runbook_cli_request[..5],
+            ["cargo", "run", "-p", "rusty-studio-desktop-shell", "--"]
+        );
+        let descriptor = desktop.descriptor.as_ref().expect("desktop descriptor ref");
+        assert_eq!(
+            descriptor.descriptor_id,
+            "studio.shell_descriptor.studio.graph.test"
+        );
+        assert_eq!(descriptor.graph_id, desktop.graph_id);
+        assert_eq!(descriptor.package_count, 1);
+        assert_eq!(descriptor.module_count, 1);
+        assert_eq!(descriptor.command_binding_count, 1);
+        let template = desktop
+            .template_manifest
+            .as_ref()
+            .expect("desktop template ref");
+        assert_eq!(
+            template.template_id,
+            "studio.shell_template.studio.graph.test"
+        );
+        assert_eq!(template.graph_id, desktop.graph_id);
+        assert_eq!(
+            template.host_routes.install_route.as_deref(),
+            Some("install.local_process")
+        );
+        assert_eq!(
+            template.runtime_authority.command_session_authority,
+            "rusty.manifold"
+        );
+
+        let quest = package
+            .entries
+            .iter()
+            .find(|entry| entry.target_kind == StudioShellTargetKind::Quest)
+            .expect("quest export package row");
+        let quest_template = quest
+            .template_manifest
+            .as_ref()
+            .expect("quest template ref");
+        assert_eq!(quest.consumer_id, "rusty-studio-quest-shell");
+        assert_eq!(
+            quest_template.host_routes.command_bridge.as_deref(),
+            Some("bridge.adb_intent_file")
+        );
+        assert_eq!(
+            quest.host_routes.evidence_pull_route.as_deref(),
+            Some("evidence.adb_pull")
+        );
+    }
+
+    #[test]
+    fn shell_export_package_blocks_missing_bundle_without_descriptors() {
+        let root = temp_root("shell-export-package-missing");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("missing-selected-shells");
+
+        let package = shell_export_package_for_project(&project, Some(&root), &bundle_root);
+
+        assert_eq!(package.status, StudioShellExportPackageStatus::Blocked);
+        assert_eq!(
+            package.issue_code.as_deref(),
+            Some("studio.issue.shell_bundle_file_missing")
+        );
+        assert_eq!(package.ready_count, 0);
+        assert_eq!(package.blocked_count, 3);
+        assert_eq!(package.rejected_count, 0);
+        assert_eq!(package.descriptor_count, 0);
+        assert_eq!(package.template_manifest_count, 0);
+        assert_eq!(package.runbook_entry_count, 3);
+        assert!(package.entries.iter().all(|entry| {
+            entry.status == StudioShellExportPackageStatus::Blocked
+                && entry.responsible_owner == "rusty.studio"
+                && entry.descriptor.is_none()
+                && entry.template_manifest.is_none()
+                && entry.runbook_cli_request.is_empty()
+                && entry.execution_policy == "not_executed.review_only"
+        }));
     }
 
     #[test]

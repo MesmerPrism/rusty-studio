@@ -73,6 +73,7 @@ try {
     $ShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs.json"
     $ShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake.json"
     $ShellRunbookPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-runbook.json"
+    $ShellExportPackagePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package.json"
     $ShellHandoffAcceptanceChecklistPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json"
     $ShellHandoffAcceptanceSnapshotPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json"
     $ShellHandoffAcceptanceSummaryPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-summary.json"
@@ -93,7 +94,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -1702,6 +1703,125 @@ try {
             }
             if (-not ($CliRequest | Where-Object { $_ -like "*$($RequiredRunbook.Graph)*shell-templates.json" } | Select-Object -First 1)) {
                 throw "shell runbook CLI request template path mismatch for $($RequiredRunbook.Graph)"
+            }
+        }
+    }
+    $ShellExportPackageOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package --project $SourceProjectPath --bundle-root $SelectedShellBundleRoot --output $ShellExportPackagePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell export package failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellExportPackagePath)) {
+        throw "shell export package was not written"
+    }
+    $ShellExportPackage = ($ShellExportPackageOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellExportPackage = Get-Content -Raw $ShellExportPackagePath | ConvertFrom-Json
+    foreach ($PackageView in @($ShellExportPackage, $WrittenShellExportPackage)) {
+        if ($PackageView.'$schema' -ne "rusty.studio.shell_export_package_report.v1") {
+            throw "shell export package schema mismatch"
+        }
+        if ($PackageView.source_manifest_schema -ne "rusty.studio.shell_handoff_manifest.v1") {
+            throw "shell export package source manifest schema mismatch"
+        }
+        if ($PackageView.source_runbook_schema -ne "rusty.studio.shell_runbook_report.v1") {
+            throw "shell export package source runbook schema mismatch"
+        }
+        if ($PackageView.package_id -ne "studio.shell_export_package.studio.project.synthetic_wave") {
+            throw "shell export package id mismatch"
+        }
+        if ($PackageView.manifest_id -ne $HandoffManifest.manifest_id -or $PackageView.project_id -ne $HandoffManifest.project_id -or $PackageView.project_revision -ne $HandoffManifest.project_revision) {
+            throw "shell export package source manifest metadata mismatch"
+        }
+        if ($PackageView.status -ne "ready") {
+            throw "shell export package was not ready"
+        }
+        if ($null -ne $PackageView.issue_code) {
+            throw "shell export package should not carry a top-level issue"
+        }
+        if ($PackageView.execution_policy -ne "not_executed.review_only" -or $PackageView.review_owner -ne "rusty.hostess") {
+            throw "shell export package review policy mismatch"
+        }
+        if ($PackageView.command_session_authority -ne "rusty.manifold" -or $PackageView.install_launch_evidence_authority -ne "rusty.hostess" -or $PackageView.studio_role -ne "authoring.export_planning") {
+            throw "shell export package authority mismatch"
+        }
+        if ($PackageView.ready_count -ne 3 -or $PackageView.blocked_count -ne 0 -or $PackageView.rejected_count -ne 0) {
+            throw "shell export package counts mismatch"
+        }
+        if ($PackageView.descriptor_count -ne 3 -or $PackageView.template_manifest_count -ne 3 -or $PackageView.runbook_entry_count -ne 3) {
+            throw "shell export package artifact counts mismatch"
+        }
+        if (@($PackageView.target_summaries).Count -ne 3) {
+            throw "shell export package target summary count mismatch"
+        }
+        if (@($PackageView.entries).Count -ne 3) {
+            throw "shell export package entry count mismatch"
+        }
+        foreach ($RequiredAction in @("install", "launch", "open_command_session", "collect_device_evidence")) {
+            if (@($PackageView.prohibited_actions) -notcontains $RequiredAction) {
+                throw "shell export package missing prohibited action $RequiredAction"
+            }
+        }
+        foreach ($RequiredPackage in @(
+            @{ Graph = "studio.graph.synthetic_wave_desktop"; TargetKind = "desktop"; TargetProfile = "host_run.profile.desktop"; RouteKind = "desktop_operator_shell"; Consumer = "rusty-studio-desktop-shell"; Shell = "shell.synthetic_wave.desktop_operator"; Install = "install.local_process"; Launch = "launch.local_process"; Bridge = "bridge.local_cli"; Evidence = "evidence.filesystem" },
+            @{ Graph = "studio.graph.synthetic_wave_phone"; TargetKind = "phone"; TargetProfile = "host_run.profile.mobile"; RouteKind = "phone_operator_shell"; Consumer = "rusty-studio-phone-shell"; Shell = "shell.synthetic_wave.phone_operator"; Install = "install.android_package"; Launch = "launch.android_intent"; Bridge = "bridge.adb_intent_file"; Evidence = "evidence.adb_pull" },
+            @{ Graph = "studio.graph.synthetic_wave_headset"; TargetKind = "quest"; TargetProfile = "host_run.profile.headset"; RouteKind = "quest_operator_shell"; Consumer = "rusty-studio-quest-shell"; Shell = "shell.synthetic_wave.quest_operator"; Install = "install.android_package"; Launch = "launch.android_intent"; Bridge = "bridge.adb_intent_file"; Evidence = "evidence.adb_pull" }
+        )) {
+            $PackageTarget = @($PackageView.target_summaries | Where-Object { $_.target_kind -eq $RequiredPackage.TargetKind }) | Select-Object -First 1
+            if ($null -eq $PackageTarget) {
+                throw "shell export package missing target $($RequiredPackage.TargetKind)"
+            }
+            if ($PackageTarget.ready_count -ne 1 -or $PackageTarget.blocked_count -ne 0 -or $PackageTarget.rejected_count -ne 0 -or $PackageTarget.descriptor_count -ne 1 -or $PackageTarget.template_manifest_count -ne 1) {
+                throw "shell export package target counts mismatch for $($RequiredPackage.TargetKind)"
+            }
+            if (-not (@($PackageTarget.graph_ids) -contains $RequiredPackage.Graph)) {
+                throw "shell export package target graph id mismatch for $($RequiredPackage.TargetKind)"
+            }
+            if (-not (@($PackageTarget.consumer_ids) -contains $RequiredPackage.Consumer)) {
+                throw "shell export package target consumer mismatch for $($RequiredPackage.TargetKind)"
+            }
+            if (-not (@($PackageTarget.responsible_owners) -contains "rusty.hostess")) {
+                throw "shell export package target owner mismatch for $($RequiredPackage.TargetKind)"
+            }
+            if (@($PackageTarget.issue_codes).Count -ne 0) {
+                throw "shell export package target issue codes mismatch for $($RequiredPackage.TargetKind)"
+            }
+
+            $PackageEntry = @($PackageView.entries | Where-Object { $_.graph_id -eq $RequiredPackage.Graph }) | Select-Object -First 1
+            if ($null -eq $PackageEntry) {
+                throw "shell export package missing graph $($RequiredPackage.Graph)"
+            }
+            if ($PackageEntry.status -ne "ready" -or $null -ne $PackageEntry.issue_code) {
+                throw "shell export package entry status mismatch for $($RequiredPackage.Graph)"
+            }
+            if ($PackageEntry.responsible_owner -ne "rusty.hostess" -or $PackageEntry.execution_policy -ne "not_executed.review_only" -or $PackageEntry.next_required_action -ne "review_with_runtime_owner") {
+                throw "shell export package owner or policy mismatch for $($RequiredPackage.Graph)"
+            }
+            if ($PackageEntry.consumer_id -ne $RequiredPackage.Consumer -or $PackageEntry.target_kind -ne $RequiredPackage.TargetKind -or $PackageEntry.target_host_profile -ne $RequiredPackage.TargetProfile -or $PackageEntry.runtime_route_kind -ne $RequiredPackage.RouteKind) {
+                throw "shell export package target metadata mismatch for $($RequiredPackage.Graph)"
+            }
+            if ($PackageEntry.host_routes.install_route -ne $RequiredPackage.Install -or $PackageEntry.host_routes.launch_route -ne $RequiredPackage.Launch -or $PackageEntry.host_routes.command_bridge -ne $RequiredPackage.Bridge -or $PackageEntry.host_routes.evidence_pull_route -ne $RequiredPackage.Evidence) {
+                throw "shell export package host route mismatch for $($RequiredPackage.Graph)"
+            }
+            if ($null -eq $PackageEntry.descriptor -or $PackageEntry.descriptor.descriptor_id -ne "studio.shell_descriptor.$($RequiredPackage.Graph)" -or $PackageEntry.descriptor.graph_id -ne $RequiredPackage.Graph -or $PackageEntry.descriptor.shell_id -ne $RequiredPackage.Shell -or $PackageEntry.descriptor.target_host_profile -ne $RequiredPackage.TargetProfile) {
+                throw "shell export package descriptor ref mismatch for $($RequiredPackage.Graph)"
+            }
+            if ($PackageEntry.descriptor.package_count -lt 1 -or $PackageEntry.descriptor.module_count -lt 1) {
+                throw "shell export package descriptor counts mismatch for $($RequiredPackage.Graph)"
+            }
+            if ($null -eq $PackageEntry.template_manifest -or $PackageEntry.template_manifest.template_id -ne "studio.shell_template.$($RequiredPackage.Graph)" -or $PackageEntry.template_manifest.artifact_id -ne "studio.shell_artifact.$($RequiredPackage.Graph)" -or $PackageEntry.template_manifest.graph_id -ne $RequiredPackage.Graph -or $PackageEntry.template_manifest.shell_id -ne $RequiredPackage.Shell -or $PackageEntry.template_manifest.target_host_profile -ne $RequiredPackage.TargetProfile) {
+                throw "shell export package template ref mismatch for $($RequiredPackage.Graph)"
+            }
+            if ($PackageEntry.template_manifest.runtime_authority.command_session_authority -ne "rusty.manifold" -or $PackageEntry.template_manifest.runtime_authority.install_launch_evidence_authority -ne "rusty.hostess" -or $PackageEntry.template_manifest.runtime_authority.studio_role -ne "authoring.export_planning") {
+                throw "shell export package template authority mismatch for $($RequiredPackage.Graph)"
+            }
+            if ($PackageEntry.template_manifest.host_routes.install_route -ne $RequiredPackage.Install -or $PackageEntry.template_manifest.host_routes.launch_route -ne $RequiredPackage.Launch -or $PackageEntry.template_manifest.host_routes.command_bridge -ne $RequiredPackage.Bridge -or $PackageEntry.template_manifest.host_routes.evidence_pull_route -ne $RequiredPackage.Evidence) {
+                throw "shell export package template host route mismatch for $($RequiredPackage.Graph)"
+            }
+            $RunbookRequest = @($PackageEntry.runbook_cli_request)
+            if ($RunbookRequest.Count -lt 7 -or $RunbookRequest[0] -ne "cargo" -or $RunbookRequest[1] -ne "run" -or $RunbookRequest[2] -ne "-p" -or $RunbookRequest[3] -ne $RequiredPackage.Consumer -or $RunbookRequest[4] -ne "--") {
+                throw "shell export package runbook CLI request prefix mismatch for $($RequiredPackage.Graph)"
+            }
+            if ($RunbookRequest -notcontains "--templates") {
+                throw "shell export package runbook CLI request missing --templates for $($RequiredPackage.Graph)"
             }
         }
     }

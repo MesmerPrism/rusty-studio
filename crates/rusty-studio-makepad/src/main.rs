@@ -10,7 +10,8 @@ use rusty_studio_core::{
     promote_shell_handoff_acceptance_baseline_index_default, remove_binding_from_graph,
     remove_module_from_graph, retarget_graph_host_profile, save_json, save_project,
     save_shell_bundle, select_shell_handoff_acceptance_baseline_index_entry,
-    selected_shell_bundle_for_graph, shell_handoff_acceptance_baseline_index_for_manifests,
+    selected_shell_bundle_for_graph, shell_export_package_for_project,
+    shell_handoff_acceptance_baseline_index_for_manifests,
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
@@ -20,8 +21,8 @@ use rusty_studio_core::{
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
-    StudioShellDescriptorStatus, StudioShellHandoffAcceptanceBaselineIndex,
-    StudioShellHandoffAcceptanceBaselineManifest,
+    StudioShellDescriptorStatus, StudioShellExportPackageReport, StudioShellExportPackageStatus,
+    StudioShellHandoffAcceptanceBaselineIndex, StudioShellHandoffAcceptanceBaselineManifest,
     StudioShellHandoffAcceptanceBaselineSelectionReport,
     StudioShellHandoffAcceptanceBaselineSelectionStatus,
     StudioShellHandoffAcceptanceChecklistReport, StudioShellHandoffAcceptanceComparisonChange,
@@ -194,6 +195,7 @@ script_mod! {
             shell_handoff_button := ActionButton{text: "Prepare Operator Shell"}
             shell_readiness_button := ActionButton{text: "Inspect All Handoffs"}
             shell_runbook_button := ActionButton{text: "Inspect Runbook"}
+            shell_export_package_button := ActionButton{text: "Review Export Package"}
             shell_manifest_button := ActionButton{text: "Write Handoff Manifest"}
             shell_acceptance_button := ActionButton{text: "Review Acceptance"}
             shell_acceptance_baseline_button := ActionButton{text: "Write Baseline"}
@@ -1145,6 +1147,25 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn review_shell_export_package(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_export_package_for_project_source(&source) {
+            Ok((report, bundle_root)) => {
+                self.last_shell_bundle_status = shell_export_package_status(&report, &bundle_root);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn write_shell_handoff_manifest(&mut self, cx: &mut Cx) {
         let Some(source) = self.project_source.clone() else {
             self.last_shell_bundle_status = "No project source is loaded".to_string();
@@ -1974,6 +1995,13 @@ impl MatchEvent for App {
         }
         if self
             .ui
+            .button(cx, ids!(shell_export_package_button))
+            .clicked(actions)
+        {
+            self.review_shell_export_package(cx);
+        }
+        if self
+            .ui
             .button(cx, ids!(shell_manifest_button))
             .clicked(actions)
         {
@@ -2183,6 +2211,16 @@ fn shell_runbook_for_project_source(
         load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
     let bundle_root = selected_shell_bundle_root_dir(project_path);
     let report = shell_runbook_for_project(&project, project_path.parent(), &bundle_root);
+    Ok((report, bundle_root))
+}
+
+fn shell_export_package_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellExportPackageReport, PathBuf), String> {
+    let project =
+        load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
+    let bundle_root = selected_shell_bundle_root_dir(project_path);
+    let report = shell_export_package_for_project(&project, project_path.parent(), &bundle_root);
     Ok((report, bundle_root))
 }
 
@@ -3565,6 +3603,119 @@ fn shell_runbook_status(report: &StudioShellRunbookReport, bundle_root: &Path) -
     )
 }
 
+fn shell_export_package_status(
+    report: &StudioShellExportPackageReport,
+    bundle_root: &Path,
+) -> String {
+    let status = shell_export_package_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let prohibited = if report.prohibited_actions.is_empty() {
+        "none".to_string()
+    } else {
+        report.prohibited_actions.join(", ")
+    };
+    let target_rows = report
+        .target_summaries
+        .iter()
+        .map(|target| {
+            let consumers = if target.consumer_ids.is_empty() {
+                "none".to_string()
+            } else {
+                target.consumer_ids.join(", ")
+            };
+            let owners = if target.responsible_owners.is_empty() {
+                "none".to_string()
+            } else {
+                target.responsible_owners.join(", ")
+            };
+            let issues = if target.issue_codes.is_empty() {
+                "none".to_string()
+            } else {
+                target.issue_codes.join(", ")
+            };
+            format!(
+                "{}: ready {}; blocked {}; rejected {}; descriptors {}; templates {}; consumers {}; owners {}; issues {}",
+                shell_target_kind_label(target.target_kind),
+                target.ready_count,
+                target.blocked_count,
+                target.rejected_count,
+                target.descriptor_count,
+                target.template_manifest_count,
+                consumers,
+                owners,
+                issues
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    let rows = report
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let entry_status = shell_export_package_status_label(entry.status);
+            let issue = entry.issue_code.as_deref().unwrap_or("none");
+            let descriptor = entry
+                .descriptor
+                .as_ref()
+                .map(|descriptor| descriptor.descriptor_id.as_str())
+                .unwrap_or("none");
+            let template = entry
+                .template_manifest
+                .as_ref()
+                .map(|template| template.template_id.as_str())
+                .unwrap_or("none");
+            let cli = if entry.runbook_cli_request.is_empty() {
+                "none".to_string()
+            } else {
+                entry.runbook_cli_request.join(" ")
+            };
+            format!(
+                "{} [{}] target {}; owner {}; action {}; policy {}; descriptor {}; template {}; cli {}; issue {}",
+                entry.graph_id,
+                entry_status,
+                shell_target_kind_label(entry.target_kind),
+                entry.responsible_owner,
+                entry.next_required_action,
+                entry.execution_policy,
+                descriptor,
+                template,
+                cli,
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "shell export package {status}; ready {}; blocked {}; rejected {}; descriptors {}; templates {}; issue {issue}\n  package: {}\n  owner: {}; policy: {}\n  authority: command {}; host {}; studio {}\n  root: {}\n  bundle root: {}\n  prohibited: {}\n  targets:\n  {}\n  entries:\n  {}",
+        report.ready_count,
+        report.blocked_count,
+        report.rejected_count,
+        report.descriptor_count,
+        report.template_manifest_count,
+        report.package_id,
+        report.review_owner,
+        report.execution_policy,
+        report.command_session_authority,
+        report.install_launch_evidence_authority,
+        report.studio_role,
+        report.bundle_root,
+        bundle_root.display(),
+        prohibited,
+        if target_rows.is_empty() {
+            "none".to_string()
+        } else {
+            target_rows
+        },
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
 fn shell_handoff_manifest_status(
     manifest: &StudioShellHandoffManifest,
     output_path: &Path,
@@ -3958,6 +4109,14 @@ fn shell_runbook_status_label(status: StudioShellRunbookStatus) -> &'static str 
         StudioShellRunbookStatus::Ready => "ready",
         StudioShellRunbookStatus::Blocked => "blocked",
         StudioShellRunbookStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_export_package_status_label(status: StudioShellExportPackageStatus) -> &'static str {
+    match status {
+        StudioShellExportPackageStatus::Ready => "ready",
+        StudioShellExportPackageStatus::Blocked => "blocked",
+        StudioShellExportPackageStatus::Rejected => "rejected",
     }
 }
 
@@ -4993,6 +5152,62 @@ mod tests {
         assert!(status.contains("bridge.local_cli"));
         assert!(status.contains("evidence.filesystem"));
         assert!(status.contains("rusty-studio-desktop-shell"));
+    }
+
+    #[test]
+    fn shell_export_package_reports_descriptor_template_and_runbook_from_makepad_route() {
+        let root = temp_root("shell-export-package");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+
+        let (report, bundle_root) =
+            shell_export_package_for_project_source(&project_path).expect("review export package");
+
+        assert_eq!(
+            report.schema_id,
+            "rusty.studio.shell_export_package_report.v1"
+        );
+        assert_eq!(report.status, StudioShellExportPackageStatus::Ready);
+        assert_eq!(report.ready_count, 1);
+        assert_eq!(report.blocked_count, 0);
+        assert_eq!(report.rejected_count, 0);
+        assert_eq!(report.descriptor_count, 1);
+        assert_eq!(report.template_manifest_count, 1);
+        assert_eq!(report.runbook_entry_count, 1);
+        assert_eq!(report.execution_policy, "not_executed.review_only");
+        assert_eq!(report.review_owner, "rusty.hostess");
+        assert_eq!(report.command_session_authority, "rusty.manifold");
+        assert_eq!(report.install_launch_evidence_authority, "rusty.hostess");
+        assert_eq!(report.studio_role, "authoring.export_planning");
+        let entry = &report.entries[0];
+        assert_eq!(entry.status, StudioShellExportPackageStatus::Ready);
+        assert_eq!(entry.responsible_owner, "rusty.hostess");
+        assert_eq!(entry.next_required_action, "review_with_runtime_owner");
+        assert_eq!(entry.runtime_route_kind, "desktop_operator_shell");
+        assert!(entry.descriptor.is_some());
+        assert!(entry.template_manifest.is_some());
+        assert!(entry
+            .runbook_cli_request
+            .iter()
+            .any(|arg| arg == "rusty-studio-desktop-shell"));
+        assert!(entry
+            .runbook_cli_request
+            .iter()
+            .any(|arg| arg == "--templates"));
+
+        let status = shell_export_package_status(&report, &bundle_root);
+        assert!(status.contains("shell export package ready"));
+        assert!(status.contains("descriptors 1; templates 1"));
+        assert!(status.contains("owner: rusty.hostess"));
+        assert!(status.contains("not_executed.review_only"));
+        assert!(status.contains("review_with_runtime_owner"));
+        assert!(status.contains("studio.shell_descriptor.studio.graph.makepad_edit"));
+        assert!(status.contains("studio.shell_template.studio.graph.makepad_edit"));
     }
 
     #[test]

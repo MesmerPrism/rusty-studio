@@ -76,6 +76,9 @@ Current scope:
 - inspect a request-only generated-shell runbook that lists desktop, phone,
   and Quest readiness, responsible owners, Hostess route kinds, and exact
   non-executed CLI requests for downstream runtime owners;
+- review a schema-only shell export-package summary that groups descriptor
+  refs, template manifest refs, and runbook rows for external Hostess/Manifold
+  staging review without executing runtime actions;
 - review shell handoff acceptance checklists from Makepad through the same
   manifest-to-intake-to-checklist core route used by CLI validation;
 - snapshot a current shell handoff acceptance checklist directly from a
@@ -152,6 +155,7 @@ cargo run -p rusty-studio-cli -- shell-handoff-manifest --project examples\synth
 cargo run -p rusty-studio-cli -- validate-shell-handoff-manifest --manifest target\studio-shell-handoffs\shell-handoffs.json
 cargo run -p rusty-studio-cli -- shell-handoff-intake --manifest target\studio-shell-handoffs\shell-handoffs.json --output target\studio-shell-handoffs\shell-handoff-intake.json
 cargo run -p rusty-studio-cli -- shell-runbook --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-runbook.json
+cargo run -p rusty-studio-cli -- shell-export-package --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-export-package.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake target\studio-shell-handoffs\shell-handoff-intake.json --output target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-snapshot --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-summary --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-summary.json
@@ -176,7 +180,11 @@ launch, open command sessions, or collect device evidence. Shell handoff
 runbooks are request-only views over the same handoff manifest and intake path:
 they resolve host install/launch/bridge/evidence route names and show the exact
 CLI request that a downstream owner could run, but Studio still does not execute
-those requests. Shell handoff acceptance checklists are also declarative: they
+those requests. Shell export-package summaries are review-only bundles over the
+same generated shell descriptors, template manifests, and runbook rows: they
+help a Hostess/Manifold owner inspect what would be staged, but Studio still
+does not stage, install, launch, open command sessions, or collect evidence.
+Shell handoff acceptance checklists are also declarative: they
 enumerate downstream readiness
 checks and explicitly prohibit install, launch, command-session opening, and
 device-evidence collection inside Studio. Acceptance snapshots derive the same
