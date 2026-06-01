@@ -108,6 +108,7 @@ try {
     $ShellReleaseCandidateReviewPromotedIndexPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-release-candidate-reviews-promoted.json"
     $ShellHostessHandoffPackagePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-handoff-package.json"
     $ShellHostessOwnerIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-owner-intake.json"
+    $ShellHostessStagingPreviewPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-preview.json"
     $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
     $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
     $MissingShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake-missing-bundles.json"
@@ -119,7 +120,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $ShellHostessHandoffPackagePath, $ShellHostessOwnerIntakePath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $ShellHostessHandoffPackagePath, $ShellHostessOwnerIntakePath, $ShellHostessStagingPreviewPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -3072,6 +3073,73 @@ try {
         }
         if (@($HostessOwnerIntakeView.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
             throw "shell Hostess owner intake should not contain failed checks"
+        }
+    }
+    $ShellHostessStagingPreviewOutput = & cargo run --quiet -p rusty-studio-cli -- shell-hostess-staging-preview --intake $ShellHostessOwnerIntakePath --output $ShellHostessStagingPreviewPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell Hostess staging preview failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellHostessStagingPreviewPath)) {
+        throw "shell Hostess staging preview was not written"
+    }
+    $ShellHostessStagingPreview = ($ShellHostessStagingPreviewOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellHostessStagingPreview = Get-Content -Raw $ShellHostessStagingPreviewPath | ConvertFrom-Json
+    foreach ($HostessStagingPreviewView in @($ShellHostessStagingPreview, $WrittenShellHostessStagingPreview)) {
+        if ($HostessStagingPreviewView.'$schema' -ne "rusty.studio.shell_hostess_staging_preview_manifest.v1") {
+            throw "shell Hostess staging preview schema mismatch"
+        }
+        if ($HostessStagingPreviewView.source_intake_schema -ne "rusty.studio.shell_hostess_owner_intake.v1" -or $HostessStagingPreviewView.source_handoff_manifest_schema -ne "rusty.studio.shell_handoff_manifest.v1") {
+            throw "shell Hostess staging preview source schema mismatch"
+        }
+        if ($HostessStagingPreviewView.intake_path -ne $ShellHostessOwnerIntakePath -or $HostessStagingPreviewView.package_path -ne $ShellHostessHandoffPackagePath -or $HostessStagingPreviewView.handoff_manifest_path -ne $ShellHandoffManifestPath) {
+            throw "shell Hostess staging preview source path mismatch"
+        }
+        if ($HostessStagingPreviewView.status -ne "ready" -or $null -ne $HostessStagingPreviewView.issue_code) {
+            throw "shell Hostess staging preview should be ready"
+        }
+        if ($HostessStagingPreviewView.selected_candidate_id -ne "synthetic-ready-candidate") {
+            throw "shell Hostess staging preview selected candidate mismatch"
+        }
+        if ($HostessStagingPreviewView.manifest_id -ne "studio.shell_handoffs.studio.project.synthetic_wave" -or $HostessStagingPreviewView.project_id -ne "studio.project.synthetic_wave" -or $HostessStagingPreviewView.project_revision -ne 1) {
+            throw "shell Hostess staging preview project identity mismatch"
+        }
+        if ($HostessStagingPreviewView.execution_policy -ne "not_executed.preview_only" -or $HostessStagingPreviewView.staging_owner -ne "rusty.hostess") {
+            throw "shell Hostess staging preview policy owner mismatch"
+        }
+        if ($HostessStagingPreviewView.command_session_authority -ne "rusty.manifold" -or $HostessStagingPreviewView.install_launch_evidence_authority -ne "rusty.hostess" -or $HostessStagingPreviewView.studio_role -ne "authoring.export_planning") {
+            throw "shell Hostess staging preview runtime authority mismatch"
+        }
+        if ($HostessStagingPreviewView.assignment_count -ne 4 -or $HostessStagingPreviewView.ready_assignment_count -ne 4 -or $HostessStagingPreviewView.blocked_assignment_count -ne 0 -or $HostessStagingPreviewView.ready_group_count -ne 4 -or $HostessStagingPreviewView.blocked_group_count -ne 0) {
+            throw "shell Hostess staging preview counts mismatch"
+        }
+        if ($HostessStagingPreviewView.expected_artifact_count -lt 18) {
+            throw "shell Hostess staging preview should expose expected staging artifacts"
+        }
+        foreach ($RouteKind in @("hostess.review.release_candidate", "hostess.stage.generated_shells", "manifold.review.command_session_contract", "hostess.collect.install_launch_evidence")) {
+            if (@($HostessStagingPreviewView.groups | Where-Object { $_.route_kind -eq $RouteKind -and $_.status -eq "ready" -and $_.prohibited_in_studio -eq $true }).Count -ne 1) {
+                throw "shell Hostess staging preview missing ready route group $RouteKind"
+            }
+        }
+        $StageGroup = @($HostessStagingPreviewView.groups | Where-Object { $_.route_kind -eq "hostess.stage.generated_shells" })[0]
+        foreach ($ArtifactKind in @("hostess_handoff_package", "hostess_owner_intake", "shell_handoff_manifest", "shell_bundle_dir", "shell_descriptor", "shell_template_manifest")) {
+            if (-not (@($StageGroup.expected_artifacts | ForEach-Object { $_.artifact_kind }) -contains $ArtifactKind)) {
+                throw "shell Hostess staging preview stage group missing artifact $ArtifactKind"
+            }
+        }
+        $ManifoldGroup = @($HostessStagingPreviewView.groups | Where-Object { $_.route_kind -eq "manifold.review.command_session_contract" })[0]
+        if ($ManifoldGroup.owner -ne "rusty.manifold" -or $ManifoldGroup.request_kind -ne "manifold_owner_review_request") {
+            throw "shell Hostess staging preview Manifold group owner mismatch"
+        }
+        if (@($ManifoldGroup.expected_artifacts | Where-Object { $_.route_hint -ne $null }).Count -lt 1) {
+            throw "shell Hostess staging preview Manifold group should expose route hints"
+        }
+        foreach ($ProhibitedAction in @("stage_generated_shells", "install", "launch", "open_command_session", "collect_device_evidence", "collect_install_launch_evidence")) {
+            if (-not (@($HostessStagingPreviewView.prohibited_actions) -contains $ProhibitedAction)) {
+                throw "shell Hostess staging preview missing prohibited action $ProhibitedAction"
+            }
+        }
+        if (@($HostessStagingPreviewView.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
+            throw "shell Hostess staging preview should not contain failed checks"
         }
     }
     $MissingHandoffManifestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-manifest --project "examples\synthetic-studio-project.json" --bundle-root $MissingShellBundleRoot --output $MissingShellHandoffManifestPath

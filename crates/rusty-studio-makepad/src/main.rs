@@ -12,7 +12,8 @@ use rusty_studio_core::{
     load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
     load_shell_handoff_manifest, load_shell_hostess_handoff_package_report,
-    load_shell_release_candidate_review_index, load_shell_release_candidate_review_manifest,
+    load_shell_hostess_owner_intake_report, load_shell_release_candidate_review_index,
+    load_shell_release_candidate_review_manifest,
     promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default,
     promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
@@ -26,7 +27,8 @@ use rusty_studio_core::{
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
     shell_hostess_handoff_package_for_release_candidate_index,
-    shell_hostess_owner_intake_for_handoff_package, shell_release_candidate_review_for_manifest,
+    shell_hostess_owner_intake_for_handoff_package, shell_hostess_staging_preview_for_owner_intake,
+    shell_release_candidate_review_for_manifest,
     shell_release_candidate_review_index_for_manifests,
     shell_release_candidate_review_manifest_for_report, shell_runbook_for_project,
     summarize_shell_export_package_baseline_index_selection,
@@ -52,8 +54,10 @@ use rusty_studio_model::{
     StudioShellHostessHandoffPackageActionStatus, StudioShellHostessHandoffPackageReport,
     StudioShellHostessHandoffPackageStatus, StudioShellHostessOwnerIntakeAssignmentStatus,
     StudioShellHostessOwnerIntakeReport, StudioShellHostessOwnerIntakeStatus,
-    StudioShellReleaseCandidateReviewIndex, StudioShellReleaseCandidateReviewManifest,
-    StudioShellReleaseCandidateReviewReport, StudioShellReleaseCandidateReviewSelectionReport,
+    StudioShellHostessStagingPreviewGroupStatus, StudioShellHostessStagingPreviewManifest,
+    StudioShellHostessStagingPreviewStatus, StudioShellReleaseCandidateReviewIndex,
+    StudioShellReleaseCandidateReviewManifest, StudioShellReleaseCandidateReviewReport,
+    StudioShellReleaseCandidateReviewSelectionReport,
     StudioShellReleaseCandidateReviewSelectionStatus, StudioShellReleaseCandidateReviewStatus,
     StudioShellRunbookReport, StudioShellRunbookStatus, StudioShellTargetKind,
     StudioValidationStatus, StudioViewModel,
@@ -245,6 +249,7 @@ script_mod! {
             shell_release_candidate_promote_button := ActionButton{text: "Promote Candidate"}
             shell_hostess_handoff_package_button := ActionButton{text: "Review Hostess Package"}
             shell_hostess_owner_intake_button := ActionButton{text: "Review Hostess Intake"}
+            shell_hostess_staging_preview_button := ActionButton{text: "Preview Hostess Staging"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1746,6 +1751,26 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn review_shell_hostess_staging_preview(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_hostess_staging_preview_for_project_source(&source) {
+            Ok((report, output_path)) => {
+                self.last_shell_bundle_status =
+                    shell_hostess_staging_preview_status(&report, &output_path);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -2528,6 +2553,13 @@ impl MatchEvent for App {
             .clicked(actions)
         {
             self.review_shell_hostess_owner_intake(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_staging_preview_button))
+            .clicked(actions)
+        {
+            self.review_shell_hostess_staging_preview(cx);
         }
         if self
             .ui
@@ -3651,6 +3683,19 @@ fn shell_hostess_owner_intake_for_project_source(
     Ok((report, output_path))
 }
 
+fn shell_hostess_staging_preview_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellHostessStagingPreviewManifest, PathBuf), String> {
+    let intake_path = shell_hostess_owner_intake_output_path(project_path);
+    let intake = load_shell_hostess_owner_intake_report(&intake_path)
+        .map_err(|error| format!("Shell Hostess owner intake load failed: {error}"))?;
+    let report = shell_hostess_staging_preview_for_owner_intake(&intake, Some(&intake_path));
+    let output_path = shell_hostess_staging_preview_output_path(project_path);
+    save_json(&output_path, &report)
+        .map_err(|error| format!("Shell Hostess staging preview save failed: {error}"))?;
+    Ok((report, output_path))
+}
+
 fn retarget_project_source(
     project_path: &Path,
     model: &StudioViewModel,
@@ -4024,6 +4069,15 @@ fn shell_hostess_owner_intake_output_path(project_path: &Path) -> PathBuf {
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-hostess-owner-intake.json")
+}
+
+fn shell_hostess_staging_preview_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-hostess-staging-preview.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -6343,6 +6397,94 @@ fn shell_hostess_owner_intake_status(
     )
 }
 
+fn shell_hostess_staging_preview_status(
+    report: &StudioShellHostessStagingPreviewManifest,
+    output_path: &Path,
+) -> String {
+    let status = shell_hostess_staging_preview_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let selected = report.selected_candidate_id.as_deref().unwrap_or("none");
+    let intake_path = report.intake_path.as_deref().unwrap_or("unknown");
+    let package_path = report.package_path.as_deref().unwrap_or("unknown");
+    let handoff_path = report.handoff_manifest_path.as_deref().unwrap_or("unknown");
+    let groups = report
+        .groups
+        .iter()
+        .map(|group| {
+            let group_status = shell_hostess_staging_preview_group_status_label(group.status);
+            let issue = group.issue_code.as_deref().unwrap_or("none");
+            let target_kinds = if group.target_kinds.is_empty() {
+                "none".to_string()
+            } else {
+                group.target_kinds.join(", ")
+            };
+            let graph_ids = if group.graph_ids.is_empty() {
+                "none".to_string()
+            } else {
+                group.graph_ids.join(", ")
+            };
+            format!(
+                "{} route {} [{}] owner {}; artifacts {}; targets {}; graphs {}; issue {}",
+                group.action_id,
+                group.route_kind,
+                group_status,
+                group.owner,
+                group.expected_artifact_count,
+                target_kinds,
+                graph_ids,
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    let prohibited = if report.prohibited_actions.is_empty() {
+        "none".to_string()
+    } else {
+        report.prohibited_actions.join(", ")
+    };
+    let failed_checks = report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .count();
+    format!(
+        "shell Hostess staging preview {status}; selected {selected}; issue {issue}\n  preview: {}\n  intake: {}\n  package: {}\n  handoff manifest: {}\n  project: {} rev {}\n  assignments ready {}; blocked {}; groups ready {}; blocked {}; artifacts {}\n  authority: command {}; host {}; studio {}; policy {}; staging owner {}\n  groups:\n  {}\n  prohibited: {}\n  checks: {}; failed {}",
+        output_path.display(),
+        intake_path,
+        package_path,
+        handoff_path,
+        report.project_id.as_deref().unwrap_or("unknown"),
+        report
+            .project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        report.ready_assignment_count,
+        report.blocked_assignment_count,
+        report.ready_group_count,
+        report.blocked_group_count,
+        report.expected_artifact_count,
+        report
+            .command_session_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report
+            .install_launch_evidence_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report.studio_role.as_deref().unwrap_or("unknown"),
+        report.execution_policy,
+        report.staging_owner,
+        if groups.is_empty() {
+            "none".to_string()
+        } else {
+            groups
+        },
+        prohibited,
+        report.checks.len(),
+        failed_checks
+    )
+}
+
 fn shell_release_candidate_review_manifest_summary_status(
     candidate: &StudioShellReleaseCandidateReviewManifest,
     index: &StudioShellReleaseCandidateReviewIndex,
@@ -6484,6 +6626,25 @@ fn shell_hostess_owner_intake_assignment_status_label(
     match status {
         StudioShellHostessOwnerIntakeAssignmentStatus::Ready => "ready",
         StudioShellHostessOwnerIntakeAssignmentStatus::Blocked => "blocked",
+    }
+}
+
+fn shell_hostess_staging_preview_status_label(
+    status: StudioShellHostessStagingPreviewStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessStagingPreviewStatus::Ready => "ready",
+        StudioShellHostessStagingPreviewStatus::Blocked => "blocked",
+        StudioShellHostessStagingPreviewStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_hostess_staging_preview_group_status_label(
+    status: StudioShellHostessStagingPreviewGroupStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessStagingPreviewGroupStatus::Ready => "ready",
+        StudioShellHostessStagingPreviewGroupStatus::Blocked => "blocked",
     }
 }
 
@@ -8826,6 +8987,60 @@ mod tests {
         assert!(intake_status.contains("not_executed.request_only"));
         assert!(intake_status.contains("hostess_owner_action_request"));
         assert!(intake_status.contains("manifold_owner_review_request"));
+
+        let (staging, staging_path) =
+            shell_hostess_staging_preview_for_project_source(&project_path)
+                .expect("preview shell Hostess staging");
+        assert!(staging_path.is_file());
+        assert_eq!(
+            staging.schema_id,
+            "rusty.studio.shell_hostess_staging_preview_manifest.v1"
+        );
+        assert_eq!(
+            staging.status,
+            StudioShellHostessStagingPreviewStatus::Ready
+        );
+        assert_eq!(staging.issue_code, None);
+        assert_eq!(staging.execution_policy, "not_executed.preview_only");
+        assert_eq!(staging.staging_owner, "rusty.hostess");
+        assert_eq!(
+            staging.intake_path.as_deref(),
+            Some(intake_path.display().to_string().as_str())
+        );
+        assert_eq!(staging.assignment_count, 4);
+        assert_eq!(staging.ready_assignment_count, 4);
+        assert_eq!(staging.blocked_assignment_count, 0);
+        assert_eq!(staging.ready_group_count, 4);
+        assert_eq!(staging.blocked_group_count, 0);
+        assert!(staging.expected_artifact_count >= 10);
+        let stage_group = staging
+            .groups
+            .iter()
+            .find(|group| group.action_id == "hostess.stage_generated_shells")
+            .expect("stage generated shells group");
+        assert_eq!(stage_group.route_kind, "hostess.stage.generated_shells");
+        assert_eq!(
+            stage_group.status,
+            StudioShellHostessStagingPreviewGroupStatus::Ready
+        );
+        assert!(stage_group
+            .expected_artifacts
+            .iter()
+            .any(|artifact| artifact.artifact_kind == "shell_descriptor"));
+        assert!(stage_group
+            .expected_artifacts
+            .iter()
+            .any(|artifact| artifact.artifact_kind == "shell_template_manifest"));
+        assert!(staging
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+
+        let staging_status = shell_hostess_staging_preview_status(&staging, &staging_path);
+        assert!(staging_status.contains("shell Hostess staging preview ready"));
+        assert!(staging_status.contains("route hostess.stage.generated_shells"));
+        assert!(staging_status.contains("not_executed.preview_only"));
+        assert!(staging_status.contains("groups ready 4; blocked 0"));
     }
 
     #[test]

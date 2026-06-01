@@ -62,6 +62,8 @@ pub const SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA: &str =
 pub const SHELL_HOSTESS_HANDOFF_PACKAGE_SCHEMA: &str =
     "rusty.studio.shell_hostess_handoff_package.v1";
 pub const SHELL_HOSTESS_OWNER_INTAKE_SCHEMA: &str = "rusty.studio.shell_hostess_owner_intake.v1";
+pub const SHELL_HOSTESS_STAGING_PREVIEW_MANIFEST_SCHEMA: &str =
+    "rusty.studio.shell_hostess_staging_preview_manifest.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -1663,6 +1665,79 @@ pub struct StudioShellHostessOwnerIntakeAssignment {
 pub enum StudioShellHostessOwnerIntakeAssignmentStatus {
     Ready,
     Blocked,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingPreviewManifest {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub source_intake_schema: String,
+    pub source_handoff_manifest_schema: Option<String>,
+    pub intake_path: Option<String>,
+    pub package_path: Option<String>,
+    pub handoff_manifest_path: Option<String>,
+    pub selected_candidate_id: Option<String>,
+    pub manifest_id: Option<String>,
+    pub project_id: Option<String>,
+    pub project_revision: Option<u64>,
+    pub status: StudioShellHostessStagingPreviewStatus,
+    pub issue_code: Option<String>,
+    pub execution_policy: String,
+    pub staging_owner: String,
+    pub command_session_authority: Option<String>,
+    pub install_launch_evidence_authority: Option<String>,
+    pub studio_role: Option<String>,
+    pub assignment_count: usize,
+    pub ready_assignment_count: usize,
+    pub blocked_assignment_count: usize,
+    pub ready_group_count: usize,
+    pub blocked_group_count: usize,
+    pub expected_artifact_count: usize,
+    pub groups: Vec<StudioShellHostessStagingPreviewGroup>,
+    pub prohibited_actions: Vec<String>,
+    pub checks: Vec<StudioValidationCheck>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingPreviewStatus {
+    Ready,
+    Blocked,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingPreviewGroup {
+    pub action_id: String,
+    pub owner: String,
+    pub request_kind: String,
+    pub route_kind: String,
+    pub status: StudioShellHostessStagingPreviewGroupStatus,
+    pub issue_code: Option<String>,
+    pub source: String,
+    pub next_required_action: String,
+    pub prohibited_in_studio: bool,
+    pub expected_artifact_count: usize,
+    pub target_kinds: Vec<String>,
+    pub graph_ids: Vec<String>,
+    pub expected_artifacts: Vec<StudioShellHostessStagingPreviewArtifact>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingPreviewGroupStatus {
+    Ready,
+    Blocked,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingPreviewArtifact {
+    pub artifact_kind: String,
+    pub path: String,
+    pub target_kind: Option<StudioShellTargetKind>,
+    pub graph_id: Option<String>,
+    pub consumer_id: Option<String>,
+    pub route_hint: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
