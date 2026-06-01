@@ -43,6 +43,8 @@ Current scope:
   mutation path with endpoint-kind checks and revision bumps;
 - remove the selected module node or selected binding edge from Makepad by
   deriving the same core edit request used by CLI commands;
+- add a command binding from the selected graph's operator shell to the
+  selected module node through the same shared edit route;
 - export and validate a schema-only shell descriptor for a selected graph;
 - export a schema-only shell artifact manifest for desktop, phone, and Quest
   operator shell descriptors;

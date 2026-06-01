@@ -14,8 +14,6 @@ use std::path::{Path, PathBuf};
 
 app_main!(App);
 
-const DEFAULT_COMMAND_SOURCE_NODE: &str = "node.shell.operator";
-const DEFAULT_COMMAND_TARGET_NODE: &str = "node.module.synthetic_wave_provider";
 const CANVAS_EDGE_HIT_DISTANCE: f64 = 8.0;
 
 script_mod! {
@@ -186,7 +184,7 @@ script_mod! {
         }
         ButtonRow{
             remove_selected_module_button := ActionButton{text: "Remove Selected Module"}
-            add_command_binding_button := ActionButton{text: "Add Command"}
+            add_command_binding_button := ActionButton{text: "Add Command To Selected"}
             remove_selected_binding_button := ActionButton{text: "Remove Selected Binding"}
         }
         Row{FieldLabel{text: "status"} edit_status := FieldValue{text: "no edits requested"}}
@@ -1065,6 +1063,32 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn add_command_binding_to_selected_module(&mut self, cx: &mut Cx) {
+        let Some(model) = self.model.clone() else {
+            self.last_edit_report = None;
+            self.last_edit_save_issue = "No view model is loaded".to_string();
+            self.sync_edit_report(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match selected_command_binding_request(&model) {
+            Ok(request) => {
+                self.add_binding_to_selected_graph(
+                    cx,
+                    request.binding_kind,
+                    &request.source_node_id,
+                    &request.target_node_id,
+                );
+            }
+            Err(error) => {
+                self.last_edit_report = None;
+                self.last_edit_save_issue = error;
+                self.sync_edit_report(cx);
+                self.ui.redraw(cx);
+            }
+        }
+    }
+
     fn remove_binding_from_selected_graph(
         &mut self,
         cx: &mut Cx,
@@ -1523,12 +1547,7 @@ impl MatchEvent for App {
             .button(cx, ids!(add_command_binding_button))
             .clicked(actions)
         {
-            self.add_binding_to_selected_graph(
-                cx,
-                StudioBindingKind::Command,
-                DEFAULT_COMMAND_SOURCE_NODE,
-                DEFAULT_COMMAND_TARGET_NODE,
-            );
+            self.add_command_binding_to_selected_module(cx);
         }
         if self
             .ui
@@ -2195,6 +2214,47 @@ fn selected_module_reference_id(model: &StudioViewModel) -> Result<String, Strin
         ));
     }
     Ok(node.reference_id.clone())
+}
+
+fn selected_command_binding_request(
+    model: &StudioViewModel,
+) -> Result<SelectedBindingRequest, String> {
+    let Some(node) = model.selected_node.as_ref() else {
+        return Err("No node is selected".to_string());
+    };
+    if node.kind != "module" {
+        return Err(format!(
+            "Selected node {} is {}; select a module node to add a command binding",
+            node.node_id, node.kind
+        ));
+    }
+    let graph = model
+        .graphs
+        .iter()
+        .find(|graph| graph.graph_id == node.graph_id)
+        .ok_or_else(|| format!("Selected graph {} is unavailable", node.graph_id))?;
+    let operator_shell_nodes = graph
+        .node_rows
+        .iter()
+        .filter(|row| row.kind == "operator_shell")
+        .collect::<Vec<_>>();
+    let Some(source_node) = operator_shell_nodes.first() else {
+        return Err(format!(
+            "Selected graph {} has no operator shell for command binding",
+            graph.graph_id
+        ));
+    };
+    if operator_shell_nodes.len() > 1 {
+        return Err(format!(
+            "Selected graph {} has multiple operator shells; select one shell before adding a command binding",
+            graph.graph_id
+        ));
+    }
+    Ok(SelectedBindingRequest {
+        binding_kind: StudioBindingKind::Command,
+        source_node_id: source_node.node_id.clone(),
+        target_node_id: node.node_id.clone(),
+    })
 }
 
 fn selected_binding_request(model: &StudioViewModel) -> Result<SelectedBindingRequest, String> {
@@ -3055,6 +3115,59 @@ mod tests {
                 && edge.target_node_id == "node.module.synthetic_provider"
         }));
         assert_eq!(refreshed_model.revision, 2);
+        assert_eq!(refreshed_model.graphs[0].edge_count, 3);
+    }
+
+    #[test]
+    fn selected_module_drives_add_command_binding_request() {
+        let root = temp_root("selected-command-binding-source");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        let mut project = editable_project();
+        project.graphs[0].nodes.push(StudioNode {
+            node_id: "node.module.synthetic_provider".to_string(),
+            kind: StudioNodeKind::Module,
+            reference_id: "module.synthetic_provider".to_string(),
+            label: "Synthetic Provider".to_string(),
+        });
+        project.graphs[0].edges.push(StudioEdge {
+            edge_id: "edge.package_module".to_string(),
+            kind: StudioEdgeKind::PackageProvidesModule,
+            source_node_id: "node.package.synthetic".to_string(),
+            target_node_id: "node.module.synthetic_provider".to_string(),
+        });
+        save_project(&project_path, &project).expect("save editable project");
+        let model = load_studio_view_model_for_path(
+            &project_path,
+            Some("studio.graph.makepad_edit"),
+            None,
+            Some("node.module.synthetic_provider"),
+            None,
+        )
+        .expect("load selected module view model");
+
+        let request =
+            selected_command_binding_request(&model).expect("selected command binding request");
+        assert_eq!(request.binding_kind, StudioBindingKind::Command);
+        assert_eq!(request.source_node_id, "node.shell.operator");
+        assert_eq!(request.target_node_id, "node.module.synthetic_provider");
+        let (report, refreshed_model) = add_binding_to_project_source(
+            &project_path,
+            &model,
+            0,
+            request.binding_kind,
+            &request.source_node_id,
+            &request.target_node_id,
+        )
+        .expect("add selected command binding to project source");
+        let refreshed_model = refreshed_model.expect("refreshed model after applied edit");
+
+        assert_eq!(report.operation, StudioEditOperation::AddBinding);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(
+            report.requested_reference_id,
+            "edge.command_binding.node.shell.operator.node.module.synthetic_provider"
+        );
         assert_eq!(refreshed_model.graphs[0].edge_count, 3);
     }
 
