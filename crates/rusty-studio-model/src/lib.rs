@@ -484,6 +484,7 @@ pub struct StudioViewModel {
     pub selected_edge_id: Option<String>,
     pub edge_selection_code: Option<String>,
     pub selected_edge: Option<StudioEdgeInspectorView>,
+    pub shell_preview: Option<StudioShellPreviewView>,
     pub catalog_package_count: usize,
     pub catalog_module_count: usize,
     pub host_profile_count: usize,
@@ -563,6 +564,38 @@ pub struct StudioEdgeInspectorView {
     pub validation_issue_count: usize,
     pub endpoint_status: String,
     pub binding_kind: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellPreviewView {
+    pub graph_id: String,
+    pub status: StudioShellDescriptorStatus,
+    pub issue_code: Option<String>,
+    pub message: String,
+    pub descriptor_id: Option<String>,
+    pub descriptor_path: Option<String>,
+    pub shell_id: Option<String>,
+    pub shell_label: Option<String>,
+    pub target_host_profile: Option<String>,
+    pub target_kind: Option<StudioShellTargetKind>,
+    pub host_profile_class: Option<String>,
+    pub app_id: Option<String>,
+    pub install_route: Option<String>,
+    pub launch_route: Option<String>,
+    pub command_bridge: Option<String>,
+    pub evidence_pull_route: Option<String>,
+    pub package_count: usize,
+    pub module_count: usize,
+    pub validation_slot_count: usize,
+    pub stream_binding_count: usize,
+    pub command_binding_count: usize,
+    pub descriptor_validation_status: Option<StudioValidationStatus>,
+    pub template_id: Option<String>,
+    pub template_path: Option<String>,
+    pub template_descriptor_path: Option<String>,
+    pub runtime_command_authority: Option<String>,
+    pub runtime_host_authority: Option<String>,
+    pub studio_role: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

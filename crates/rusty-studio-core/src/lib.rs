@@ -22,7 +22,7 @@ use rusty_studio_model::{
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
     StudioGraphLayoutView, StudioGraphView, StudioNodeHostProfileView, StudioNodeInspectorView,
-    StudioNodeLayoutView, StudioNodeView,
+    StudioNodeLayoutView, StudioNodeView, StudioShellPreviewView,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -366,6 +366,8 @@ pub fn view_model_for_graph_issue_node_and_edge(
         issue_selection.focused_issue.as_ref(),
         requested_edge_id,
     );
+    let shell_preview =
+        shell_preview_for_selected_graph(project, base_dir, selected_graph_id.as_deref());
     let catalog_module_count = catalog_packages
         .iter()
         .map(|package| package.module_count)
@@ -401,6 +403,7 @@ pub fn view_model_for_graph_issue_node_and_edge(
         selected_edge_id: edge_selection.selected_edge_id,
         edge_selection_code: edge_selection.edge_selection_code,
         selected_edge: edge_selection.selected_edge,
+        shell_preview,
         catalog_package_count: catalog_packages.len(),
         catalog_module_count,
         host_profile_count: host_profiles.len(),
@@ -2749,6 +2752,85 @@ fn binding_kind_short_label(kind: StudioBindingKind) -> String {
         StudioBindingKind::Stream => "stream".to_string(),
         StudioBindingKind::Command => "command".to_string(),
     }
+}
+
+fn shell_preview_for_selected_graph(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    selected_graph_id: Option<&str>,
+) -> Option<StudioShellPreviewView> {
+    let graph_id = selected_graph_id?;
+    let report = shell_descriptor_for_graph(project, base_dir, graph_id);
+    let status = report.status;
+    let issue_code = report.issue_code.clone();
+    let message = report.message.clone();
+    let Some(descriptor) = report.descriptor.as_ref() else {
+        return Some(StudioShellPreviewView {
+            graph_id: report.graph_id,
+            status,
+            issue_code,
+            message,
+            descriptor_id: None,
+            descriptor_path: None,
+            shell_id: None,
+            shell_label: None,
+            target_host_profile: None,
+            target_kind: None,
+            host_profile_class: None,
+            app_id: None,
+            install_route: None,
+            launch_route: None,
+            command_bridge: None,
+            evidence_pull_route: None,
+            package_count: 0,
+            module_count: 0,
+            validation_slot_count: 0,
+            stream_binding_count: 0,
+            command_binding_count: 0,
+            descriptor_validation_status: None,
+            template_id: None,
+            template_path: None,
+            template_descriptor_path: None,
+            runtime_command_authority: None,
+            runtime_host_authority: None,
+            studio_role: None,
+        });
+    };
+
+    let descriptor_validation = validate_shell_descriptor(descriptor);
+    let artifact = shell_artifact_for_descriptor(descriptor);
+    let template = shell_template_for_artifact(&artifact);
+    let template_entry = shell_template_index_entry(&artifact);
+    Some(StudioShellPreviewView {
+        graph_id: descriptor.graph_id.clone(),
+        status,
+        issue_code,
+        message,
+        descriptor_id: Some(descriptor.descriptor_id.clone()),
+        descriptor_path: Some(artifact.descriptor_path.clone()),
+        shell_id: Some(descriptor.shell_id.clone()),
+        shell_label: Some(descriptor.shell_label.clone()),
+        target_host_profile: Some(descriptor.target_host_profile.clone()),
+        target_kind: Some(artifact.target_kind),
+        host_profile_class: artifact.host_profile_class.clone(),
+        app_id: artifact.app_id.clone(),
+        install_route: artifact.install_route.clone(),
+        launch_route: artifact.launch_route.clone(),
+        command_bridge: artifact.command_bridge.clone(),
+        evidence_pull_route: artifact.evidence_pull_route.clone(),
+        package_count: descriptor.package_ids.len(),
+        module_count: descriptor.module_ids.len(),
+        validation_slot_count: descriptor.validation_slot_ids.len(),
+        stream_binding_count: descriptor.stream_bindings.len(),
+        command_binding_count: descriptor.command_bindings.len(),
+        descriptor_validation_status: Some(descriptor_validation.status),
+        template_id: Some(template.template_id),
+        template_path: Some(template_entry.template_path),
+        template_descriptor_path: Some(template_entry.descriptor_path),
+        runtime_command_authority: Some(template.runtime_authority.command_session_authority),
+        runtime_host_authority: Some(template.runtime_authority.install_launch_evidence_authority),
+        studio_role: Some(template.runtime_authority.studio_role),
+    })
 }
 
 fn next_available_catalog_module(
@@ -6470,6 +6552,86 @@ mod tests {
         assert_eq!(layout.nodes[0].validation_issue_count, 0);
         assert_eq!(layout.edges[0].edge_id, "edge.package_host");
         assert_eq!(layout.edges[0].route, "direct");
+    }
+
+    #[test]
+    fn view_model_includes_selected_shell_preview() {
+        let root = temp_root("view-model-shell-preview");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+
+        let model = view_model(&project, Some(&root));
+        let preview = model.shell_preview.as_ref().expect("shell preview");
+
+        assert_eq!(preview.status, StudioShellDescriptorStatus::Exported);
+        assert_eq!(preview.issue_code, None);
+        assert_eq!(
+            preview.descriptor_id.as_deref(),
+            Some("studio.shell_descriptor.studio.graph.test")
+        );
+        assert_eq!(
+            preview.descriptor_path.as_deref(),
+            Some("descriptors/studio.graph.test.shell-descriptor.json")
+        );
+        assert_eq!(
+            preview.shell_id.as_deref(),
+            Some("shell.synthetic.operator")
+        );
+        assert_eq!(
+            preview.target_host_profile.as_deref(),
+            Some("host_run.profile.desktop")
+        );
+        assert_eq!(preview.target_kind, Some(StudioShellTargetKind::Desktop));
+        assert_eq!(preview.package_count, 1);
+        assert_eq!(preview.module_count, 1);
+        assert_eq!(preview.stream_binding_count, 0);
+        assert_eq!(preview.command_binding_count, 1);
+        assert_eq!(
+            preview.descriptor_validation_status,
+            Some(StudioValidationStatus::Pass)
+        );
+        assert_eq!(
+            preview.template_id.as_deref(),
+            Some("studio.shell_template.studio.graph.test")
+        );
+        assert_eq!(
+            preview.template_path.as_deref(),
+            Some("shells/desktop/studio.graph.test.shell-template.json")
+        );
+        assert_eq!(
+            preview.template_descriptor_path.as_deref(),
+            Some("descriptors/studio.graph.test.shell-descriptor.json")
+        );
+        assert_eq!(
+            preview.runtime_command_authority.as_deref(),
+            Some("rusty.manifold")
+        );
+        assert_eq!(
+            preview.runtime_host_authority.as_deref(),
+            Some("rusty.hostess")
+        );
+        assert_eq!(
+            preview.studio_role.as_deref(),
+            Some("authoring.export_planning")
+        );
+    }
+
+    #[test]
+    fn view_model_shell_preview_reports_descriptor_rejection() {
+        let root = temp_root("view-model-shell-preview-rejected");
+        write_reference_fixture_tree(&root);
+        let project = valid_project_with_relative_references();
+
+        let model = view_model(&project, Some(&root));
+        let preview = model.shell_preview.as_ref().expect("shell preview");
+
+        assert_eq!(preview.status, StudioShellDescriptorStatus::Rejected);
+        assert_eq!(
+            preview.issue_code.as_deref(),
+            Some("studio.issue.no_operator_shell")
+        );
+        assert_eq!(preview.descriptor_id, None);
+        assert_eq!(preview.template_id, None);
     }
 
     #[test]

@@ -154,6 +154,63 @@ try {
     if ($ViewModel.selected_edge.target_reference_id -ne "module.synthetic_wave_provider") {
         throw "valid view model selected edge target reference mismatch"
     }
+    if ($null -eq $ViewModel.shell_preview) {
+        throw "valid view model should expose selected graph shell preview"
+    }
+    if ($ViewModel.shell_preview.status -ne "exported") {
+        throw "valid view model shell preview should be exported"
+    }
+    if ($null -ne $ViewModel.shell_preview.issue_code) {
+        throw "valid view model shell preview should not expose an issue code"
+    }
+    if ($ViewModel.shell_preview.descriptor_id -ne "studio.shell_descriptor.studio.graph.synthetic_wave_desktop") {
+        throw "valid view model shell preview descriptor id mismatch"
+    }
+    if ($ViewModel.shell_preview.descriptor_path -ne "descriptors/studio.graph.synthetic_wave_desktop.shell-descriptor.json") {
+        throw "valid view model shell preview descriptor path mismatch"
+    }
+    if ($ViewModel.shell_preview.shell_id -ne "shell.synthetic_wave.desktop_operator") {
+        throw "valid view model shell preview shell id mismatch"
+    }
+    if ($ViewModel.shell_preview.target_host_profile -ne "host_run.profile.desktop") {
+        throw "valid view model shell preview target host mismatch"
+    }
+    if ($ViewModel.shell_preview.target_kind -ne "desktop") {
+        throw "valid view model shell preview target kind mismatch"
+    }
+    if ($ViewModel.shell_preview.package_count -ne 1) {
+        throw "valid view model shell preview package count mismatch"
+    }
+    if ($ViewModel.shell_preview.module_count -ne 2) {
+        throw "valid view model shell preview module count mismatch"
+    }
+    if ($ViewModel.shell_preview.stream_binding_count -ne 1) {
+        throw "valid view model shell preview stream binding count mismatch"
+    }
+    if ($ViewModel.shell_preview.command_binding_count -ne 0) {
+        throw "valid view model shell preview command binding count mismatch"
+    }
+    if ($ViewModel.shell_preview.descriptor_validation_status -ne "pass") {
+        throw "valid view model shell preview descriptor validation mismatch"
+    }
+    if ($ViewModel.shell_preview.template_id -ne "studio.shell_template.studio.graph.synthetic_wave_desktop") {
+        throw "valid view model shell preview template id mismatch"
+    }
+    if ($ViewModel.shell_preview.template_path -ne "shells/desktop/studio.graph.synthetic_wave_desktop.shell-template.json") {
+        throw "valid view model shell preview template path mismatch"
+    }
+    if ($ViewModel.shell_preview.template_descriptor_path -ne "descriptors/studio.graph.synthetic_wave_desktop.shell-descriptor.json") {
+        throw "valid view model shell preview template descriptor path mismatch"
+    }
+    if ($ViewModel.shell_preview.runtime_command_authority -ne "rusty.manifold") {
+        throw "valid view model shell preview command authority mismatch"
+    }
+    if ($ViewModel.shell_preview.runtime_host_authority -ne "rusty.hostess") {
+        throw "valid view model shell preview host authority mismatch"
+    }
+    if ($ViewModel.shell_preview.studio_role -ne "authoring.export_planning") {
+        throw "valid view model shell preview Studio role mismatch"
+    }
     $ViewModelDesktopGraph = $ViewModel.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $ViewModelDesktopGraph) {
         throw "view model missing desktop graph row"

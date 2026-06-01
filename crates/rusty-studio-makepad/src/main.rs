@@ -8,8 +8,8 @@ use rusty_studio_core::{
     view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
-    StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView, StudioValidationStatus,
-    StudioViewModel,
+    StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView,
+    StudioShellDescriptorStatus, StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
 };
 use std::path::{Path, PathBuf};
 
@@ -167,6 +167,15 @@ script_mod! {
         Row{FieldLabel{text: "counts"} graph_counts := SmallValue{text: ""}}
     }
 
+    let ShellPreviewPanel = Panel{
+        SectionTitle{text: "Shell Preview"}
+        Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
+        Rule{}
+        Row{FieldLabel{text: "routes"} shell_routes := SmallValue{text: ""}}
+        Rule{}
+        Row{FieldLabel{text: "template"} shell_template := SmallValue{text: ""}}
+    }
+
     let PalettePanel = Panel{
         SectionTitle{text: "Reference Palette"}
         ButtonRow{
@@ -269,6 +278,7 @@ script_mod! {
                         ProjectPanel{}
                         DiagnosticsPanel{}
                         GraphPanel{}
+                        ShellPreviewPanel{}
                         PalettePanel{}
                         EditPanel{}
                         CanvasPanel{}
@@ -846,6 +856,15 @@ impl App {
             ),
         );
         self.ui
+            .label(cx, ids!(shell_preview))
+            .set_text(cx, &shell_preview_lines(model));
+        self.ui
+            .label(cx, ids!(shell_routes))
+            .set_text(cx, &shell_route_lines(model));
+        self.ui
+            .label(cx, ids!(shell_template))
+            .set_text(cx, &shell_template_lines(model));
+        self.ui
             .label(cx, ids!(graph_layout))
             .set_text(cx, &layout_lines(graph));
         self.sync_graph_canvas(cx, model, graph);
@@ -1215,6 +1234,9 @@ impl App {
             .set_text(cx, "no graph loaded");
         self.ui.label(cx, ids!(graph_target)).set_text(cx, "");
         self.ui.label(cx, ids!(graph_counts)).set_text(cx, "");
+        self.ui.label(cx, ids!(shell_preview)).set_text(cx, "");
+        self.ui.label(cx, ids!(shell_routes)).set_text(cx, "");
+        self.ui.label(cx, ids!(shell_template)).set_text(cx, "");
         self.ui.label(cx, ids!(graph_layout)).set_text(cx, "");
         if let Some(mut canvas) = self
             .ui
@@ -2193,6 +2215,152 @@ fn host_profile_lines(model: &StudioViewModel) -> String {
         .join("\n")
 }
 
+fn shell_preview_lines(model: &StudioViewModel) -> String {
+    let Some(preview) = model.shell_preview.as_ref() else {
+        return "none".to_string();
+    };
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "{} [{}]",
+        preview.graph_id,
+        shell_descriptor_status_label(preview.status)
+    ));
+    if let Some(issue_code) = preview.issue_code.as_deref() {
+        lines.push(format!("issue: {issue_code}"));
+    }
+    lines.push(preview.message.clone());
+    if let Some(descriptor_id) = preview.descriptor_id.as_deref() {
+        lines.push(format!("descriptor: {descriptor_id}"));
+    }
+    if let Some(shell_id) = preview.shell_id.as_deref() {
+        lines.push(format!(
+            "shell: {} / {}",
+            shell_id,
+            preview.shell_label.as_deref().unwrap_or("unlabeled")
+        ));
+    }
+    if let Some(target_host_profile) = preview.target_host_profile.as_deref() {
+        lines.push(format!(
+            "target: {} / {}",
+            target_host_profile,
+            preview
+                .target_kind
+                .map(shell_target_kind_label)
+                .unwrap_or("unknown")
+        ));
+    }
+    lines.push(format!(
+        "graph: {} package(s), {} module(s), {} stream binding(s), {} command binding(s)",
+        preview.package_count,
+        preview.module_count,
+        preview.stream_binding_count,
+        preview.command_binding_count
+    ));
+    if let Some(status) = preview.descriptor_validation_status {
+        lines.push(format!(
+            "descriptor validation: {}",
+            validation_status_label(status)
+        ));
+    }
+    lines.join("\n")
+}
+
+fn shell_route_lines(model: &StudioViewModel) -> String {
+    let Some(preview) = model.shell_preview.as_ref() else {
+        return "none".to_string();
+    };
+    if preview.status != StudioShellDescriptorStatus::Exported {
+        return "none".to_string();
+    }
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "host: {}",
+        preview.host_profile_class.as_deref().unwrap_or("unknown")
+    ));
+    lines.push(format!(
+        "app: {}",
+        preview.app_id.as_deref().unwrap_or("not declared")
+    ));
+    lines.push(format!(
+        "install: {}",
+        preview.install_route.as_deref().unwrap_or("not declared")
+    ));
+    lines.push(format!(
+        "launch: {}",
+        preview.launch_route.as_deref().unwrap_or("not declared")
+    ));
+    lines.push(format!(
+        "command: {}",
+        preview.command_bridge.as_deref().unwrap_or("not declared")
+    ));
+    lines.push(format!(
+        "evidence: {}",
+        preview
+            .evidence_pull_route
+            .as_deref()
+            .unwrap_or("not declared")
+    ));
+    lines.join("\n")
+}
+
+fn shell_template_lines(model: &StudioViewModel) -> String {
+    let Some(preview) = model.shell_preview.as_ref() else {
+        return "none".to_string();
+    };
+    if preview.status != StudioShellDescriptorStatus::Exported {
+        return "none".to_string();
+    }
+    let mut lines = Vec::new();
+    if let Some(template_id) = preview.template_id.as_deref() {
+        lines.push(format!("template: {template_id}"));
+    }
+    if let Some(template_path) = preview.template_path.as_deref() {
+        lines.push(format!("path: {template_path}"));
+    }
+    if let Some(descriptor_path) = preview.descriptor_path.as_deref() {
+        lines.push(format!("descriptor: {descriptor_path}"));
+    }
+    if let Some(staged_descriptor_path) = preview.template_descriptor_path.as_deref() {
+        lines.push(format!("staged descriptor: {staged_descriptor_path}"));
+    }
+    lines.push(format!(
+        "authority: {} / {} / {}",
+        preview
+            .runtime_command_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        preview
+            .runtime_host_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        preview.studio_role.as_deref().unwrap_or("unknown")
+    ));
+    lines.join("\n")
+}
+
+fn shell_descriptor_status_label(status: StudioShellDescriptorStatus) -> &'static str {
+    match status {
+        StudioShellDescriptorStatus::Exported => "exported",
+        StudioShellDescriptorStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_target_kind_label(kind: StudioShellTargetKind) -> &'static str {
+    match kind {
+        StudioShellTargetKind::Desktop => "desktop",
+        StudioShellTargetKind::Phone => "phone",
+        StudioShellTargetKind::Quest => "quest",
+        StudioShellTargetKind::Unknown => "unknown",
+    }
+}
+
+fn validation_status_label(status: StudioValidationStatus) -> &'static str {
+    match status {
+        StudioValidationStatus::Pass => "pass",
+        StudioValidationStatus::Fail => "fail",
+    }
+}
+
 fn edit_status_line(report: &StudioEditReport, save_issue: &str) -> String {
     let status = match report.status {
         StudioEditStatus::Applied => "applied",
@@ -2718,6 +2886,38 @@ mod tests {
         assert!(profile_lines.contains("host_run.profile.desktop [target]"));
         assert!(profile_lines.contains("host: host.desktop"));
         assert!(profile_lines.contains("host_run.profile.headset [available]"));
+
+        let shell_preview = shell_preview_lines(&model);
+        assert!(shell_preview.contains("studio.graph.makepad_edit [exported]"));
+        assert!(shell_preview.contains("Shell descriptor exported"));
+        assert!(
+            shell_preview.contains("descriptor: studio.shell_descriptor.studio.graph.makepad_edit")
+        );
+        assert!(shell_preview.contains("shell: shell.synthetic.operator / Shell"));
+        assert!(shell_preview.contains("target: host_run.profile.desktop / desktop"));
+        assert!(shell_preview.contains(
+            "graph: 1 package(s), 0 module(s), 0 stream binding(s), 0 command binding(s)"
+        ));
+        assert!(shell_preview.contains("descriptor validation: pass"));
+
+        let shell_routes = shell_route_lines(&model);
+        assert!(shell_routes.contains("host: host.desktop"));
+        assert!(shell_routes.contains("app: app.host_shell.desktop"));
+        assert!(shell_routes.contains("install: install.local_process"));
+        assert!(shell_routes.contains("launch: launch.local_process"));
+        assert!(shell_routes.contains("command: bridge.local_cli"));
+        assert!(shell_routes.contains("evidence: evidence.filesystem"));
+
+        let shell_template = shell_template_lines(&model);
+        assert!(
+            shell_template.contains("template: studio.shell_template.studio.graph.makepad_edit")
+        );
+        assert!(shell_template
+            .contains("path: shells/desktop/studio.graph.makepad_edit.shell-template.json"));
+        assert!(shell_template
+            .contains("descriptor: descriptors/studio.graph.makepad_edit.shell-descriptor.json"));
+        assert!(shell_template
+            .contains("authority: rusty.manifold / rusty.hostess / authoring.export_planning"));
 
         assert_eq!(selected_node_line(&model), "Package / package");
         let detail_lines = selected_node_detail_lines(&model);

@@ -51,6 +51,8 @@ Current scope:
 - export per-target shell template manifests with staged descriptors while
   preserving Hostess/Manifold runtime authority;
 - validate generated shell template indexes and manifests;
+- expose a selected-graph shell descriptor/template preview through the shared
+  view model and Makepad surface;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
