@@ -5,13 +5,13 @@ use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
     add_next_catalog_module_to_graph, load_project, remove_binding_from_graph,
     remove_module_from_graph, retarget_graph_host_profile, save_project, save_shell_bundle,
-    selected_shell_bundle_for_graph, view_model_for_graph,
+    selected_shell_bundle_for_graph, validate_selected_shell_bundle, view_model_for_graph,
     view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView,
-    StudioShellBundleReport, StudioShellBundleStatus, StudioShellDescriptorStatus,
-    StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
+    StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
+    StudioShellDescriptorStatus, StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
 };
 use std::path::{Path, PathBuf};
 
@@ -173,6 +173,7 @@ script_mod! {
         SectionTitle{text: "Shell Preview"}
         ButtonRow{
             export_shell_bundle_button := ActionButton{text: "Export Preview Files"}
+            verify_shell_bundle_button := ActionButton{text: "Verify Preview Files"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1026,6 +1027,32 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn verify_shell_bundle_for_selected_graph(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        let Some(model) = self.model.clone() else {
+            self.last_shell_bundle_status = "No view model is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match validate_shell_bundle_for_project_source(&source, &model, self.selected_graph_index) {
+            Ok((report, output_dir)) => {
+                self.last_shell_bundle_status =
+                    shell_bundle_validation_status(&report, &output_dir);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -1622,6 +1649,13 @@ impl MatchEvent for App {
         }
         if self
             .ui
+            .button(cx, ids!(verify_shell_bundle_button))
+            .clicked(actions)
+        {
+            self.verify_shell_bundle_for_selected_graph(cx);
+        }
+        if self
+            .ui
             .button(cx, ids!(remove_selected_module_button))
             .clicked(actions)
         {
@@ -1726,6 +1760,21 @@ fn export_shell_bundle_for_project_source(
         save_shell_bundle(&output_dir, &report)
             .map_err(|error| format!("Shell bundle save failed: {error}"))?;
     }
+    Ok((report, output_dir))
+}
+
+fn validate_shell_bundle_for_project_source(
+    project_path: &Path,
+    model: &StudioViewModel,
+    selected_graph_index: usize,
+) -> Result<(StudioShellBundleValidationReport, PathBuf), String> {
+    let graph_id = selected_graph_id_for_model(model, selected_graph_index)
+        .ok_or_else(|| "No graph is selected".to_string())?;
+    let project =
+        load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
+    let output_dir = selected_shell_bundle_output_dir(project_path, &graph_id);
+    let report =
+        validate_selected_shell_bundle(&project, project_path.parent(), &graph_id, &output_dir);
     Ok((report, output_dir))
 }
 
@@ -2443,6 +2492,48 @@ fn shell_bundle_export_status(report: &StudioShellBundleReport, output_dir: &Pat
     )
 }
 
+fn shell_bundle_validation_status(
+    report: &StudioShellBundleValidationReport,
+    output_dir: &Path,
+) -> String {
+    let status = validation_status_label(report.status);
+    let failed = report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .collect::<Vec<_>>();
+    if failed.is_empty() {
+        return format!(
+            "validated; status {status}\n  graph: {}\n  output: {}\n  files: {}",
+            report.graph_id,
+            output_dir.display(),
+            report.expected_bundle_files.len()
+        );
+    }
+    let issues = failed
+        .iter()
+        .take(4)
+        .map(|check| {
+            format!(
+                "{}: {}",
+                check
+                    .issue_code
+                    .as_deref()
+                    .unwrap_or("studio.issue.unknown"),
+                check.evidence
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    format!(
+        "validated; status {status}\n  graph: {}\n  output: {}\n  failed: {}\n  {}",
+        report.graph_id,
+        output_dir.display(),
+        failed.len(),
+        issues
+    )
+}
+
 fn shell_bundle_status_label(status: StudioShellBundleStatus) -> &'static str {
     match status {
         StudioShellBundleStatus::Exported => "exported",
@@ -3142,6 +3233,32 @@ mod tests {
         assert!(status.contains("exported; issue none"));
         assert!(status.contains("studio.graph.makepad_edit"));
         assert!(status.contains("shells/desktop/studio.graph.makepad_edit.shell-template.json"));
+    }
+
+    #[test]
+    fn selected_shell_bundle_validation_reports_pass() {
+        let root = temp_root("selected-shell-bundle-validate");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+
+        let (report, output_dir) =
+            validate_shell_bundle_for_project_source(&project_path, &model, 0)
+                .expect("validate selected shell bundle");
+
+        assert_eq!(report.status, StudioValidationStatus::Pass);
+        assert!(report
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+        let status = shell_bundle_validation_status(&report, &output_dir);
+        assert!(status.contains("validated; status pass"));
+        assert!(status.contains("studio.graph.makepad_edit"));
+        assert!(status.contains("files: 4"));
     }
 
     #[test]

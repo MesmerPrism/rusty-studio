@@ -5,8 +5,8 @@ use rusty_studio_model::{
     StudioResolvedGraph, StudioResolvedProject, StudioShellArtifact, StudioShellArtifactManifest,
     StudioShellArtifactManifestValidationReport, StudioShellArtifactRejection,
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
-    StudioShellBundleReport, StudioShellBundleStatus, StudioShellDescriptor,
-    StudioShellDescriptorReport, StudioShellDescriptorStatus,
+    StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
+    StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
     StudioShellDescriptorValidationReport, StudioShellHostProfile, StudioShellHostRoutes,
     StudioShellRuntimeAuthority, StudioShellTargetKind, StudioShellTemplateIndex,
     StudioShellTemplateIndexEntry, StudioShellTemplateIndexValidationReport,
@@ -15,7 +15,8 @@ use rusty_studio_model::{
     StudioValidationStatus, StudioViewModel, EDIT_REPORT_SCHEMA, EXPORT_PLAN_SCHEMA,
     PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA, SHELL_ARTIFACT_MANIFEST_SCHEMA,
     SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
-    SHELL_BUNDLE_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
+    SHELL_BUNDLE_REPORT_SCHEMA, SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA,
+    SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
     SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
     SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
     SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
@@ -2403,6 +2404,258 @@ pub fn save_shell_bundle(
     Ok(written_files.into_iter().collect())
 }
 
+pub fn validate_selected_shell_bundle(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    graph_id: &str,
+    bundle_dir: &Path,
+) -> StudioShellBundleValidationReport {
+    let expected = selected_shell_bundle_for_graph(project, base_dir, graph_id);
+    let expected_bundle_files = expected.bundle_files.clone();
+    let mut checks = Vec::new();
+    let preview_issue = expected
+        .issue_code
+        .as_deref()
+        .unwrap_or("studio.issue.shell_bundle_preview_rejected");
+    push_bundle_check(
+        &mut checks,
+        graph_id,
+        "studio.check.shell_bundle.current_preview",
+        expected.status == StudioShellBundleStatus::Exported,
+        "current selected graph exports a shell bundle",
+        &expected.message,
+        preview_issue,
+    );
+
+    if expected.status != StudioShellBundleStatus::Exported {
+        return shell_bundle_validation_report(project, graph_id, expected_bundle_files, checks);
+    }
+
+    for (index, relative_path) in expected.bundle_files.iter().enumerate() {
+        let file_path = relative_output_path(bundle_dir, relative_path);
+        push_bundle_check(
+            &mut checks,
+            graph_id,
+            &format!("studio.check.shell_bundle.file.{index}.exists"),
+            file_path.is_file(),
+            "expected bundle file exists",
+            &format!("expected bundle file is missing: {relative_path}"),
+            "studio.issue.shell_bundle_file_missing",
+        );
+    }
+
+    let expected_descriptor = expected.descriptor.as_ref();
+    if let Some(descriptor_relative_path) = descriptor_bundle_paths(&expected).first().cloned() {
+        let descriptor_path = relative_output_path(bundle_dir, &descriptor_relative_path);
+        match load_shell_descriptor(&descriptor_path) {
+            Ok(descriptor) => {
+                push_bundle_check(
+                    &mut checks,
+                    graph_id,
+                    "studio.check.shell_bundle.descriptor.parse",
+                    true,
+                    "descriptor JSON parsed",
+                    "descriptor JSON did not parse",
+                    "studio.issue.descriptor_parse_failed",
+                );
+                push_bundle_check(
+                    &mut checks,
+                    graph_id,
+                    "studio.check.shell_bundle.descriptor.current_match",
+                    expected_descriptor == Some(&descriptor),
+                    "descriptor matches the current selected graph preview",
+                    "descriptor differs from the current selected graph preview",
+                    "studio.issue.shell_bundle_descriptor_mismatch",
+                );
+            }
+            Err(error) => {
+                push_bundle_check(
+                    &mut checks,
+                    graph_id,
+                    "studio.check.shell_bundle.descriptor.parse",
+                    false,
+                    "descriptor JSON parsed",
+                    &error.to_string(),
+                    "studio.issue.descriptor_parse_failed",
+                );
+            }
+        }
+    } else {
+        push_bundle_check(
+            &mut checks,
+            graph_id,
+            "studio.check.shell_bundle.descriptor.path",
+            false,
+            "current preview has a descriptor path",
+            "current preview has no descriptor path",
+            "studio.issue.descriptor_missing",
+        );
+    }
+
+    let expected_artifact_manifest = expected.artifact_manifest.as_ref();
+    let artifact_manifest_path = relative_output_path(bundle_dir, "shell-artifacts.json");
+    match load_shell_artifact_manifest(&artifact_manifest_path) {
+        Ok(manifest) => {
+            push_bundle_check(
+                &mut checks,
+                graph_id,
+                "studio.check.shell_bundle.artifact_manifest.parse",
+                true,
+                "artifact manifest JSON parsed",
+                "artifact manifest JSON did not parse",
+                "studio.issue.shell_artifact_manifest_parse_failed",
+            );
+            let validation = validate_shell_artifact_manifest(&manifest, Some(bundle_dir));
+            push_bundle_check(
+                &mut checks,
+                graph_id,
+                "studio.check.shell_bundle.artifact_manifest.validation",
+                validation.status == StudioValidationStatus::Pass,
+                "artifact manifest validates against written descriptor files",
+                "artifact manifest validation failed against written descriptor files",
+                "studio.issue.shell_artifact_manifest_invalid",
+            );
+            push_bundle_check(
+                &mut checks,
+                graph_id,
+                "studio.check.shell_bundle.artifact_manifest.current_match",
+                expected_artifact_manifest == Some(&manifest),
+                "artifact manifest matches the current selected graph preview",
+                "artifact manifest differs from the current selected graph preview",
+                "studio.issue.shell_bundle_artifact_manifest_mismatch",
+            );
+        }
+        Err(error) => {
+            push_bundle_check(
+                &mut checks,
+                graph_id,
+                "studio.check.shell_bundle.artifact_manifest.parse",
+                false,
+                "artifact manifest JSON parsed",
+                &error.to_string(),
+                "studio.issue.shell_artifact_manifest_parse_failed",
+            );
+        }
+    }
+
+    let expected_template_index = expected.template_index.as_ref();
+    let template_index_path = relative_output_path(bundle_dir, "shell-templates.json");
+    let mut template_path_from_index = expected_template_index
+        .and_then(|index| index.templates.first())
+        .map(|entry| entry.template_path.clone());
+    match load_shell_template_index(&template_index_path) {
+        Ok(index) => {
+            push_bundle_check(
+                &mut checks,
+                graph_id,
+                "studio.check.shell_bundle.template_index.parse",
+                true,
+                "template index JSON parsed",
+                "template index JSON did not parse",
+                "studio.issue.shell_template_index_parse_failed",
+            );
+            let validation = validate_shell_template_index(&index, Some(bundle_dir));
+            push_bundle_check(
+                &mut checks,
+                graph_id,
+                "studio.check.shell_bundle.template_index.validation",
+                validation.status == StudioValidationStatus::Pass,
+                "template index validates against written template and descriptor files",
+                "template index validation failed against written template and descriptor files",
+                "studio.issue.shell_template_index_invalid",
+            );
+            push_bundle_check(
+                &mut checks,
+                graph_id,
+                "studio.check.shell_bundle.template_index.current_match",
+                expected_template_index == Some(&index),
+                "template index matches the current selected graph preview",
+                "template index differs from the current selected graph preview",
+                "studio.issue.shell_bundle_template_index_mismatch",
+            );
+            if template_path_from_index.is_none() {
+                template_path_from_index = index
+                    .templates
+                    .first()
+                    .map(|entry| entry.template_path.clone());
+            }
+        }
+        Err(error) => {
+            push_bundle_check(
+                &mut checks,
+                graph_id,
+                "studio.check.shell_bundle.template_index.parse",
+                false,
+                "template index JSON parsed",
+                &error.to_string(),
+                "studio.issue.shell_template_index_parse_failed",
+            );
+        }
+    }
+
+    let expected_template_manifest = expected.template_manifest.as_ref();
+    if let Some(template_relative_path) = template_path_from_index {
+        let template_path = relative_output_path(bundle_dir, &template_relative_path);
+        match load_shell_template_manifest(&template_path) {
+            Ok(template) => {
+                push_bundle_check(
+                    &mut checks,
+                    graph_id,
+                    "studio.check.shell_bundle.template_manifest.parse",
+                    true,
+                    "template manifest JSON parsed",
+                    "template manifest JSON did not parse",
+                    "studio.issue.shell_template_manifest_parse_failed",
+                );
+                push_bundle_check(
+                    &mut checks,
+                    graph_id,
+                    "studio.check.shell_bundle.template_manifest.current_match",
+                    expected_template_manifest == Some(&template),
+                    "template manifest matches the current selected graph preview",
+                    "template manifest differs from the current selected graph preview",
+                    "studio.issue.shell_bundle_template_manifest_mismatch",
+                );
+                push_bundle_check(
+                    &mut checks,
+                    graph_id,
+                    "studio.check.shell_bundle.template_manifest.runtime_authority",
+                    template.runtime_authority.command_session_authority == "rusty.manifold"
+                        && template.runtime_authority.install_launch_evidence_authority
+                            == "rusty.hostess"
+                        && template.runtime_authority.studio_role == "authoring.export_planning",
+                    "template manifest preserves Manifold, Hostess, and Studio authority boundaries",
+                    "template manifest runtime authority changed",
+                    "studio.issue.runtime_authority_mismatch",
+                );
+            }
+            Err(error) => {
+                push_bundle_check(
+                    &mut checks,
+                    graph_id,
+                    "studio.check.shell_bundle.template_manifest.parse",
+                    false,
+                    "template manifest JSON parsed",
+                    &error.to_string(),
+                    "studio.issue.shell_template_manifest_parse_failed",
+                );
+            }
+        }
+    } else {
+        push_bundle_check(
+            &mut checks,
+            graph_id,
+            "studio.check.shell_bundle.template_manifest.path",
+            false,
+            "current preview has a template manifest path",
+            "current preview has no template manifest path",
+            "studio.issue.template_missing",
+        );
+    }
+
+    shell_bundle_validation_report(project, graph_id, expected_bundle_files, checks)
+}
+
 pub fn validate_shell_template_index(
     index: &StudioShellTemplateIndex,
     base_dir: Option<&Path>,
@@ -3905,6 +4158,53 @@ fn shell_bundle_report(
         template_index,
         template_manifest,
     }
+}
+
+fn shell_bundle_validation_report(
+    project: &StudioProject,
+    graph_id: &str,
+    expected_bundle_files: Vec<String>,
+    checks: Vec<StudioValidationCheck>,
+) -> StudioShellBundleValidationReport {
+    StudioShellBundleValidationReport {
+        schema_id: SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA,
+        project_id: project.project_id.clone(),
+        revision: project.revision,
+        graph_id: graph_id.to_string(),
+        status: if checks
+            .iter()
+            .any(|check| check.status == StudioValidationStatus::Fail)
+        {
+            StudioValidationStatus::Fail
+        } else {
+            StudioValidationStatus::Pass
+        },
+        expected_bundle_files,
+        checks,
+    }
+}
+
+fn push_bundle_check(
+    checks: &mut Vec<StudioValidationCheck>,
+    graph_id: &str,
+    check_id: &str,
+    passed: bool,
+    pass_evidence: &str,
+    fail_evidence: &str,
+    issue_code: &str,
+) {
+    push_contextual_check(
+        checks,
+        check_id,
+        passed,
+        pass_evidence,
+        fail_evidence,
+        issue_code,
+        Some(graph_id),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
 }
 
 fn selected_shell_bundle_manifest_id(project_id: &str, graph_id: &str) -> String {
@@ -6141,6 +6441,52 @@ mod tests {
         let index = load_shell_template_index(&output_dir.join("shell-templates.json")).unwrap();
         let template_validation = validate_shell_template_index(&index, Some(&output_dir));
         assert_eq!(template_validation.status, StudioValidationStatus::Pass);
+    }
+
+    #[test]
+    fn selected_shell_bundle_validation_passes_written_bundle() {
+        let root = temp_root("selected-shell-bundle-validate");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+        let report = selected_shell_bundle_for_graph(&project, Some(&root), "studio.graph.test");
+        let output_dir = root.join("selected-shell");
+        save_shell_bundle(&output_dir, &report).expect("save shell bundle");
+
+        let validation =
+            validate_selected_shell_bundle(&project, Some(&root), "studio.graph.test", &output_dir);
+
+        assert_eq!(validation.status, StudioValidationStatus::Pass);
+        assert_eq!(validation.expected_bundle_files, report.bundle_files);
+        assert!(validation
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+    }
+
+    #[test]
+    fn selected_shell_bundle_validation_rejects_stale_descriptor() {
+        let root = temp_root("selected-shell-bundle-stale");
+        write_reference_fixture_tree(&root);
+        let project = valid_shell_project_with_relative_references();
+        let report = selected_shell_bundle_for_graph(&project, Some(&root), "studio.graph.test");
+        let output_dir = root.join("selected-shell");
+        save_shell_bundle(&output_dir, &report).expect("save shell bundle");
+        let descriptor_path =
+            output_dir.join("descriptors/studio.graph.test.shell-descriptor.json");
+        let mut descriptor = load_shell_descriptor(&descriptor_path).expect("load descriptor");
+        descriptor.shell_id = "shell.synthetic.stale".to_string();
+        save_json(&descriptor_path, &descriptor).expect("save stale descriptor");
+
+        let validation =
+            validate_selected_shell_bundle(&project, Some(&root), "studio.graph.test", &output_dir);
+
+        assert_eq!(validation.status, StudioValidationStatus::Fail);
+        assert!(validation.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.shell_bundle_descriptor_mismatch")
+        }));
+        assert!(validation.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.shell_artifact_manifest_invalid")
+        }));
     }
 
     #[test]

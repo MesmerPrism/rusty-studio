@@ -1048,6 +1048,40 @@ try {
     if ($SelectedBundleTemplateValidation.status -ne "pass") {
         throw "selected shell bundle template validation did not pass"
     }
+    $SelectedBundleCurrentValidationOutput = & cargo run --quiet -p rusty-studio-cli -- validate-shell-bundle --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --bundle-dir $SelectedShellBundleDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio validate selected shell bundle failed with exit code $LASTEXITCODE"
+    }
+    $SelectedBundleCurrentValidation = ($SelectedBundleCurrentValidationOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($SelectedBundleCurrentValidation.'$schema' -ne "rusty.studio.shell_bundle_validation_report.v1") {
+        throw "selected shell bundle current validation schema mismatch"
+    }
+    if ($SelectedBundleCurrentValidation.status -ne "pass") {
+        throw "selected shell bundle current validation did not pass"
+    }
+    if ($SelectedBundleCurrentValidation.graph_id -ne "studio.graph.synthetic_wave_desktop") {
+        throw "selected shell bundle current validation graph id mismatch"
+    }
+    if (@($SelectedBundleCurrentValidation.expected_bundle_files).Count -ne 4) {
+        throw "selected shell bundle current validation expected file count mismatch"
+    }
+    $FailedSelectedBundleChecks = @($SelectedBundleCurrentValidation.checks | Where-Object { $_.status -ne "pass" })
+    if ($FailedSelectedBundleChecks.Count -ne 0) {
+        throw "selected shell bundle current validation exposed failed checks"
+    }
+    $SelectedBundleCheckIds = @($SelectedBundleCurrentValidation.checks | ForEach-Object { $_.check_id })
+    foreach ($RequiredSelectedBundleCheck in @(
+        "studio.check.shell_bundle.current_preview",
+        "studio.check.shell_bundle.descriptor.current_match",
+        "studio.check.shell_bundle.artifact_manifest.current_match",
+        "studio.check.shell_bundle.template_index.current_match",
+        "studio.check.shell_bundle.template_manifest.current_match",
+        "studio.check.shell_bundle.template_manifest.runtime_authority"
+    )) {
+        if ($SelectedBundleCheckIds -notcontains $RequiredSelectedBundleCheck) {
+            throw "selected shell bundle current validation missing check $RequiredSelectedBundleCheck"
+        }
+    }
 } finally {
     Pop-Location
 }

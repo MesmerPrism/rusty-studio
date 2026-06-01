@@ -20,6 +20,8 @@ pub const SHELL_TEMPLATE_REPORT_SCHEMA: &str = "rusty.studio.shell_template_repo
 pub const SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA: &str =
     "rusty.studio.shell_template_index_validation_report.v1";
 pub const SHELL_BUNDLE_REPORT_SCHEMA: &str = "rusty.studio.shell_bundle_report.v1";
+pub const SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA: &str =
+    "rusty.studio.shell_bundle_validation_report.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -442,6 +444,18 @@ pub struct StudioShellBundleReport {
 pub enum StudioShellBundleStatus {
     Exported,
     Rejected,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellBundleValidationReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: &'static str,
+    pub project_id: String,
+    pub revision: u64,
+    pub graph_id: String,
+    pub status: StudioValidationStatus,
+    pub expected_bundle_files: Vec<String>,
+    pub checks: Vec<StudioValidationCheck>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

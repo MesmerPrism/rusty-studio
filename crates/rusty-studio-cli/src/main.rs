@@ -7,8 +7,8 @@ use rusty_studio_core::{
     save_project, save_shell_bundle, selected_shell_bundle_for_graph, shell_artifacts_for_project,
     shell_descriptor_artifact_path, shell_descriptor_for_graph,
     shell_templates_for_artifact_manifest, validate_project_with_base,
-    validate_shell_artifact_manifest, validate_shell_descriptor, validate_shell_template_index,
-    view_model_for_graph_issue_node_and_edge,
+    validate_selected_shell_bundle, validate_shell_artifact_manifest, validate_shell_descriptor,
+    validate_shell_template_index, view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditStatus, StudioShellArtifactStatus, StudioShellBundleStatus,
@@ -44,6 +44,7 @@ enum Command {
     ShellTemplates(ShellTemplatesArgs),
     ValidateShellTemplates(TemplateIndexArgs),
     ShellBundle(ShellBundleArgs),
+    ValidateShellBundle(ShellBundleValidationArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -211,6 +212,16 @@ struct ShellBundleArgs {
     graph: String,
     #[arg(long)]
     output_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellBundleValidationArgs {
+    #[arg(long)]
+    project: PathBuf,
+    #[arg(long)]
+    graph: String,
+    #[arg(long)]
+    bundle_dir: PathBuf,
 }
 
 fn main() -> ExitCode {
@@ -508,6 +519,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     save_shell_bundle(output_dir, &report)?;
                 }
             }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ValidateShellBundle(args) => {
+            let project = load_project(&args.project)?;
+            let report = validate_selected_shell_bundle(
+                &project,
+                args.project.parent(),
+                &args.graph,
+                &args.bundle_dir,
+            );
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
