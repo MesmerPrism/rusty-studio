@@ -7,7 +7,8 @@ use rusty_studio_model::{
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
-    StudioShellDescriptorValidationReport, StudioShellHandoffAcceptanceBaselineManifest,
+    StudioShellDescriptorValidationReport, StudioShellHandoffAcceptanceBaselineIndex,
+    StudioShellHandoffAcceptanceBaselineIndexEntry, StudioShellHandoffAcceptanceBaselineManifest,
     StudioShellHandoffAcceptanceCheck, StudioShellHandoffAcceptanceChecklistEntry,
     StudioShellHandoffAcceptanceChecklistReport, StudioShellHandoffAcceptanceComparisonChange,
     StudioShellHandoffAcceptanceComparisonEntry, StudioShellHandoffAcceptanceComparisonReport,
@@ -29,14 +30,14 @@ use rusty_studio_model::{
     SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
     SHELL_BUNDLE_REPORT_SCHEMA, SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA,
     SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
-    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA,
-    SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA,
-    SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA, SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
-    SHELL_HANDOFF_MANIFEST_SCHEMA, SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA,
-    SHELL_HANDOFF_READINESS_REPORT_SCHEMA, SHELL_HANDOFF_REPORT_SCHEMA,
-    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
-    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
-    VIEW_MODEL_SCHEMA,
+    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA,
+    SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA,
+    SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA,
+    SHELL_HANDOFF_INTAKE_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
+    SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
+    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
+    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
+    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -109,6 +110,12 @@ pub enum StudioCoreError {
     },
     #[error("{path}: {source}")]
     ParseShellHandoffAcceptanceBaselineManifest {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellHandoffAcceptanceBaselineIndex {
         path: String,
         #[source]
         source: serde_json::Error,
@@ -240,6 +247,21 @@ pub fn load_shell_handoff_acceptance_baseline_manifest(
     })?;
     serde_json::from_str(&text).map_err(|source| {
         StudioCoreError::ParseShellHandoffAcceptanceBaselineManifest {
+            path: path.display().to_string(),
+            source,
+        }
+    })
+}
+
+pub fn load_shell_handoff_acceptance_baseline_index(
+    path: &Path,
+) -> Result<StudioShellHandoffAcceptanceBaselineIndex, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseShellHandoffAcceptanceBaselineIndex {
             path: path.display().to_string(),
             source,
         }
@@ -3258,6 +3280,83 @@ pub fn shell_handoff_acceptance_baseline_manifest_for_checklist(
         label,
         checklist_path: checklist_path.display().to_string(),
         summary,
+    }
+}
+
+pub fn shell_handoff_acceptance_baseline_index_for_manifests(
+    baselines: Vec<(
+        StudioShellHandoffAcceptanceBaselineManifest,
+        Option<PathBuf>,
+    )>,
+    default_baseline_id: Option<&str>,
+) -> StudioShellHandoffAcceptanceBaselineIndex {
+    let mut by_id = BTreeMap::new();
+    for (baseline, baseline_manifest_path) in baselines {
+        by_id.insert(
+            baseline.baseline_id.clone(),
+            (baseline, baseline_manifest_path),
+        );
+    }
+
+    let entries = by_id
+        .into_values()
+        .map(|(baseline, baseline_manifest_path)| {
+            let StudioShellHandoffAcceptanceBaselineManifest {
+                baseline_id,
+                label,
+                checklist_path,
+                summary,
+                ..
+            } = baseline;
+            StudioShellHandoffAcceptanceBaselineIndexEntry {
+                baseline_id,
+                label,
+                baseline_manifest_path: baseline_manifest_path
+                    .map(|path| path.display().to_string()),
+                checklist_path,
+                summary_schema: summary.schema_id.clone(),
+                checklist_schema: summary.checklist_schema.clone(),
+                manifest_id: summary.manifest_id.clone(),
+                project_id: summary.project_id.clone(),
+                project_revision: summary.project_revision,
+                status: summary.status,
+                issue_code: summary.issue_code.clone(),
+                ready_count: summary.ready_count,
+                blocked_count: summary.blocked_count,
+                rejected_count: summary.rejected_count,
+                entry_count: summary.entry_count,
+                target_count: summary.targets.len(),
+            }
+        })
+        .collect::<Vec<_>>();
+    let default_baseline_id = default_baseline_id
+        .filter(|baseline_id| {
+            entries
+                .iter()
+                .any(|entry| entry.baseline_id == *baseline_id)
+        })
+        .map(str::to_string)
+        .or_else(|| entries.first().map(|entry| entry.baseline_id.clone()));
+
+    StudioShellHandoffAcceptanceBaselineIndex {
+        schema_id: SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA.to_string(),
+        project_ids: unique_strings(entries.iter().map(|entry| entry.project_id.clone())),
+        manifest_ids: unique_strings(entries.iter().map(|entry| entry.manifest_id.clone())),
+        default_baseline_id,
+        baseline_count: entries.len(),
+        ready_baseline_count: entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellHandoffAcceptanceStatus::Ready)
+            .count(),
+        blocked_baseline_count: entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellHandoffAcceptanceStatus::Blocked)
+            .count(),
+        rejected_baseline_count: entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellHandoffAcceptanceStatus::Rejected)
+            .count(),
+        entries,
     }
 }
 
@@ -9552,6 +9651,95 @@ mod tests {
             baseline.summary.issue_code.as_deref(),
             Some("studio.issue.shell_bundle_file_missing")
         );
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_baseline_index_lists_named_baselines() {
+        let root = temp_root("shell-handoff-acceptance-baseline-index");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let ready_bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&ready_bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let ready_checklist = shell_handoff_acceptance_checklist_for_project(
+            &project,
+            Some(&root),
+            &ready_bundle_root,
+        );
+        let blocked_checklist = shell_handoff_acceptance_checklist_for_project(
+            &project,
+            Some(&root),
+            &root.join("missing-selected-shells"),
+        );
+        let ready_checklist_path = root.join("ready-checklist.json");
+        let blocked_checklist_path = root.join("blocked-checklist.json");
+        let ready_manifest_path = root.join("ready-baseline.json");
+        let blocked_manifest_path = root.join("blocked-baseline.json");
+        let ready_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &ready_checklist,
+            &ready_checklist_path,
+            Some("synthetic-ready"),
+            Some("Synthetic ready acceptance baseline"),
+        );
+        let blocked_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &blocked_checklist,
+            &blocked_checklist_path,
+            Some("synthetic-blocked"),
+            Some("Synthetic blocked acceptance baseline"),
+        );
+
+        let index = shell_handoff_acceptance_baseline_index_for_manifests(
+            vec![
+                (ready_baseline, Some(ready_manifest_path.clone())),
+                (blocked_baseline, Some(blocked_manifest_path.clone())),
+            ],
+            Some("synthetic-ready"),
+        );
+
+        assert_eq!(
+            index.schema_id,
+            SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA
+        );
+        assert_eq!(index.project_ids, vec!["studio.project.test"]);
+        assert_eq!(
+            index.manifest_ids,
+            vec!["studio.shell_handoffs.studio.project.test"]
+        );
+        assert_eq!(
+            index.default_baseline_id.as_deref(),
+            Some("synthetic-ready")
+        );
+        assert_eq!(index.baseline_count, 2);
+        assert_eq!(index.ready_baseline_count, 1);
+        assert_eq!(index.blocked_baseline_count, 1);
+        assert_eq!(index.rejected_baseline_count, 0);
+        assert_eq!(index.entries.len(), 2);
+        assert_eq!(index.entries[0].baseline_id, "synthetic-blocked");
+        assert_eq!(
+            index.entries[0].baseline_manifest_path.as_deref(),
+            Some(blocked_manifest_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            index.entries[0].checklist_path,
+            blocked_checklist_path.display().to_string()
+        );
+        assert_eq!(
+            index.entries[0].status,
+            StudioShellHandoffAcceptanceStatus::Blocked
+        );
+        assert_eq!(index.entries[0].ready_count, 0);
+        assert_eq!(index.entries[0].blocked_count, 3);
+        assert_eq!(index.entries[0].target_count, 3);
+        assert_eq!(index.entries[1].baseline_id, "synthetic-ready");
+        assert_eq!(
+            index.entries[1].baseline_manifest_path.as_deref(),
+            Some(ready_manifest_path.display().to_string().as_str())
+        );
+        assert_eq!(index.entries[1].ready_count, 3);
+        assert_eq!(index.entries[1].blocked_count, 0);
     }
 
     #[test]

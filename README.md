@@ -83,6 +83,8 @@ Current scope:
   status counts, target groups, consumers, routes, and issue codes;
 - write a named acceptance baseline identity manifest that points to the saved
   checklist and carries its summary for safer revision comparisons;
+- write a schema-only acceptance baseline index that lists named baseline slots,
+  their manifest paths, default baseline id, and readiness counts;
 - compare acceptance checklist artifacts across revisions with optional named
   baseline identity to detect improved, unchanged, regressed, or incomparable
   downstream handoff readiness;
@@ -140,6 +142,7 @@ cargo run -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake tar
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-snapshot --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-summary --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-summary.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-baseline --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --baseline-id synthetic-ready --label "Synthetic ready acceptance baseline" --output target\studio-shell-handoffs\shell-handoff-acceptance-baseline.json
+cargo run -p rusty-studio-cli -- shell-handoff-acceptance-baseline-index --baseline-manifest target\studio-shell-handoffs\shell-handoff-acceptance-baseline.json --default-baseline-id synthetic-ready --output target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline-manifest target\studio-shell-handoffs\shell-handoff-acceptance-baseline.json --candidate target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
@@ -166,6 +169,10 @@ project revision, manifest id, target groups, consumers, routes, and issues
 without opening the full JSON. Acceptance baseline manifests give a saved
 checklist a stable baseline id and label, then embed the same summary so
 operators can confirm what they are comparing before opening the full checklist.
+Acceptance baseline indexes are slot lists over those identity manifests; they
+name the default baseline and summarize readiness across saved baselines without
+becoming a runtime registry or execution authority. Makepad writes and inspects
+the same index when it writes or reviews a baseline.
 Acceptance comparison reports carry that baseline identity when a baseline
 manifest is supplied, but they remain revision-review artifacts only: they
 compare checklist readiness and issue transitions without granting runtime

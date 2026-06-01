@@ -9,7 +9,8 @@ use rusty_studio_core::{
     remove_binding_from_graph, remove_module_from_graph, resolve_project,
     retarget_graph_host_profile, save_json, save_project, save_shell_bundle,
     selected_shell_bundle_for_graph, shell_artifacts_for_project, shell_descriptor_artifact_path,
-    shell_descriptor_for_graph, shell_handoff_acceptance_baseline_manifest_for_checklist,
+    shell_descriptor_for_graph, shell_handoff_acceptance_baseline_index_for_manifests,
+    shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_intake, shell_handoff_acceptance_checklist_for_project,
     shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
@@ -63,6 +64,7 @@ enum Command {
     ShellHandoffAcceptanceSnapshot(ShellHandoffAcceptanceSnapshotArgs),
     ShellHandoffAcceptanceSummary(ShellHandoffAcceptanceSummaryArgs),
     ShellHandoffAcceptanceBaseline(ShellHandoffAcceptanceBaselineArgs),
+    ShellHandoffAcceptanceBaselineIndex(ShellHandoffAcceptanceBaselineIndexArgs),
     ShellHandoffAcceptanceComparison(ShellHandoffAcceptanceComparisonArgs),
 }
 
@@ -309,6 +311,16 @@ struct ShellHandoffAcceptanceBaselineArgs {
     baseline_id: Option<String>,
     #[arg(long)]
     label: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHandoffAcceptanceBaselineIndexArgs {
+    #[arg(long = "baseline-manifest", required = true)]
+    baseline_manifests: Vec<PathBuf>,
+    #[arg(long)]
+    default_baseline_id: Option<String>,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -733,6 +745,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 &args.checklist,
                 args.baseline_id.as_deref(),
                 args.label.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHandoffAcceptanceBaselineIndex(args) => {
+            let baselines = args
+                .baseline_manifests
+                .iter()
+                .map(|path| {
+                    load_shell_handoff_acceptance_baseline_manifest(path)
+                        .map(|baseline| (baseline, Some(path.clone())))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let report = shell_handoff_acceptance_baseline_index_for_manifests(
+                baselines,
+                args.default_baseline_id.as_deref(),
             );
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;

@@ -35,6 +35,8 @@ pub const SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_summary.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_baseline_manifest.v1";
+pub const SHELL_HANDOFF_ACCEPTANCE_BASELINE_INDEX_SCHEMA: &str =
+    "rusty.studio.shell_handoff_acceptance_baseline_index.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_comparison.v1";
 
@@ -802,6 +804,40 @@ pub struct StudioShellHandoffAcceptanceBaselineManifest {
     pub label: String,
     pub checklist_path: String,
     pub summary: StudioShellHandoffAcceptanceSummaryReport,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffAcceptanceBaselineIndex {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub project_ids: Vec<String>,
+    pub manifest_ids: Vec<String>,
+    pub default_baseline_id: Option<String>,
+    pub baseline_count: usize,
+    pub ready_baseline_count: usize,
+    pub blocked_baseline_count: usize,
+    pub rejected_baseline_count: usize,
+    pub entries: Vec<StudioShellHandoffAcceptanceBaselineIndexEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffAcceptanceBaselineIndexEntry {
+    pub baseline_id: String,
+    pub label: String,
+    pub baseline_manifest_path: Option<String>,
+    pub checklist_path: String,
+    pub summary_schema: String,
+    pub checklist_schema: String,
+    pub manifest_id: String,
+    pub project_id: String,
+    pub project_revision: u64,
+    pub status: StudioShellHandoffAcceptanceStatus,
+    pub issue_code: Option<String>,
+    pub ready_count: usize,
+    pub blocked_count: usize,
+    pub rejected_count: usize,
+    pub entry_count: usize,
+    pub target_count: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
