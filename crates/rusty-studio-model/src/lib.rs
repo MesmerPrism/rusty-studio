@@ -78,6 +78,12 @@ pub const SHELL_HOSTESS_STAGING_ACCEPTANCE_SELECTION_SCHEMA: &str =
     "rusty.studio.shell_hostess_staging_acceptance_selection.v1";
 pub const SHELL_HOSTESS_STAGING_ACCEPTANCE_COMPARISON_SCHEMA: &str =
     "rusty.studio.shell_hostess_staging_acceptance_comparison.v1";
+pub const SHELL_HOSTESS_STAGING_EXECUTION_REQUEST_SCHEMA: &str =
+    "rusty.studio.shell_hostess_staging_execution_request.v1";
+pub const SHELL_HOSTESS_STAGING_EXECUTION_ACK_SCHEMA: &str =
+    "rusty.studio.shell_hostess_staging_execution_ack.v1";
+pub const SHELL_HOSTESS_STAGING_EXECUTION_REJECT_SCHEMA: &str =
+    "rusty.studio.shell_hostess_staging_execution_reject.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -2199,6 +2205,133 @@ pub enum StudioShellHostessStagingAcceptanceComparisonChange {
     Unchanged,
     Regressed,
     Changed,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingExecutionRequestReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub request_id: String,
+    pub source_acceptance_index_schema: Option<String>,
+    pub acceptance_index_path: Option<String>,
+    pub selected_acceptance_id: String,
+    pub acceptance_manifest_path: Option<String>,
+    pub acceptance_schema: String,
+    pub acceptance_checklist_path: String,
+    pub acceptance_checklist_schema: String,
+    pub source_acceptance_status: StudioShellHostessStagingAcceptanceStatus,
+    pub source_handoff_schema: String,
+    pub handoff_path: Option<String>,
+    pub envelope_id: String,
+    pub manifest_id: Option<String>,
+    pub project_id: Option<String>,
+    pub project_revision: Option<u64>,
+    pub selected_candidate_id: Option<String>,
+    pub file_plan_path: Option<String>,
+    pub preview_path: Option<String>,
+    pub intake_path: Option<String>,
+    pub package_path: Option<String>,
+    pub handoff_manifest_path: Option<String>,
+    pub status: StudioShellHostessStagingExecutionRequestStatus,
+    pub issue_code: Option<String>,
+    pub execution_policy: String,
+    pub adapter_owner: String,
+    pub requester_role: String,
+    pub command_session_authority: Option<String>,
+    pub install_launch_evidence_authority: Option<String>,
+    pub studio_role: Option<String>,
+    pub request_count: usize,
+    pub ready_request_count: usize,
+    pub blocked_request_count: usize,
+    pub instruction_count: usize,
+    pub ready_instruction_count: usize,
+    pub blocked_instruction_count: usize,
+    pub checksum_algorithm: String,
+    pub plan_checksum: String,
+    pub prohibited_studio_actions: Vec<String>,
+    pub adapter_action_count: usize,
+    pub ready_adapter_action_count: usize,
+    pub blocked_adapter_action_count: usize,
+    pub actions: Vec<StudioShellHostessStagingExecutionAction>,
+    pub checks: Vec<StudioValidationCheck>,
+    pub ack_template: StudioShellHostessStagingExecutionAck,
+    pub reject_template: StudioShellHostessStagingExecutionReject,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingExecutionRequestStatus {
+    Ready,
+    Blocked,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingExecutionAction {
+    pub action_id: String,
+    pub owner: String,
+    pub status: StudioShellHostessStagingExecutionActionStatus,
+    pub issue_code: Option<String>,
+    pub action_kind: String,
+    pub route_kind: String,
+    pub source_item_id: String,
+    pub responsible_authority: String,
+    pub expected_input_path: Option<String>,
+    pub next_required_action: String,
+    pub ack_required: bool,
+    pub execution_in_studio: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingExecutionActionStatus {
+    Ready,
+    Blocked,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingExecutionAck {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub request_id: String,
+    pub accepted_by: String,
+    pub ack_status: StudioShellHostessStagingExecutionAckStatus,
+    pub execution_in_studio: bool,
+    pub command_session_authority: Option<String>,
+    pub install_launch_evidence_authority: Option<String>,
+    pub required_action_ids: Vec<String>,
+    pub accepted_action_ids: Vec<String>,
+    pub required_evidence_kinds: Vec<String>,
+    pub issue_code: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingExecutionAckStatus {
+    Pending,
+    Accepted,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingExecutionReject {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub request_id: String,
+    pub rejected_by: String,
+    pub reject_status: StudioShellHostessStagingExecutionRejectStatus,
+    pub execution_in_studio: bool,
+    pub request_action_ids: Vec<String>,
+    pub rejected_action_ids: Vec<String>,
+    pub reason_code: Option<String>,
+    pub next_required_action: String,
+    pub issue_code: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingExecutionRejectStatus {
+    Pending,
+    Rejected,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

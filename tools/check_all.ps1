@@ -121,6 +121,7 @@ try {
     $ShellHostessStagingAcceptanceComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-acceptance-comparison.json"
     $ShellHostessStagingAcceptanceRouteDriftPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-acceptance-route-drift.json"
     $ShellHostessStagingAcceptanceRouteDriftComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-acceptance-route-drift-comparison.json"
+    $ShellHostessStagingExecutionRequestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-hostess-staging-execution-request.json"
     $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
     $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
     $MissingShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake-missing-bundles.json"
@@ -132,7 +133,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $ShellHostessHandoffPackagePath, $ShellHostessOwnerIntakePath, $ShellHostessStagingPreviewPath, $ShellHostessStagingFilePlanPath, $ShellHostessStagingHandoffPath, $ShellHostessStagingAcceptancePath, $ShellHostessStagingAcceptanceManifestPath, $ShellHostessStagingAcceptanceArchiveManifestPath, $ShellHostessStagingAcceptanceIndexPath, $ShellHostessStagingAcceptanceSelectionPath, $ShellHostessStagingAcceptanceMultiIndexPath, $ShellHostessStagingAcceptancePromotedIndexPath, $ShellHostessStagingAcceptanceComparisonPath, $ShellHostessStagingAcceptanceRouteDriftPath, $ShellHostessStagingAcceptanceRouteDriftComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $ShellHostessHandoffPackagePath, $ShellHostessOwnerIntakePath, $ShellHostessStagingPreviewPath, $ShellHostessStagingFilePlanPath, $ShellHostessStagingHandoffPath, $ShellHostessStagingAcceptancePath, $ShellHostessStagingAcceptanceManifestPath, $ShellHostessStagingAcceptanceArchiveManifestPath, $ShellHostessStagingAcceptanceIndexPath, $ShellHostessStagingAcceptanceSelectionPath, $ShellHostessStagingAcceptanceMultiIndexPath, $ShellHostessStagingAcceptancePromotedIndexPath, $ShellHostessStagingAcceptanceComparisonPath, $ShellHostessStagingAcceptanceRouteDriftPath, $ShellHostessStagingAcceptanceRouteDriftComparisonPath, $ShellHostessStagingExecutionRequestPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -3565,6 +3566,86 @@ try {
         }
         if (@($RouteDriftComparisonView.entries | Where-Object { $_.item_id -eq "hostess.copy_staging_files" -and $_.candidate_route_kind -eq "hostess.stage.files_from_drifted_plan" -and $_.change -eq "changed" }).Count -ne 1) {
             throw "shell Hostess staging acceptance route drift action row mismatch"
+        }
+    }
+    $ShellHostessStagingExecutionRequestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-hostess-staging-execution-request --acceptance-index $ShellHostessStagingAcceptanceIndexPath --acceptance-id "synthetic-hostess-staging-ready" --output $ShellHostessStagingExecutionRequestPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell Hostess staging execution request failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellHostessStagingExecutionRequestPath)) {
+        throw "shell Hostess staging execution request was not written"
+    }
+    $ShellHostessStagingExecutionRequest = ($ShellHostessStagingExecutionRequestOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenShellHostessStagingExecutionRequest = Get-Content -Raw $ShellHostessStagingExecutionRequestPath | ConvertFrom-Json
+    foreach ($HostessStagingExecutionRequestView in @($ShellHostessStagingExecutionRequest, $WrittenShellHostessStagingExecutionRequest)) {
+        if ($HostessStagingExecutionRequestView.'$schema' -ne "rusty.studio.shell_hostess_staging_execution_request.v1") {
+            throw "shell Hostess staging execution request schema mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.source_acceptance_index_schema -ne "rusty.studio.shell_hostess_staging_acceptance_index.v1" -or $HostessStagingExecutionRequestView.acceptance_index_path -ne $ShellHostessStagingAcceptanceIndexPath) {
+            throw "shell Hostess staging execution request index source mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.selected_acceptance_id -ne "synthetic-hostess-staging-ready" -or $HostessStagingExecutionRequestView.acceptance_manifest_path -ne $ShellHostessStagingAcceptanceManifestPath -or $HostessStagingExecutionRequestView.acceptance_checklist_path -ne $ShellHostessStagingAcceptancePath) {
+            throw "shell Hostess staging execution request acceptance source mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.acceptance_schema -ne "rusty.studio.shell_hostess_staging_acceptance_manifest.v1" -or $HostessStagingExecutionRequestView.acceptance_checklist_schema -ne "rusty.studio.shell_hostess_staging_acceptance_checklist.v1" -or $HostessStagingExecutionRequestView.source_handoff_schema -ne "rusty.studio.shell_hostess_staging_handoff_envelope.v1") {
+            throw "shell Hostess staging execution request source schema mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.handoff_path -ne $ShellHostessStagingHandoffPath -or $HostessStagingExecutionRequestView.file_plan_path -ne $ShellHostessStagingFilePlanPath -or $HostessStagingExecutionRequestView.preview_path -ne $ShellHostessStagingPreviewPath -or $HostessStagingExecutionRequestView.intake_path -ne $ShellHostessOwnerIntakePath -or $HostessStagingExecutionRequestView.package_path -ne $ShellHostessHandoffPackagePath -or $HostessStagingExecutionRequestView.handoff_manifest_path -ne $ShellHandoffManifestPath) {
+            throw "shell Hostess staging execution request source path mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.status -ne "ready" -or $null -ne $HostessStagingExecutionRequestView.issue_code) {
+            throw "shell Hostess staging execution request should be ready"
+        }
+        if ($HostessStagingExecutionRequestView.execution_policy -ne "not_executed.hostess_request_only" -or $HostessStagingExecutionRequestView.adapter_owner -ne "rusty.hostess" -or $HostessStagingExecutionRequestView.requester_role -ne "rusty.studio") {
+            throw "shell Hostess staging execution request policy owner mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.command_session_authority -ne "rusty.manifold" -or $HostessStagingExecutionRequestView.install_launch_evidence_authority -ne "rusty.hostess" -or $HostessStagingExecutionRequestView.studio_role -ne "authoring.export_planning") {
+            throw "shell Hostess staging execution request authority mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.envelope_id -ne "studio.hostess_staging_handoff.studio.project.synthetic_wave.rev1" -or $HostessStagingExecutionRequestView.manifest_id -ne "studio.shell_handoffs.studio.project.synthetic_wave" -or $HostessStagingExecutionRequestView.project_id -ne "studio.project.synthetic_wave" -or $HostessStagingExecutionRequestView.project_revision -ne 1 -or $HostessStagingExecutionRequestView.selected_candidate_id -ne "synthetic-ready-candidate") {
+            throw "shell Hostess staging execution request identity mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.request_count -ne 4 -or $HostessStagingExecutionRequestView.ready_request_count -ne 4 -or $HostessStagingExecutionRequestView.blocked_request_count -ne 0 -or $HostessStagingExecutionRequestView.instruction_count -ne 4 -or $HostessStagingExecutionRequestView.ready_instruction_count -ne 4 -or $HostessStagingExecutionRequestView.blocked_instruction_count -ne 0) {
+            throw "shell Hostess staging execution request source counts mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.checksum_algorithm -ne "fnv1a64.studio_staging_file_plan.v1" -or $HostessStagingExecutionRequestView.plan_checksum.Length -ne 16) {
+            throw "shell Hostess staging execution request checksum mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.adapter_action_count -ne 6 -or $HostessStagingExecutionRequestView.ready_adapter_action_count -ne 6 -or $HostessStagingExecutionRequestView.blocked_adapter_action_count -ne 0) {
+            throw "shell Hostess staging execution request action counts mismatch"
+        }
+        foreach ($Action in @(
+            @{ Id = "adapter.hostess.accept_staging_handoff"; Source = "hostess.accept_staging_handoff"; Owner = "rusty.hostess"; Route = "hostess.accept.staging_handoff" },
+            @{ Id = "adapter.hostess.copy_staging_files"; Source = "hostess.copy_staging_files"; Owner = "rusty.hostess"; Route = "hostess.stage.files_from_plan" },
+            @{ Id = "adapter.manifold.review_command_session_contract"; Source = "manifold.review_command_session_contract"; Owner = "rusty.manifold"; Route = "manifold.review.command_session_contract" },
+            @{ Id = "adapter.hostess.collect_install_launch_evidence"; Source = "hostess.collect_install_launch_evidence"; Owner = "rusty.hostess"; Route = "hostess.collect.install_launch_evidence" }
+        )) {
+            if (@($HostessStagingExecutionRequestView.actions | Where-Object { $_.action_id -eq $Action.Id -and $_.source_item_id -eq $Action.Source -and $_.owner -eq $Action.Owner -and $_.route_kind -eq $Action.Route -and $_.status -eq "ready" -and $_.ack_required -eq $true -and $_.execution_in_studio -eq $false }).Count -ne 1) {
+                throw "shell Hostess staging execution request missing action $($Action.Id)"
+            }
+        }
+        if (@($HostessStagingExecutionRequestView.actions | Where-Object { $_.execution_in_studio -ne $false -or $_.ack_required -ne $true }).Count -ne 0) {
+            throw "shell Hostess staging execution request action boundary mismatch"
+        }
+        foreach ($ProhibitedAction in @("stage_generated_shells", "install", "launch", "open_command_session", "collect_device_evidence", "collect_install_launch_evidence")) {
+            if (-not (@($HostessStagingExecutionRequestView.prohibited_studio_actions) -contains $ProhibitedAction)) {
+                throw "shell Hostess staging execution request missing prohibited action $ProhibitedAction"
+            }
+        }
+        if (@($HostessStagingExecutionRequestView.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
+            throw "shell Hostess staging execution request should not contain failed checks"
+        }
+        if ($HostessStagingExecutionRequestView.ack_template.'$schema' -ne "rusty.studio.shell_hostess_staging_execution_ack.v1" -or $HostessStagingExecutionRequestView.ack_template.request_id -ne $HostessStagingExecutionRequestView.request_id -or $HostessStagingExecutionRequestView.ack_template.accepted_by -ne "rusty.hostess" -or $HostessStagingExecutionRequestView.ack_template.ack_status -ne "pending" -or $HostessStagingExecutionRequestView.ack_template.execution_in_studio -ne $false) {
+            throw "shell Hostess staging execution request ack template mismatch"
+        }
+        if (@($HostessStagingExecutionRequestView.ack_template.required_action_ids).Count -ne 6 -or @($HostessStagingExecutionRequestView.ack_template.accepted_action_ids).Count -ne 0 -or -not (@($HostessStagingExecutionRequestView.ack_template.required_evidence_kinds) -contains "hostess_install_launch_evidence_receipt") -or -not (@($HostessStagingExecutionRequestView.ack_template.required_evidence_kinds) -contains "manifold_command_session_contract_review")) {
+            throw "shell Hostess staging execution request ack template evidence mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.reject_template.'$schema' -ne "rusty.studio.shell_hostess_staging_execution_reject.v1" -or $HostessStagingExecutionRequestView.reject_template.request_id -ne $HostessStagingExecutionRequestView.request_id -or $HostessStagingExecutionRequestView.reject_template.rejected_by -ne "rusty.hostess" -or $HostessStagingExecutionRequestView.reject_template.reject_status -ne "pending" -or $HostessStagingExecutionRequestView.reject_template.execution_in_studio -ne $false) {
+            throw "shell Hostess staging execution request reject template mismatch"
+        }
+        if (@($HostessStagingExecutionRequestView.reject_template.request_action_ids).Count -ne 6 -or @($HostessStagingExecutionRequestView.reject_template.rejected_action_ids).Count -ne 0) {
+            throw "shell Hostess staging execution request reject template action mismatch"
         }
     }
     $ShellHostessStagingAcceptanceArchiveManifestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-hostess-staging-acceptance-manifest --checklist $ShellHostessStagingAcceptancePath --acceptance-id "synthetic-hostess-staging-ready-archive" --label "Synthetic Hostess staging ready acceptance archive" --output $ShellHostessStagingAcceptanceArchiveManifestPath

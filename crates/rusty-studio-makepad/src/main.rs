@@ -38,6 +38,7 @@ use rusty_studio_core::{
     shell_hostess_staging_acceptance_checklist_for_handoff,
     shell_hostess_staging_acceptance_index_for_manifests,
     shell_hostess_staging_acceptance_manifest_for_checklist,
+    shell_hostess_staging_execution_request_for_acceptance_index_entry,
     shell_hostess_staging_file_plan_for_preview,
     shell_hostess_staging_handoff_envelope_for_file_plan,
     shell_hostess_staging_preview_for_owner_intake, shell_release_candidate_review_for_manifest,
@@ -74,9 +75,11 @@ use rusty_studio_model::{
     StudioShellHostessStagingAcceptanceManifest,
     StudioShellHostessStagingAcceptanceSelectionReport,
     StudioShellHostessStagingAcceptanceSelectionStatus, StudioShellHostessStagingAcceptanceStatus,
-    StudioShellHostessStagingFilePlan, StudioShellHostessStagingFilePlanStatus,
-    StudioShellHostessStagingFileRequestStatus, StudioShellHostessStagingHandoffEnvelope,
-    StudioShellHostessStagingHandoffEnvelopeStatus,
+    StudioShellHostessStagingExecutionActionStatus,
+    StudioShellHostessStagingExecutionRequestReport,
+    StudioShellHostessStagingExecutionRequestStatus, StudioShellHostessStagingFilePlan,
+    StudioShellHostessStagingFilePlanStatus, StudioShellHostessStagingFileRequestStatus,
+    StudioShellHostessStagingHandoffEnvelope, StudioShellHostessStagingHandoffEnvelopeStatus,
     StudioShellHostessStagingHandoffInstructionStatus, StudioShellHostessStagingPreviewGroupStatus,
     StudioShellHostessStagingPreviewManifest, StudioShellHostessStagingPreviewStatus,
     StudioShellReleaseCandidateReviewIndex, StudioShellReleaseCandidateReviewManifest,
@@ -281,6 +284,7 @@ script_mod! {
             shell_hostess_staging_acceptance_next_button := ActionButton{text: "Next Hostess Check"}
             shell_hostess_staging_acceptance_promote_button := ActionButton{text: "Promote Hostess Check"}
             shell_hostess_staging_acceptance_compare_button := ActionButton{text: "Compare Hostess Check"}
+            shell_hostess_staging_execution_request_button := ActionButton{text: "Request Hostess Adapter"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1981,6 +1985,26 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn request_shell_hostess_staging_execution_adapter(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_hostess_staging_execution_request_for_project_source(&source) {
+            Ok((report, output_path)) => {
+                self.last_shell_bundle_status =
+                    shell_hostess_staging_execution_request_status(&report, &output_path);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -2826,6 +2850,13 @@ impl MatchEvent for App {
             .clicked(actions)
         {
             self.compare_shell_hostess_staging_acceptance(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_staging_execution_request_button))
+            .clicked(actions)
+        {
+            self.request_shell_hostess_staging_execution_adapter(cx);
         }
         if self
             .ui
@@ -4307,6 +4338,62 @@ fn shell_hostess_staging_acceptance_comparison_for_project_source(
     Ok((report, acceptance_path, output_path))
 }
 
+fn shell_hostess_staging_execution_request_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellHostessStagingExecutionRequestReport, PathBuf), String> {
+    let index_path = shell_hostess_staging_acceptance_index_output_path(project_path);
+    let index = load_shell_hostess_staging_acceptance_index(&index_path)
+        .map_err(|error| format!("Shell Hostess staging acceptance index load failed: {error}"))?;
+    let Some(acceptance_index_entry) =
+        select_shell_hostess_staging_acceptance_index_entry(&index, None)
+    else {
+        return Err(
+            "Shell Hostess staging acceptance index does not contain a selected acceptance"
+                .to_string(),
+        );
+    };
+    let acceptance_path = acceptance_index_entry
+        .acceptance_manifest_path
+        .as_ref()
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            "Selected acceptance index entry does not include an acceptance manifest path"
+                .to_string()
+        })?;
+    let acceptance =
+        load_shell_hostess_staging_acceptance_manifest(&acceptance_path).map_err(|error| {
+            format!("Shell Hostess staging acceptance identity load failed: {error}")
+        })?;
+    let checklist_path = PathBuf::from(&acceptance.checklist_path);
+    let checklist =
+        load_shell_hostess_staging_acceptance_checklist(&checklist_path).map_err(|error| {
+            format!("Shell Hostess staging acceptance checklist load failed: {error}")
+        })?;
+    let handoff_path = checklist
+        .handoff_path
+        .as_ref()
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            "Selected acceptance checklist does not include a handoff path".to_string()
+        })?;
+    let handoff = load_shell_hostess_staging_handoff_envelope(&handoff_path)
+        .map_err(|error| format!("Shell Hostess staging handoff load failed: {error}"))?;
+    let report = shell_hostess_staging_execution_request_for_acceptance_index_entry(
+        &index,
+        Some(&index_path),
+        acceptance_index_entry,
+        Some(&acceptance_path),
+        &acceptance,
+        &checklist,
+        Some(&handoff_path),
+        &handoff,
+    );
+    let output_path = shell_hostess_staging_execution_request_output_path(project_path);
+    save_json(&output_path, &report)
+        .map_err(|error| format!("Shell Hostess staging execution request save failed: {error}"))?;
+    Ok((report, output_path))
+}
+
 fn retarget_project_source(
     project_path: &Path,
     model: &StudioViewModel,
@@ -4768,6 +4855,15 @@ fn shell_hostess_staging_acceptance_comparison_output_path(project_path: &Path) 
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-hostess-staging-acceptance-comparison.json")
+}
+
+fn shell_hostess_staging_execution_request_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-hostess-staging-execution-request.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -7787,6 +7883,109 @@ fn shell_hostess_staging_acceptance_comparison_status(
     )
 }
 
+fn shell_hostess_staging_execution_request_status(
+    report: &StudioShellHostessStagingExecutionRequestReport,
+    output_path: &Path,
+) -> String {
+    let status = shell_hostess_staging_execution_request_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let failed_checks = report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .count();
+    let rows = report
+        .actions
+        .iter()
+        .take(6)
+        .map(|action| {
+            let action_status = shell_hostess_staging_execution_action_status_label(action.status);
+            let issue = action.issue_code.as_deref().unwrap_or("none");
+            format!(
+                "{} [{}] owner {}; route {}; ack {}; Studio execution {}; next {}; issue {}",
+                action.action_id,
+                action_status,
+                action.owner,
+                action.route_kind,
+                if action.ack_required { "yes" } else { "no" },
+                if action.execution_in_studio {
+                    "yes"
+                } else {
+                    "no"
+                },
+                action.next_required_action,
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    let prohibited = if report.prohibited_studio_actions.is_empty() {
+        "none".to_string()
+    } else {
+        report.prohibited_studio_actions.join(", ")
+    };
+    format!(
+        "Hostess staging execution request {status}; issue {issue}\n  request: {}\n  output: {}\n  selected acceptance: {}\n  acceptance manifest: {}\n  checklist: {}\n  handoff: {}\n  envelope id: {}\n  project: {} rev {}\n  checksum: {} ({})\n  adapter actions ready {}; blocked {}; total {}\n  authority: adapter {}; requester {}; command {}; host {}; studio {}; policy {}\n  ack template: {} [{}]; required actions {}; Studio execution {}\n  reject template: {} [{}]; request actions {}; rejected actions {}; Studio execution {}\n  prohibited: {}\n  checks: {}; failed {}\n  actions:\n  {}",
+        report.request_id,
+        output_path.display(),
+        report.selected_acceptance_id,
+        report
+            .acceptance_manifest_path
+            .as_deref()
+            .unwrap_or("unknown"),
+        report.acceptance_checklist_path,
+        report.handoff_path.as_deref().unwrap_or("unknown"),
+        report.envelope_id,
+        report.project_id.as_deref().unwrap_or("unknown"),
+        report
+            .project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        report.plan_checksum,
+        report.checksum_algorithm,
+        report.ready_adapter_action_count,
+        report.blocked_adapter_action_count,
+        report.adapter_action_count,
+        report.adapter_owner,
+        report.requester_role,
+        report
+            .command_session_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report
+            .install_launch_evidence_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report.studio_role.as_deref().unwrap_or("unknown"),
+        report.execution_policy,
+        report.ack_template.schema_id,
+        shell_hostess_staging_execution_ack_status_label(report.ack_template.ack_status),
+        report.ack_template.required_action_ids.len(),
+        if report.ack_template.execution_in_studio {
+            "yes"
+        } else {
+            "no"
+        },
+        report.reject_template.schema_id,
+        shell_hostess_staging_execution_reject_status_label(report.reject_template.reject_status),
+        report.reject_template.request_action_ids.len(),
+        report.reject_template.rejected_action_ids.len(),
+        if report.reject_template.execution_in_studio {
+            "yes"
+        } else {
+            "no"
+        },
+        prohibited,
+        report.checks.len(),
+        failed_checks,
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
 fn shell_release_candidate_review_manifest_summary_status(
     candidate: &StudioShellReleaseCandidateReviewManifest,
     index: &StudioShellReleaseCandidateReviewIndex,
@@ -8019,6 +8218,43 @@ fn shell_hostess_staging_acceptance_comparison_change_label(
         StudioShellHostessStagingAcceptanceComparisonChange::Unchanged => "unchanged",
         StudioShellHostessStagingAcceptanceComparisonChange::Regressed => "regressed",
         StudioShellHostessStagingAcceptanceComparisonChange::Changed => "changed",
+    }
+}
+
+fn shell_hostess_staging_execution_request_status_label(
+    status: StudioShellHostessStagingExecutionRequestStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessStagingExecutionRequestStatus::Ready => "ready",
+        StudioShellHostessStagingExecutionRequestStatus::Blocked => "blocked",
+        StudioShellHostessStagingExecutionRequestStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_hostess_staging_execution_action_status_label(
+    status: StudioShellHostessStagingExecutionActionStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessStagingExecutionActionStatus::Ready => "ready",
+        StudioShellHostessStagingExecutionActionStatus::Blocked => "blocked",
+    }
+}
+
+fn shell_hostess_staging_execution_ack_status_label(
+    status: rusty_studio_model::StudioShellHostessStagingExecutionAckStatus,
+) -> &'static str {
+    match status {
+        rusty_studio_model::StudioShellHostessStagingExecutionAckStatus::Pending => "pending",
+        rusty_studio_model::StudioShellHostessStagingExecutionAckStatus::Accepted => "accepted",
+    }
+}
+
+fn shell_hostess_staging_execution_reject_status_label(
+    status: rusty_studio_model::StudioShellHostessStagingExecutionRejectStatus,
+) -> &'static str {
+    match status {
+        rusty_studio_model::StudioShellHostessStagingExecutionRejectStatus::Pending => "pending",
+        rusty_studio_model::StudioShellHostessStagingExecutionRejectStatus::Rejected => "rejected",
     }
 }
 
@@ -10765,6 +11001,75 @@ mod tests {
         );
         assert!(comparison_status.contains("Hostess staging acceptance comparison unchanged"));
         assert!(comparison_status.contains("delta 0"));
+
+        let (execution_request, execution_request_path) =
+            shell_hostess_staging_execution_request_for_project_source(&project_path)
+                .expect("write shell Hostess staging execution request");
+        assert!(execution_request_path.is_file());
+        assert_eq!(
+            execution_request.schema_id,
+            "rusty.studio.shell_hostess_staging_execution_request.v1"
+        );
+        assert_eq!(
+            execution_request.status,
+            StudioShellHostessStagingExecutionRequestStatus::Ready
+        );
+        assert_eq!(execution_request.issue_code, None);
+        assert_eq!(
+            execution_request.execution_policy,
+            "not_executed.hostess_request_only"
+        );
+        assert_eq!(execution_request.adapter_owner, "rusty.hostess");
+        assert_eq!(execution_request.requester_role, "rusty.studio");
+        assert_eq!(
+            execution_request.command_session_authority.as_deref(),
+            Some("rusty.manifold")
+        );
+        assert_eq!(
+            execution_request
+                .install_launch_evidence_authority
+                .as_deref(),
+            Some("rusty.hostess")
+        );
+        assert_eq!(execution_request.adapter_action_count, 6);
+        assert_eq!(execution_request.ready_adapter_action_count, 6);
+        assert_eq!(execution_request.blocked_adapter_action_count, 0);
+        assert!(execution_request.actions.iter().all(|action| {
+            action.status == StudioShellHostessStagingExecutionActionStatus::Ready
+                && action.ack_required
+                && !action.execution_in_studio
+        }));
+        assert!(execution_request.actions.iter().any(|action| {
+            action.source_item_id == "hostess.copy_staging_files"
+                && action.owner == "rusty.hostess"
+                && action.route_kind == "hostess.stage.files_from_plan"
+        }));
+        assert!(execution_request.actions.iter().any(|action| {
+            action.source_item_id == "manifold.review_command_session_contract"
+                && action.owner == "rusty.manifold"
+                && action.route_kind == "manifold.review.command_session_contract"
+        }));
+        assert_eq!(
+            execution_request.ack_template.schema_id,
+            "rusty.studio.shell_hostess_staging_execution_ack.v1"
+        );
+        assert!(!execution_request.ack_template.execution_in_studio);
+        assert_eq!(
+            execution_request.ack_template.required_action_ids.len(),
+            execution_request.adapter_action_count
+        );
+        assert_eq!(
+            execution_request.reject_template.schema_id,
+            "rusty.studio.shell_hostess_staging_execution_reject.v1"
+        );
+        assert!(!execution_request.reject_template.execution_in_studio);
+        let execution_request_status = shell_hostess_staging_execution_request_status(
+            &execution_request,
+            &execution_request_path,
+        );
+        assert!(execution_request_status.contains("Hostess staging execution request ready"));
+        assert!(execution_request_status.contains("not_executed.hostess_request_only"));
+        assert!(execution_request_status.contains("Studio execution no"));
     }
 
     #[test]

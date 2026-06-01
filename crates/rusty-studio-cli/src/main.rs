@@ -45,6 +45,7 @@ use rusty_studio_core::{
     shell_hostess_staging_acceptance_checklist_for_handoff,
     shell_hostess_staging_acceptance_index_for_manifests,
     shell_hostess_staging_acceptance_manifest_for_checklist,
+    shell_hostess_staging_execution_request_for_acceptance_index_entry,
     shell_hostess_staging_file_plan_for_preview,
     shell_hostess_staging_handoff_envelope_for_file_plan,
     shell_hostess_staging_preview_for_owner_intake, shell_release_candidate_review_for_manifest,
@@ -135,6 +136,7 @@ enum Command {
     ShellHostessStagingAcceptanceIndexPromote(ShellHostessStagingAcceptanceIndexPromoteArgs),
     ShellHostessStagingAcceptanceSelection(ShellHostessStagingAcceptanceSelectionArgs),
     ShellHostessStagingAcceptanceComparison(ShellHostessStagingAcceptanceComparisonArgs),
+    ShellHostessStagingExecutionRequest(ShellHostessStagingExecutionRequestArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -720,6 +722,16 @@ struct ShellHostessStagingAcceptanceComparisonArgs {
     acceptance_id: Option<String>,
     #[arg(long)]
     candidate: PathBuf,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHostessStagingExecutionRequestArgs {
+    #[arg(long)]
+    acceptance_index: PathBuf,
+    #[arg(long)]
+    acceptance_id: Option<String>,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -1829,6 +1841,60 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     compare_shell_hostess_staging_acceptance_checklists(&baseline, &candidate)
                 }
             };
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHostessStagingExecutionRequest(args) => {
+            let acceptance_index =
+                load_shell_hostess_staging_acceptance_index(&args.acceptance_index)?;
+            let acceptance_index_entry = select_shell_hostess_staging_acceptance_index_entry(
+                &acceptance_index,
+                args.acceptance_id.as_deref(),
+            )
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "--acceptance-id was not found in --acceptance-index",
+                )
+            })?;
+            let acceptance_manifest_path = acceptance_index_entry
+                .acceptance_manifest_path
+                .as_ref()
+                .map(PathBuf::from)
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "selected acceptance index entry does not include acceptance_manifest_path",
+                    )
+                })?;
+            let acceptance =
+                load_shell_hostess_staging_acceptance_manifest(&acceptance_manifest_path)?;
+            let checklist_path = PathBuf::from(&acceptance.checklist_path);
+            let checklist = load_shell_hostess_staging_acceptance_checklist(&checklist_path)?;
+            let handoff_path = checklist
+                .handoff_path
+                .as_ref()
+                .map(PathBuf::from)
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "selected acceptance checklist does not include handoff_path",
+                    )
+                })?;
+            let handoff = load_shell_hostess_staging_handoff_envelope(&handoff_path)?;
+            let report = shell_hostess_staging_execution_request_for_acceptance_index_entry(
+                &acceptance_index,
+                Some(&args.acceptance_index),
+                acceptance_index_entry,
+                Some(&acceptance_manifest_path),
+                &acceptance,
+                &checklist,
+                Some(&handoff_path),
+                &handoff,
+            );
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }

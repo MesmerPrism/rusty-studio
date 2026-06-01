@@ -222,6 +222,7 @@ cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-manifest --che
 cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-index --acceptance-manifest target\studio-shell-handoffs\shell-hostess-staging-acceptance-manifest.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptances.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-selection --acceptance-index target\studio-shell-handoffs\shell-hostess-staging-acceptances.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-selection.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-comparison --acceptance-index target\studio-shell-handoffs\shell-hostess-staging-acceptances.json --candidate target\studio-shell-handoffs\shell-hostess-staging-acceptance-checklist.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-comparison.json
+cargo run -p rusty-studio-cli -- shell-hostess-staging-execution-request --acceptance-index target\studio-shell-handoffs\shell-hostess-staging-acceptances.json --output target\studio-shell-handoffs\shell-hostess-staging-execution-request.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -258,7 +259,12 @@ acceptance checklists verify those handoff envelopes into explicit
 Hostess/Manifold acceptance rows while preserving the same non-execution
 boundary. Hostess staging acceptance comparison reports compare the current
 checklist against a saved Hostess acceptance manifest or index entry before any
-Hostess install, launch, copy, or evidence action exists inside Studio. Saved
+Hostess install, launch, copy, or evidence action exists inside Studio. Hostess
+staging execution requests are schema-only adapter handoffs over a selected
+acceptance: Studio writes the request plus pending Hostess ack/reject shapes,
+but every adapter action is marked as not executed in Studio. Hostess owns copy,
+stage, install, launch, and evidence; Manifold owns command/session review; the
+first build smoke test belongs in Hostess T or a dedicated host shell. Saved
 export-package comparisons let agents review
 whether a package review stayed unchanged, improved, regressed, or became
 incomparable without opening raw package JSON. Export-package baseline
