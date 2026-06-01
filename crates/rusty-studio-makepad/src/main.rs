@@ -17,6 +17,7 @@ app_main!(App);
 const DEFAULT_REMOVE_MODULE_REF: &str = "module.biosignal_sensor.provider";
 const DEFAULT_COMMAND_SOURCE_NODE: &str = "node.shell.operator";
 const DEFAULT_COMMAND_TARGET_NODE: &str = "node.module.synthetic_wave_provider";
+const CANVAS_EDGE_HIT_DISTANCE: f64 = 8.0;
 
 script_mod! {
     use mod.prelude.widgets.*
@@ -312,6 +313,96 @@ struct StudioGraphCanvasEdge {
     selected: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+enum StudioGraphCanvasAction {
+    #[default]
+    None,
+    SelectNode(String),
+    SelectEdge(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum StudioGraphCanvasHit {
+    Node(String),
+    Edge(String),
+}
+
+impl StudioGraphCanvasModel {
+    fn logical_bounds(&self) -> Option<CanvasViewportBounds> {
+        let first = self.nodes.first()?;
+        let mut min_x = first.x;
+        let mut min_y = first.y;
+        let mut max_x = first.x + first.width;
+        let mut max_y = first.y + first.height;
+        for node in &self.nodes {
+            min_x = min_x.min(node.x);
+            min_y = min_y.min(node.y);
+            max_x = max_x.max(node.x + node.width);
+            max_y = max_y.max(node.y + node.height);
+        }
+        Some(CanvasViewportBounds {
+            min_x: min_x as f64,
+            min_y: min_y as f64,
+            width: (max_x - min_x).max(1) as f64,
+            height: (max_y - min_y).max(1) as f64,
+        })
+    }
+
+    fn hit_test_abs(&self, rect: Rect, abs: DVec2) -> Option<StudioGraphCanvasHit> {
+        let viewport = CanvasViewport::for_rect(rect, self.logical_bounds()?);
+        for node in self.nodes.iter().rev() {
+            if point_in_rect(abs, viewport.node_rect(node)) {
+                return Some(StudioGraphCanvasHit::Node(node.node_id.clone()));
+            }
+        }
+
+        let mut closest_edge: Option<(f64, &StudioGraphCanvasEdge)> = None;
+        for edge in &self.edges {
+            let Some(distance) = self.edge_distance_abs(edge, &viewport, abs) else {
+                continue;
+            };
+            if distance <= CANVAS_EDGE_HIT_DISTANCE {
+                match closest_edge {
+                    Some((closest_distance, _)) if closest_distance <= distance => {}
+                    _ => closest_edge = Some((distance, edge)),
+                }
+            }
+        }
+        closest_edge.map(|(_, edge)| StudioGraphCanvasHit::Edge(edge.edge_id.clone()))
+    }
+
+    fn edge_distance_abs(
+        &self,
+        edge: &StudioGraphCanvasEdge,
+        viewport: &CanvasViewport,
+        abs: DVec2,
+    ) -> Option<f64> {
+        let source = self
+            .nodes
+            .iter()
+            .find(|node| node.node_id == edge.source_node_id)?;
+        let target = self
+            .nodes
+            .iter()
+            .find(|node| node.node_id == edge.target_node_id)?;
+        let source_center = viewport.node_center(source);
+        let target_center = viewport.node_center(target);
+        let mut points = Vec::with_capacity(4);
+        points.push(source_center);
+        if edge.route == "orthogonal" {
+            let mid_x = (source_center.x + target_center.x) * 0.5;
+            points.push(dvec2(mid_x, source_center.y));
+            points.push(dvec2(mid_x, target_center.y));
+        }
+        points.push(target_center);
+
+        points
+            .windows(2)
+            .map(|segment| point_segment_distance(abs, segment[0], segment[1]))
+            .reduce(f64::min)
+    }
+}
+
 #[derive(Script, ScriptHook, Widget)]
 pub struct StudioGraphCanvas {
     #[uid]
@@ -356,7 +447,37 @@ pub struct StudioGraphCanvas {
 }
 
 impl Widget for StudioGraphCanvas {
-    fn handle_event(&mut self, _cx: &mut Cx, _event: &Event, _scope: &mut Scope) {}
+    fn handle_event(&mut self, cx: &mut Cx, event: &Event, _scope: &mut Scope) {
+        if !self.area.is_valid(cx) {
+            return;
+        }
+        match event.hits(cx, self.area) {
+            Hit::FingerHoverIn(fe) | Hit::FingerHoverOver(fe) => {
+                if self.hit_test_abs(cx, fe.abs).is_some() {
+                    cx.set_cursor(MouseCursor::Hand);
+                }
+            }
+            Hit::FingerDown(fe) if fe.is_primary_hit() => {
+                if self.hit_test_abs(cx, fe.abs).is_some() {
+                    cx.set_cursor(MouseCursor::Hand);
+                }
+            }
+            Hit::FingerUp(fe) if fe.is_primary_hit() && fe.is_over => {
+                if let Some(hit) = self.hit_test_abs(cx, fe.abs) {
+                    let action = match hit {
+                        StudioGraphCanvasHit::Node(node_id) => {
+                            StudioGraphCanvasAction::SelectNode(node_id)
+                        }
+                        StudioGraphCanvasHit::Edge(edge_id) => {
+                            StudioGraphCanvasAction::SelectEdge(edge_id)
+                        }
+                    };
+                    cx.widget_action(self.widget_uid(), action);
+                }
+            }
+            _ => {}
+        }
+    }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, _scope: &mut Scope, walk: Walk) -> DrawStep {
         let rect = cx.walk_turtle_with_area(&mut self.area, walk);
@@ -387,40 +508,15 @@ impl StudioGraphCanvas {
     }
 
     fn logical_bounds(&self) -> Option<CanvasViewportBounds> {
-        let first = self.model.nodes.first()?;
-        let mut min_x = first.x;
-        let mut min_y = first.y;
-        let mut max_x = first.x + first.width;
-        let mut max_y = first.y + first.height;
-        for node in &self.model.nodes {
-            min_x = min_x.min(node.x);
-            min_y = min_y.min(node.y);
-            max_x = max_x.max(node.x + node.width);
-            max_y = max_y.max(node.y + node.height);
-        }
-        Some(CanvasViewportBounds {
-            min_x: min_x as f64,
-            min_y: min_y as f64,
-            width: (max_x - min_x).max(1) as f64,
-            height: (max_y - min_y).max(1) as f64,
-        })
+        self.model.logical_bounds()
     }
 
     fn viewport_for_rect(&self, rect: Rect, bounds: CanvasViewportBounds) -> CanvasViewport {
-        let margin = 18.0_f64;
-        let content_width = (rect.size.x - margin * 2.0).max(1.0);
-        let content_height = (rect.size.y - margin * 2.0).max(1.0);
-        let scale = (content_width / bounds.width)
-            .min(content_height / bounds.height)
-            .max(0.1);
-        let drawn_width = bounds.width * scale;
-        let drawn_height = bounds.height * scale;
-        CanvasViewport {
-            origin_x: rect.pos.x + (rect.size.x - drawn_width) * 0.5,
-            origin_y: rect.pos.y + (rect.size.y - drawn_height) * 0.5,
-            scale,
-            bounds,
-        }
+        CanvasViewport::for_rect(rect, bounds)
+    }
+
+    fn hit_test_abs(&self, cx: &Cx, abs: DVec2) -> Option<StudioGraphCanvasHit> {
+        self.model.hit_test_abs(self.area.rect(cx), abs)
     }
 
     fn draw_edges(&mut self, cx: &mut Cx2d, viewport: &CanvasViewport) {
@@ -563,6 +659,23 @@ struct CanvasViewport {
 }
 
 impl CanvasViewport {
+    fn for_rect(rect: Rect, bounds: CanvasViewportBounds) -> Self {
+        let margin = 18.0_f64;
+        let content_width = (rect.size.x - margin * 2.0).max(1.0);
+        let content_height = (rect.size.y - margin * 2.0).max(1.0);
+        let scale = (content_width / bounds.width)
+            .min(content_height / bounds.height)
+            .max(0.1);
+        let drawn_width = bounds.width * scale;
+        let drawn_height = bounds.height * scale;
+        Self {
+            origin_x: rect.pos.x + (rect.size.x - drawn_width) * 0.5,
+            origin_y: rect.pos.y + (rect.size.y - drawn_height) * 0.5,
+            scale,
+            bounds,
+        }
+    }
+
     fn node_rect(&self, node: &StudioGraphCanvasNode) -> Rect {
         Rect {
             pos: dvec2(
@@ -583,6 +696,25 @@ impl CanvasViewport {
             rect.pos.y + rect.size.y * 0.5,
         )
     }
+}
+
+fn point_in_rect(point: DVec2, rect: Rect) -> bool {
+    point.x >= rect.pos.x
+        && point.y >= rect.pos.y
+        && point.x <= rect.pos.x + rect.size.x
+        && point.y <= rect.pos.y + rect.size.y
+}
+
+fn point_segment_distance(point: DVec2, start: DVec2, end: DVec2) -> f64 {
+    let segment = end - start;
+    let length_squared = segment.x * segment.x + segment.y * segment.y;
+    if length_squared <= f64::EPSILON {
+        return ((point.x - start.x).powi(2) + (point.y - start.y).powi(2)).sqrt();
+    }
+    let t = (((point.x - start.x) * segment.x + (point.y - start.y) * segment.y) / length_squared)
+        .clamp(0.0, 1.0);
+    let projection = dvec2(start.x + segment.x * t, start.y + segment.y * t);
+    ((point.x - projection.x).powi(2) + (point.y - projection.y).powi(2)).sqrt()
 }
 
 #[derive(Script, ScriptHook)]
@@ -1186,6 +1318,61 @@ impl App {
         }
     }
 
+    fn select_canvas_node(&mut self, cx: &mut Cx, node_id: &str) {
+        let current_edge_id = self
+            .model
+            .as_ref()
+            .and_then(|model| model.selected_edge_id.clone());
+        self.select_canvas_request(cx, Some(node_id), current_edge_id.as_deref());
+    }
+
+    fn select_canvas_edge(&mut self, cx: &mut Cx, edge_id: &str) {
+        let current_node_id = self
+            .model
+            .as_ref()
+            .and_then(|model| model.selected_node_id.clone());
+        self.select_canvas_request(cx, current_node_id.as_deref(), Some(edge_id));
+    }
+
+    fn select_canvas_request(
+        &mut self,
+        cx: &mut Cx,
+        requested_node_id: Option<&str>,
+        requested_edge_id: Option<&str>,
+    ) {
+        let Some(source) = self.project_source.clone() else {
+            return;
+        };
+        let Some(model) = self.model.clone() else {
+            return;
+        };
+        match canvas_selection_view_model_for_project_source(
+            &source,
+            &model,
+            self.selected_graph_index,
+            requested_node_id,
+            requested_edge_id,
+        ) {
+            Ok(model) => {
+                self.selected_graph_index = model
+                    .selected_graph_index
+                    .unwrap_or(self.selected_graph_index);
+                self.selected_issue_check_id = model.selected_issue_check_id.clone();
+                self.selected_node_id = model.selected_node_id.clone();
+                self.selected_edge_id = model.selected_edge_id.clone();
+                self.model = Some(model);
+                self.sync_loaded_model(cx);
+                self.ui.redraw(cx);
+            }
+            Err(error) => {
+                self.last_edit_report = None;
+                self.last_edit_save_issue = error;
+                self.sync_edit_report(cx);
+                self.ui.redraw(cx);
+            }
+        }
+    }
+
     fn select_next_graph(&mut self, cx: &mut Cx) {
         let graph_count = self.model.as_ref().map_or(0, |model| model.graphs.len());
         if graph_count == 0 {
@@ -1219,6 +1406,18 @@ impl MatchEvent for App {
     }
 
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions) {
+        let canvas = self.ui.widget(cx, ids!(graph_canvas));
+        for action in canvas.filter_actions(actions) {
+            match action.cast::<StudioGraphCanvasAction>() {
+                StudioGraphCanvasAction::SelectNode(node_id) => {
+                    self.select_canvas_node(cx, &node_id);
+                }
+                StudioGraphCanvasAction::SelectEdge(edge_id) => {
+                    self.select_canvas_edge(cx, &edge_id);
+                }
+                StudioGraphCanvasAction::None => {}
+            }
+        }
         if self
             .ui
             .button(cx, ids!(previous_graph_button))
@@ -1340,6 +1539,24 @@ fn load_studio_view_model_for_path(
         requested_node_id,
         requested_edge_id,
     ))
+}
+
+fn canvas_selection_view_model_for_project_source(
+    project_path: &Path,
+    model: &StudioViewModel,
+    selected_graph_index: usize,
+    requested_node_id: Option<&str>,
+    requested_edge_id: Option<&str>,
+) -> Result<StudioViewModel, String> {
+    let graph_id = selected_graph_id_for_model(model, selected_graph_index)
+        .ok_or_else(|| "No graph is selected".to_string())?;
+    load_studio_view_model_for_path(
+        project_path,
+        Some(&graph_id),
+        model.selected_issue_check_id.as_deref(),
+        requested_node_id,
+        requested_edge_id,
+    )
 }
 
 fn retarget_project_source(
@@ -2335,6 +2552,38 @@ mod tests {
             .edges
             .iter()
             .any(|edge| edge.edge_id == "edge.shell_host" && edge.selected));
+        let canvas_rect = Rect {
+            pos: dvec2(0.0, 0.0),
+            size: dvec2(840.0, 220.0),
+        };
+        let canvas_viewport = CanvasViewport::for_rect(
+            canvas_rect,
+            canvas.logical_bounds().expect("canvas logical bounds"),
+        );
+        let host_node = canvas
+            .nodes
+            .iter()
+            .find(|node| node.node_id == "node.host.profile")
+            .expect("host node");
+        let shell_node = canvas
+            .nodes
+            .iter()
+            .find(|node| node.node_id == "node.shell.operator")
+            .expect("shell node");
+        assert_eq!(
+            canvas.hit_test_abs(canvas_rect, canvas_viewport.node_center(host_node)),
+            Some(StudioGraphCanvasHit::Node("node.host.profile".to_string()))
+        );
+        let shell_center = canvas_viewport.node_center(shell_node);
+        let host_center = canvas_viewport.node_center(host_node);
+        let edge_midpoint = dvec2(
+            (shell_center.x + host_center.x) * 0.5,
+            (shell_center.y + host_center.y) * 0.5,
+        );
+        assert_eq!(
+            canvas.hit_test_abs(canvas_rect, edge_midpoint),
+            Some(StudioGraphCanvasHit::Edge("edge.shell_host".to_string()))
+        );
         assert_eq!(
             selected_edge_line(&model),
             "edge.shell_host [shell_targets_host_profile]"
@@ -2343,6 +2592,58 @@ mod tests {
         assert!(edge_details.contains("status: endpoints_resolved"));
         assert!(edge_details.contains("source: node.shell.operator / operator_shell"));
         assert!(edge_details.contains("target: node.host.profile / host_profile"));
+    }
+
+    #[test]
+    fn canvas_selection_uses_shared_view_model_route() {
+        let root = temp_root("canvas-selection-route");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+
+        let selected_node_model = canvas_selection_view_model_for_project_source(
+            &project_path,
+            &model,
+            0,
+            Some("node.host.profile"),
+            model.selected_edge_id.as_deref(),
+        )
+        .expect("select host node through shared view model");
+        assert_eq!(
+            selected_node_model.requested_node_id.as_deref(),
+            Some("node.host.profile")
+        );
+        assert_eq!(
+            selected_node_model.selected_node_id.as_deref(),
+            Some("node.host.profile")
+        );
+        assert_eq!(
+            selected_node_model.selected_edge_id.as_deref(),
+            Some("edge.shell_host")
+        );
+
+        let selected_edge_model = canvas_selection_view_model_for_project_source(
+            &project_path,
+            &selected_node_model,
+            0,
+            selected_node_model.selected_node_id.as_deref(),
+            Some("edge.shell_host"),
+        )
+        .expect("select edge through shared view model");
+        assert_eq!(
+            selected_edge_model.requested_edge_id.as_deref(),
+            Some("edge.shell_host")
+        );
+        assert_eq!(
+            selected_edge_model.selected_node_id.as_deref(),
+            Some("node.host.profile")
+        );
+        assert_eq!(
+            selected_edge_model.selected_edge_id.as_deref(),
+            Some("edge.shell_host")
+        );
     }
 
     #[test]
