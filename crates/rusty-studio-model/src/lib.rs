@@ -501,7 +501,27 @@ pub struct StudioShellHandoffReadinessReport {
     pub revision: u64,
     pub bundle_root: String,
     pub status: StudioValidationStatus,
+    pub graph_count: usize,
+    pub ready_count: usize,
+    pub failed_count: usize,
+    pub missing_bundle_count: usize,
+    pub target_summaries: Vec<StudioShellHandoffReadinessTargetSummary>,
     pub entries: Vec<StudioShellHandoffReadinessEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffReadinessTargetSummary {
+    pub target_kind: StudioShellTargetKind,
+    pub graph_count: usize,
+    pub ready_count: usize,
+    pub failed_count: usize,
+    pub missing_bundle_count: usize,
+    pub package_count: usize,
+    pub module_count: usize,
+    pub operator_shell_count: usize,
+    pub graph_ids: Vec<String>,
+    pub consumer_ids: Vec<String>,
+    pub issue_codes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

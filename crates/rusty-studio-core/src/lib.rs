@@ -8,9 +8,10 @@ use rusty_studio_model::{
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
     StudioShellDescriptorValidationReport, StudioShellHandoffKind,
-    StudioShellHandoffReadinessEntry, StudioShellHandoffReadinessReport, StudioShellHandoffReport,
-    StudioShellHostProfile, StudioShellHostRoutes, StudioShellRuntimeAuthority,
-    StudioShellTargetKind, StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
+    StudioShellHandoffReadinessEntry, StudioShellHandoffReadinessReport,
+    StudioShellHandoffReadinessTargetSummary, StudioShellHandoffReport, StudioShellHostProfile,
+    StudioShellHostRoutes, StudioShellRuntimeAuthority, StudioShellTargetKind,
+    StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
     StudioShellTemplateIndexValidationReport, StudioShellTemplateManifest,
     StudioShellTemplateReport, StudioShellTemplateStatus, StudioValidationCheck,
     StudioValidationIssueView, StudioValidationReport, StudioValidationStatus, StudioViewModel,
@@ -2820,6 +2821,7 @@ pub fn shell_handoff_readiness_for_project(
     bundle_root: &Path,
 ) -> StudioShellHandoffReadinessReport {
     let plan = export_plan(project);
+    let reference_index = reference_index_for_project(project, base_dir);
     let entries = project
         .graphs
         .iter()
@@ -2827,9 +2829,28 @@ pub fn shell_handoff_readiness_for_project(
         .map(|(graph, export_bundle)| {
             let bundle_dir = bundle_root.join(&graph.graph_id);
             let handoff = shell_handoff_for_bundle(project, base_dir, &graph.graph_id, &bundle_dir);
-            shell_handoff_readiness_entry(graph, export_bundle, handoff)
+            let host_profile =
+                shell_host_profile(&graph.target_host_profile, reference_index.as_ref());
+            let intended_target_kind = shell_target_kind(host_profile.host_profile.as_deref());
+            shell_handoff_readiness_entry(graph, export_bundle, handoff, intended_target_kind)
         })
         .collect::<Vec<_>>();
+    let graph_count = entries.len();
+    let ready_count = entries
+        .iter()
+        .filter(|entry| entry.status == StudioValidationStatus::Pass)
+        .count();
+    let failed_count = entries
+        .iter()
+        .filter(|entry| entry.status == StudioValidationStatus::Fail)
+        .count();
+    let missing_bundle_count = entries
+        .iter()
+        .filter(|entry| {
+            entry.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
+        })
+        .count();
+    let target_summaries = shell_handoff_readiness_target_summaries(&entries);
     let status = if entries.is_empty()
         || entries
             .iter()
@@ -2845,6 +2866,11 @@ pub fn shell_handoff_readiness_for_project(
         revision: project.revision,
         bundle_root: bundle_root.display().to_string(),
         status,
+        graph_count,
+        ready_count,
+        failed_count,
+        missing_bundle_count,
+        target_summaries,
         entries,
     }
 }
@@ -4419,6 +4445,7 @@ fn shell_handoff_readiness_entry(
     graph: &StudioGraph,
     export_bundle: &StudioExportBundle,
     handoff: StudioShellHandoffReport,
+    intended_target_kind: StudioShellTargetKind,
 ) -> StudioShellHandoffReadinessEntry {
     let failed_check_count = handoff
         .validation
@@ -4429,12 +4456,19 @@ fn shell_handoff_readiness_entry(
     let package_count = export_bundle.package_ids.len();
     let module_count = export_bundle.module_ids.len();
     let operator_shell_count = export_bundle.operator_shell_ids.len();
+    let target_kind = if handoff.target_kind == StudioShellTargetKind::Unknown
+        && handoff.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
+    {
+        intended_target_kind
+    } else {
+        handoff.target_kind
+    };
     StudioShellHandoffReadinessEntry {
         export_bundle_id: export_bundle.bundle_id.clone(),
         graph_id: graph.graph_id.clone(),
         display_name: graph.display_name.clone(),
         target_host_profile: export_bundle.target_host_profile.clone(),
-        target_kind: handoff.target_kind,
+        target_kind,
         package_ids: export_bundle.package_ids.clone(),
         module_ids: export_bundle.module_ids.clone(),
         operator_shell_ids: export_bundle.operator_shell_ids.clone(),
@@ -4453,6 +4487,78 @@ fn shell_handoff_readiness_entry(
         validation_status: handoff.validation.status,
         failed_check_count,
     }
+}
+
+fn shell_handoff_readiness_target_summaries(
+    entries: &[StudioShellHandoffReadinessEntry],
+) -> Vec<StudioShellHandoffReadinessTargetSummary> {
+    [
+        StudioShellTargetKind::Desktop,
+        StudioShellTargetKind::Phone,
+        StudioShellTargetKind::Quest,
+        StudioShellTargetKind::Unknown,
+    ]
+    .iter()
+    .filter_map(|target_kind| shell_handoff_readiness_target_summary(entries, *target_kind))
+    .collect()
+}
+
+fn shell_handoff_readiness_target_summary(
+    entries: &[StudioShellHandoffReadinessEntry],
+    target_kind: StudioShellTargetKind,
+) -> Option<StudioShellHandoffReadinessTargetSummary> {
+    let mut graph_count = 0;
+    let mut ready_count = 0;
+    let mut failed_count = 0;
+    let mut missing_bundle_count = 0;
+    let mut package_count = 0;
+    let mut module_count = 0;
+    let mut operator_shell_count = 0;
+    let mut graph_ids = Vec::new();
+    let mut consumer_ids = Vec::new();
+    let mut issue_codes = Vec::new();
+
+    for entry in entries
+        .iter()
+        .filter(|entry| entry.target_kind == target_kind)
+    {
+        graph_count += 1;
+        if entry.status == StudioValidationStatus::Pass {
+            ready_count += 1;
+        }
+        if entry.status == StudioValidationStatus::Fail {
+            failed_count += 1;
+        }
+        if entry.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing") {
+            missing_bundle_count += 1;
+        }
+        package_count += entry.package_count;
+        module_count += entry.module_count;
+        operator_shell_count += entry.operator_shell_count;
+        graph_ids.push(entry.graph_id.clone());
+        if !consumer_ids.contains(&entry.consumer_id) {
+            consumer_ids.push(entry.consumer_id.clone());
+        }
+        if let Some(issue_code) = entry.issue_code.as_ref() {
+            if !issue_codes.contains(issue_code) {
+                issue_codes.push(issue_code.clone());
+            }
+        }
+    }
+
+    (graph_count > 0).then(|| StudioShellHandoffReadinessTargetSummary {
+        target_kind,
+        graph_count,
+        ready_count,
+        failed_count,
+        missing_bundle_count,
+        package_count,
+        module_count,
+        operator_shell_count,
+        graph_ids,
+        consumer_ids,
+        issue_codes,
+    })
 }
 
 fn shell_handoff_kind_for_target(target_kind: StudioShellTargetKind) -> StudioShellHandoffKind {
@@ -6950,7 +7056,33 @@ mod tests {
 
         assert_eq!(readiness.schema_id, SHELL_HANDOFF_READINESS_REPORT_SCHEMA);
         assert_eq!(readiness.status, StudioValidationStatus::Pass);
+        assert_eq!(readiness.graph_count, 3);
+        assert_eq!(readiness.ready_count, 3);
+        assert_eq!(readiness.failed_count, 0);
+        assert_eq!(readiness.missing_bundle_count, 0);
         assert_eq!(readiness.entries.len(), 3);
+        assert_eq!(readiness.target_summaries.len(), 3);
+        for target_kind in [
+            StudioShellTargetKind::Desktop,
+            StudioShellTargetKind::Phone,
+            StudioShellTargetKind::Quest,
+        ] {
+            let summary = readiness
+                .target_summaries
+                .iter()
+                .find(|summary| summary.target_kind == target_kind)
+                .expect("target summary");
+            assert_eq!(summary.graph_count, 1);
+            assert_eq!(summary.ready_count, 1);
+            assert_eq!(summary.failed_count, 0);
+            assert_eq!(summary.missing_bundle_count, 0);
+            assert_eq!(summary.package_count, 1);
+            assert_eq!(summary.module_count, 1);
+            assert_eq!(summary.operator_shell_count, 1);
+            assert!(summary.issue_codes.is_empty());
+            assert_eq!(summary.graph_ids.len(), 1);
+            assert_eq!(summary.consumer_ids.len(), 1);
+        }
         assert!(readiness.entries.iter().all(|entry| {
             entry.status == StudioValidationStatus::Pass
                 && entry.validation_status == StudioValidationStatus::Pass
@@ -6991,7 +7123,22 @@ mod tests {
         let readiness = shell_handoff_readiness_for_project(&project, Some(&root), &bundle_root);
 
         assert_eq!(readiness.status, StudioValidationStatus::Fail);
+        assert_eq!(readiness.graph_count, 3);
+        assert_eq!(readiness.ready_count, 0);
+        assert_eq!(readiness.failed_count, 3);
+        assert_eq!(readiness.missing_bundle_count, 3);
         assert_eq!(readiness.entries.len(), 3);
+        assert_eq!(readiness.target_summaries.len(), 3);
+        assert!(readiness.target_summaries.iter().all(|summary| {
+            summary.graph_count == 1
+                && summary.ready_count == 0
+                && summary.failed_count == 1
+                && summary.missing_bundle_count == 1
+                && summary
+                    .issue_codes
+                    .iter()
+                    .any(|issue| issue == "studio.issue.shell_bundle_file_missing")
+        }));
         assert!(readiness.entries.iter().all(|entry| {
             entry.status == StudioValidationStatus::Fail
                 && entry.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")

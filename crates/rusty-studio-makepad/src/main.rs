@@ -2668,11 +2668,23 @@ fn shell_handoff_readiness_status(
     bundle_root: &Path,
 ) -> String {
     let status = validation_status_label(report.status);
-    let ready_count = report
-        .entries
+    let target_rows = report
+        .target_summaries
         .iter()
-        .filter(|entry| entry.status == StudioValidationStatus::Pass)
-        .count();
+        .map(|summary| {
+            format!(
+                "{}: ready {}/{}; missing {}; packages {}; modules {}; shells {}",
+                shell_target_kind_label(summary.target_kind),
+                summary.ready_count,
+                summary.graph_count,
+                summary.missing_bundle_count,
+                summary.package_count,
+                summary.module_count,
+                summary.operator_shell_count
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
     let rows = report
         .entries
         .iter()
@@ -2696,9 +2708,17 @@ fn shell_handoff_readiness_status(
         .collect::<Vec<_>>()
         .join("\n  ");
     format!(
-        "handoff readiness {status}; ready {ready_count}/{}\n  root: {}\n  {}",
-        report.entries.len(),
+        "handoff readiness {status}; ready {}/{}; failed {}; missing {}\n  root: {}\n  targets:\n  {}\n  graphs:\n  {}",
+        report.ready_count,
+        report.graph_count,
+        report.failed_count,
+        report.missing_bundle_count,
         bundle_root.display(),
+        if target_rows.is_empty() {
+            "none".to_string()
+        } else {
+            target_rows
+        },
         if rows.is_empty() {
             "none".to_string()
         } else {
@@ -3477,6 +3497,13 @@ mod tests {
             .expect("inspect handoff readiness");
 
         assert_eq!(report.status, StudioValidationStatus::Pass);
+        assert_eq!(report.graph_count, 1);
+        assert_eq!(report.ready_count, 1);
+        assert_eq!(report.failed_count, 0);
+        assert_eq!(report.missing_bundle_count, 0);
+        assert_eq!(report.target_summaries.len(), 1);
+        assert_eq!(report.target_summaries[0].ready_count, 1);
+        assert_eq!(report.target_summaries[0].graph_count, 1);
         assert_eq!(report.entries.len(), 1);
         assert_eq!(
             report.entries[0].export_bundle_id,
@@ -3490,6 +3517,8 @@ mod tests {
         let status = shell_handoff_readiness_status(&report, &bundle_root);
         assert!(status.contains("handoff readiness pass"));
         assert!(status.contains("ready 1/1"));
+        assert!(status.contains("failed 0; missing 0"));
+        assert!(status.contains("desktop: ready 1/1; missing 0"));
         assert!(status.contains("studio.graph.makepad_edit [desktop]"));
         assert!(status.contains("profile host_run.profile.desktop"));
         assert!(status.contains("packages 1; modules 0; shell 1"));

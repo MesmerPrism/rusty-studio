@@ -1228,14 +1228,63 @@ try {
     if ($HandoffReadiness.status -ne "pass") {
         throw "shell handoff readiness did not pass"
     }
+    if ($HandoffReadiness.graph_count -ne 3) {
+        throw "shell handoff readiness graph count mismatch"
+    }
+    if ($HandoffReadiness.ready_count -ne 3) {
+        throw "shell handoff readiness ready count mismatch"
+    }
+    if ($HandoffReadiness.failed_count -ne 0) {
+        throw "shell handoff readiness failed count mismatch"
+    }
+    if ($HandoffReadiness.missing_bundle_count -ne 0) {
+        throw "shell handoff readiness missing bundle count mismatch"
+    }
     if (@($HandoffReadiness.entries).Count -ne 3) {
         throw "shell handoff readiness entry count mismatch"
+    }
+    if (@($HandoffReadiness.target_summaries).Count -ne 3) {
+        throw "shell handoff readiness target summary count mismatch"
     }
     foreach ($RequiredReadiness in @(
         @{ Graph = "studio.graph.synthetic_wave_desktop"; HandoffKind = "desktop_shell"; Consumer = "rusty-studio-desktop-shell"; TargetKind = "desktop"; TargetProfile = "host_run.profile.desktop"; Shell = "shell.synthetic_wave.desktop_operator" },
         @{ Graph = "studio.graph.synthetic_wave_phone"; HandoffKind = "phone_shell"; Consumer = "rusty-studio-phone-shell"; TargetKind = "phone"; TargetProfile = "host_run.profile.mobile"; Shell = "shell.synthetic_wave.phone_operator" },
         @{ Graph = "studio.graph.synthetic_wave_headset"; HandoffKind = "quest_shell"; Consumer = "rusty-studio-quest-shell"; TargetKind = "quest"; TargetProfile = "host_run.profile.headset"; Shell = "shell.synthetic_wave.quest_operator" }
     )) {
+        $TargetSummary = @($HandoffReadiness.target_summaries | Where-Object { $_.target_kind -eq $RequiredReadiness.TargetKind }) | Select-Object -First 1
+        if ($null -eq $TargetSummary) {
+            throw "shell handoff readiness missing target summary $($RequiredReadiness.TargetKind)"
+        }
+        if ($TargetSummary.graph_count -ne 1) {
+            throw "shell handoff readiness target graph count mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if ($TargetSummary.ready_count -ne 1) {
+            throw "shell handoff readiness target ready count mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if ($TargetSummary.failed_count -ne 0) {
+            throw "shell handoff readiness target failed count mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if ($TargetSummary.missing_bundle_count -ne 0) {
+            throw "shell handoff readiness target missing bundle count mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if ($TargetSummary.package_count -ne 1) {
+            throw "shell handoff readiness target package count mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if ($TargetSummary.module_count -ne 2) {
+            throw "shell handoff readiness target module count mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if ($TargetSummary.operator_shell_count -ne 1) {
+            throw "shell handoff readiness target operator shell count mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if (-not (@($TargetSummary.graph_ids) -contains $RequiredReadiness.Graph)) {
+            throw "shell handoff readiness target graph ids mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if (-not (@($TargetSummary.consumer_ids) -contains $RequiredReadiness.Consumer)) {
+            throw "shell handoff readiness target consumers mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if (@($TargetSummary.issue_codes).Count -ne 0) {
+            throw "shell handoff readiness target issue codes mismatch for $($RequiredReadiness.TargetKind)"
+        }
         $Entry = @($HandoffReadiness.entries | Where-Object { $_.graph_id -eq $RequiredReadiness.Graph }) | Select-Object -First 1
         if ($null -eq $Entry) {
             throw "shell handoff readiness missing graph $($RequiredReadiness.Graph)"
