@@ -28,8 +28,8 @@ Current scope:
 - render those layout hints in a Makepad custom read-only node graph canvas;
 - route Makepad canvas node and edge selection through shared view-model
   selection requests;
-- add the next available catalog module from that palette through a shared
-  core/CLI/Makepad mutation path;
+- add the next available catalog module from the full palette or from a
+  selected package through a shared core/CLI/Makepad mutation path;
 - render the resolved synthetic project in a Makepad desktop authoring surface;
 - navigate between desktop and headset graph targets without mutating project
   state;
@@ -77,6 +77,7 @@ cargo run -p rusty-studio-cli -- view-model --project examples\synthetic-studio-
 cargo run -p rusty-studio-cli -- retarget-host --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --host-profile host_run.profile.headset --output target\studio-edit-retarget-headset.json
 cargo run -p rusty-studio-cli -- add-module --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --package package.biosignal_sensor --module module.biosignal_sensor.provider --label "Biosignal Provider" --output target\studio-edit-add-module.json
 cargo run -p rusty-studio-cli -- add-palette-module --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --output target\studio-edit-add-palette-module.json
+cargo run -p rusty-studio-cli -- add-palette-module --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --package package.hand_animation --output target\studio-edit-add-selected-package-module.json
 cargo run -p rusty-studio-cli -- remove-module --project target\studio-edit-add-module.json --graph studio.graph.synthetic_wave_desktop --module module.biosignal_sensor.provider --output target\studio-edit-remove-module.json
 cargo run -p rusty-studio-cli -- add-binding --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --kind command --source-node node.shell.operator --target-node node.module.synthetic_wave_provider --output target\studio-edit-add-binding.json
 cargo run -p rusty-studio-cli -- remove-binding --project target\studio-edit-add-binding.json --graph studio.graph.synthetic_wave_desktop --kind command --source-node node.shell.operator --target-node node.module.synthetic_wave_provider --output target\studio-edit-remove-binding.json

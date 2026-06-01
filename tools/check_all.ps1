@@ -23,6 +23,7 @@ try {
     $LayoutDiagnosticProjectOutput = Join-Path $RepoRoot "target\studio-layout-diagnostic-project.json"
     $AddModuleOutput = Join-Path $RepoRoot "target\studio-edit-add-module.json"
     $AddPaletteModuleOutput = Join-Path $RepoRoot "target\studio-edit-add-palette-module.json"
+    $AddSelectedPackageModuleOutput = Join-Path $RepoRoot "target\studio-edit-add-selected-package-module.json"
     $RemoveModuleOutput = Join-Path $RepoRoot "target\studio-edit-remove-module.json"
     $AddBindingOutput = Join-Path $RepoRoot "target\studio-edit-add-binding.json"
     $RemoveBindingOutput = Join-Path $RepoRoot "target\studio-edit-remove-binding.json"
@@ -30,7 +31,7 @@ try {
     $ShellArtifactsDir = Join-Path $RepoRoot "target\studio-shells"
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -579,6 +580,53 @@ try {
     $PaletteEdge = $PaletteGraph.edges | Where-Object { $_.kind -eq "package_provides_module" -and $_.source_node_id -eq $PalettePackage.node_id -and $_.target_node_id -eq $PaletteModule.node_id } | Select-Object -First 1
     if ($null -eq $PaletteEdge) {
         throw "add palette module output package/module edge missing"
+    }
+    $AddSelectedPackageModuleReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-palette-module --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --package "package.hand_animation" --output $AddSelectedPackageModuleOutput
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio add selected package module failed with exit code $LASTEXITCODE"
+    }
+    $AddSelectedPackageModuleReportText = $AddSelectedPackageModuleReportOutput -join [Environment]::NewLine
+    $AddSelectedPackageModuleReport = $AddSelectedPackageModuleReportText | ConvertFrom-Json
+    if ($AddSelectedPackageModuleReport.'$schema' -ne "rusty.studio.edit_report.v1") {
+        throw "add selected package module edit report schema mismatch"
+    }
+    if ($AddSelectedPackageModuleReport.operation -ne "add_module") {
+        throw "add selected package module edit report operation mismatch"
+    }
+    if ($AddSelectedPackageModuleReport.status -ne "applied") {
+        throw "add selected package module edit report did not apply"
+    }
+    if ($AddSelectedPackageModuleReport.requested_reference_id -ne "module.hand_motion.provider") {
+        throw "add selected package module should choose a module from the requested package"
+    }
+    Invoke-Checked "studio validate selected-package-module output" "cargo" @(
+        "run",
+        "-p",
+        "rusty-studio-cli",
+        "--",
+        "validate",
+        "--project",
+        $AddSelectedPackageModuleOutput
+    )
+    $AddSelectedPackageModuleProject = Get-Content -Raw -Path $AddSelectedPackageModuleOutput | ConvertFrom-Json
+    if ($AddSelectedPackageModuleProject.revision -ne 2) {
+        throw "add selected package module output should bump project revision"
+    }
+    $SelectedPackageGraph = $AddSelectedPackageModuleProject.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
+    if ($null -eq $SelectedPackageGraph) {
+        throw "add selected package module output graph missing"
+    }
+    $SelectedPackageNode = $SelectedPackageGraph.nodes | Where-Object { $_.kind -eq "package" -and $_.reference_id -eq "package.hand_animation" } | Select-Object -First 1
+    if ($null -eq $SelectedPackageNode) {
+        throw "add selected package module output package node missing"
+    }
+    $SelectedPackageModule = $SelectedPackageGraph.nodes | Where-Object { $_.kind -eq "module" -and $_.reference_id -eq "module.hand_motion.provider" } | Select-Object -First 1
+    if ($null -eq $SelectedPackageModule) {
+        throw "add selected package module output module node missing"
+    }
+    $SelectedPackageEdge = $SelectedPackageGraph.edges | Where-Object { $_.kind -eq "package_provides_module" -and $_.source_node_id -eq $SelectedPackageNode.node_id -and $_.target_node_id -eq $SelectedPackageModule.node_id } | Select-Object -First 1
+    if ($null -eq $SelectedPackageEdge) {
+        throw "add selected package module output package/module edge missing"
     }
     $RemoveModuleReportOutput = & cargo run --quiet -p rusty-studio-cli -- remove-module --project $AddModuleOutput --graph "studio.graph.synthetic_wave_desktop" --module "module.biosignal_sensor.provider" --output $RemoveModuleOutput
     if ($LASTEXITCODE -ne 0) {

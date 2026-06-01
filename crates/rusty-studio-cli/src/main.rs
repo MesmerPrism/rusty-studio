@@ -1,11 +1,11 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rusty_studio_core::{
-    add_binding_to_graph, add_module_to_graph, add_next_catalog_module_to_graph, export_plan,
-    load_project, load_shell_artifact_manifest, load_shell_descriptor, load_shell_template_index,
-    remove_binding_from_graph, remove_module_from_graph, resolve_project,
-    retarget_graph_host_profile, save_json, save_project, shell_artifacts_for_project,
-    shell_descriptor_artifact_path, shell_descriptor_for_graph,
-    shell_templates_for_artifact_manifest, validate_project_with_base,
+    add_binding_to_graph, add_module_to_graph, add_next_catalog_module_from_package_to_graph,
+    add_next_catalog_module_to_graph, export_plan, load_project, load_shell_artifact_manifest,
+    load_shell_descriptor, load_shell_template_index, remove_binding_from_graph,
+    remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
+    save_project, shell_artifacts_for_project, shell_descriptor_artifact_path,
+    shell_descriptor_for_graph, shell_templates_for_artifact_manifest, validate_project_with_base,
     validate_shell_artifact_manifest, validate_shell_descriptor, validate_shell_template_index,
     view_model_for_graph_issue_node_and_edge,
 };
@@ -102,6 +102,8 @@ struct AddPaletteModuleArgs {
     project: PathBuf,
     #[arg(long)]
     graph: String,
+    #[arg(long)]
+    package: Option<String>,
     #[arg(long)]
     output: Option<PathBuf>,
     #[arg(long)]
@@ -307,8 +309,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let mut project = load_project(&args.project)?;
-            let report =
-                add_next_catalog_module_to_graph(&mut project, &args.graph, args.project.parent());
+            let report = if let Some(package) = args.package.as_deref() {
+                add_next_catalog_module_from_package_to_graph(
+                    &mut project,
+                    &args.graph,
+                    package,
+                    args.project.parent(),
+                )
+            } else {
+                add_next_catalog_module_to_graph(&mut project, &args.graph, args.project.parent())
+            };
             if report.status == StudioEditStatus::Applied {
                 if args.write {
                     save_project(&args.project, &project)?;

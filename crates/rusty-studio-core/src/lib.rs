@@ -570,8 +570,32 @@ pub fn add_next_catalog_module_to_graph(
     graph_id: &str,
     base_dir: Option<&Path>,
 ) -> StudioEditReport {
+    add_next_catalog_module_to_graph_with_package(project, graph_id, None, base_dir)
+}
+
+pub fn add_next_catalog_module_from_package_to_graph(
+    project: &mut StudioProject,
+    graph_id: &str,
+    package_reference_id: &str,
+    base_dir: Option<&Path>,
+) -> StudioEditReport {
+    add_next_catalog_module_to_graph_with_package(
+        project,
+        graph_id,
+        Some(package_reference_id),
+        base_dir,
+    )
+}
+
+fn add_next_catalog_module_to_graph_with_package(
+    project: &mut StudioProject,
+    graph_id: &str,
+    package_reference_id: Option<&str>,
+    base_dir: Option<&Path>,
+) -> StudioEditReport {
     let original_revision = project.revision;
     let requested_host_profile = graph_target_host_profile(project, graph_id);
+    let requested_reference_id = package_reference_id.unwrap_or(NEXT_PALETTE_MODULE_REQUEST);
 
     if !is_dotted_id(graph_id) {
         return edit_report(
@@ -583,11 +607,30 @@ pub fn add_next_catalog_module_to_graph(
             Some("studio.issue.invalid_graph_id".to_string()),
             "Graph id is not a dotted id".to_string(),
             graph_id,
-            NEXT_PALETTE_MODULE_REQUEST,
+            requested_reference_id,
             &requested_host_profile,
             Vec::new(),
             validate_project_with_base(project, base_dir),
         );
+    }
+
+    if let Some(package_reference_id) = package_reference_id {
+        if !is_dotted_id(package_reference_id) {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::AddModule,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.invalid_reference_id".to_string()),
+                "Package reference id is not a dotted id".to_string(),
+                graph_id,
+                requested_reference_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        }
     }
 
     let Some(graph) = project
@@ -604,7 +647,7 @@ pub fn add_next_catalog_module_to_graph(
             Some("studio.issue.graph_missing".to_string()),
             "Graph was not found in the project".to_string(),
             graph_id,
-            NEXT_PALETTE_MODULE_REQUEST,
+            requested_reference_id,
             &requested_host_profile,
             Vec::new(),
             validate_project_with_base(project, base_dir),
@@ -621,14 +664,39 @@ pub fn add_next_catalog_module_to_graph(
             Some("studio.issue.reference_index_missing".to_string()),
             "Package catalog references are unavailable for palette selection".to_string(),
             graph_id,
-            NEXT_PALETTE_MODULE_REQUEST,
+            requested_reference_id,
             &requested_host_profile,
             Vec::new(),
             validate_project_with_base(project, base_dir),
         );
     };
 
-    let Some(selection) = next_available_catalog_module(graph, &reference_index) else {
+    if let Some(package_reference_id) = package_reference_id {
+        if !reference_index.package_ids.contains(package_reference_id) {
+            return edit_report(
+                project,
+                original_revision,
+                original_revision,
+                StudioEditOperation::AddModule,
+                StudioEditStatus::Rejected,
+                Some("studio.issue.package_reference_missing".to_string()),
+                "Package reference is missing from the package catalog".to_string(),
+                graph_id,
+                requested_reference_id,
+                &requested_host_profile,
+                Vec::new(),
+                validate_project_with_base(project, base_dir),
+            );
+        }
+    }
+
+    let selection = if let Some(package_reference_id) = package_reference_id {
+        next_available_catalog_module_for_package(graph, &reference_index, package_reference_id)
+    } else {
+        next_available_catalog_module(graph, &reference_index)
+    };
+
+    let Some(selection) = selection else {
         return edit_report(
             project,
             original_revision,
@@ -638,7 +706,7 @@ pub fn add_next_catalog_module_to_graph(
             Some("studio.issue.no_available_palette_module".to_string()),
             "No catalog module is available to add to the selected graph".to_string(),
             graph_id,
-            NEXT_PALETTE_MODULE_REQUEST,
+            requested_reference_id,
             &requested_host_profile,
             Vec::new(),
             validate_project_with_base(project, base_dir),
@@ -2687,30 +2755,41 @@ fn next_available_catalog_module(
     graph: &StudioGraph,
     reference_index: &ReferenceIndex,
 ) -> Option<CatalogModuleSelection> {
-    let selected_modules = selected_node_reference_ids(Some(graph), StudioNodeKind::Module);
     for package_id in &reference_index.package_ids {
-        let Some(module_ids) = reference_index.package_modules.get(package_id) else {
-            continue;
-        };
-        let mut candidates = module_ids
-            .iter()
-            .filter(|module_id| !selected_modules.contains(*module_id))
-            .cloned()
-            .collect::<Vec<_>>();
-        candidates.sort_by(|left, right| {
-            palette_module_rank(left)
-                .cmp(&palette_module_rank(right))
-                .then_with(|| left.cmp(right))
-        });
-        if let Some(module_id) = candidates.into_iter().next() {
-            return Some(CatalogModuleSelection {
-                package_id: package_id.clone(),
-                label: label_for_reference(&module_id),
-                module_id,
-            });
+        if let Some(selection) =
+            next_available_catalog_module_for_package(graph, reference_index, package_id)
+        {
+            return Some(selection);
         }
     }
     None
+}
+
+fn next_available_catalog_module_for_package(
+    graph: &StudioGraph,
+    reference_index: &ReferenceIndex,
+    package_id: &str,
+) -> Option<CatalogModuleSelection> {
+    let module_ids = reference_index.package_modules.get(package_id)?;
+    let selected_modules = selected_node_reference_ids(Some(graph), StudioNodeKind::Module);
+    let mut candidates = module_ids
+        .iter()
+        .filter(|module_id| !selected_modules.contains(*module_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| {
+        palette_module_rank(left)
+            .cmp(&palette_module_rank(right))
+            .then_with(|| left.cmp(right))
+    });
+    candidates
+        .into_iter()
+        .next()
+        .map(|module_id| CatalogModuleSelection {
+            package_id: package_id.to_string(),
+            label: label_for_reference(&module_id),
+            module_id,
+        })
 }
 
 fn palette_module_rank(module_id: &str) -> u8 {
@@ -5077,6 +5156,43 @@ mod tests {
         );
     }
 
+    fn write_multi_package_reference_fixture_tree(root: &Path) {
+        write_reference_fixture_tree(root);
+        write_fixture(
+            &root.join("packages/catalog.manifold.json"),
+            r#"{
+  "$schema": "rusty.manifold.package.catalog.v1",
+  "catalog_id": "catalog.test",
+  "packages": [
+    {
+      "package_id": "package.synthetic",
+      "manifest_path": "packages/synthetic/manifests/package.manifold.json"
+    },
+    {
+      "package_id": "package.biosignal",
+      "manifest_path": "packages/biosignal/manifests/package.manifold.json"
+    }
+  ]
+}"#,
+        );
+        write_fixture(
+            &root.join("packages/biosignal/manifests/package.manifold.json"),
+            r#"{
+  "$schema": "rusty.manifold.package.manifest.v1",
+  "package_id": "package.biosignal",
+  "version": "0.1.0",
+  "exports": {
+    "modules": [
+      "module.biosignal.processor",
+      "module.biosignal.provider"
+    ],
+    "streams": [],
+    "commands": []
+  }
+}"#,
+        );
+    }
+
     fn valid_project_with_relative_references() -> StudioProject {
         let mut project = valid_project();
         project.package_catalog_path = "packages/catalog.manifold.json".to_string();
@@ -5912,6 +6028,64 @@ mod tests {
             edge.kind == StudioEdgeKind::PackageProvidesModule
                 && edge.target_node_id == "node.module.synthetic_provider"
         }));
+    }
+
+    #[test]
+    fn add_next_catalog_module_from_package_to_graph_uses_selected_package() {
+        let root = temp_root("add-next-selected-package-module");
+        write_multi_package_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+
+        let report = add_next_catalog_module_from_package_to_graph(
+            &mut project,
+            "studio.graph.test",
+            "package.biosignal",
+            Some(&root),
+        );
+
+        assert_eq!(report.operation, StudioEditOperation::AddModule);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.requested_reference_id, "module.biosignal.provider");
+        assert_eq!(report.original_revision, 1);
+        assert_eq!(report.resulting_revision, 2);
+        assert!(project.graphs[0].nodes.iter().any(|node| {
+            node.kind == StudioNodeKind::Package && node.reference_id == "package.biosignal"
+        }));
+        assert!(project.graphs[0].nodes.iter().any(|node| {
+            node.kind == StudioNodeKind::Module && node.reference_id == "module.biosignal.provider"
+        }));
+        assert!(project.graphs[0].edges.iter().any(|edge| {
+            edge.kind == StudioEdgeKind::PackageProvidesModule
+                && edge.source_node_id == "node.package.biosignal"
+                && edge.target_node_id == "node.module.biosignal.provider"
+        }));
+        assert!(!project.graphs[0]
+            .nodes
+            .iter()
+            .any(|node| node.reference_id == "module.synthetic_provider"));
+    }
+
+    #[test]
+    fn add_next_catalog_module_from_package_to_graph_rejects_missing_package() {
+        let root = temp_root("add-next-selected-package-missing");
+        write_reference_fixture_tree(&root);
+        let mut project = valid_project_with_relative_references();
+
+        let report = add_next_catalog_module_from_package_to_graph(
+            &mut project,
+            "studio.graph.test",
+            "package.missing",
+            Some(&root),
+        );
+
+        assert_eq!(report.operation, StudioEditOperation::AddModule);
+        assert_eq!(report.status, StudioEditStatus::Rejected);
+        assert_eq!(
+            report.issue_code.as_deref(),
+            Some("studio.issue.package_reference_missing")
+        );
+        assert_eq!(report.requested_reference_id, "package.missing");
+        assert_eq!(project.revision, 1);
     }
 
     #[test]

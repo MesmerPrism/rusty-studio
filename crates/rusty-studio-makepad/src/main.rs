@@ -2,9 +2,10 @@ pub use makepad_widgets;
 
 use makepad_widgets::*;
 use rusty_studio_core::{
-    add_binding_to_graph, add_next_catalog_module_to_graph, load_project,
-    remove_binding_from_graph, remove_module_from_graph, retarget_graph_host_profile, save_project,
-    view_model_for_graph, view_model_for_graph_issue_node_and_edge,
+    add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
+    add_next_catalog_module_to_graph, load_project, remove_binding_from_graph,
+    remove_module_from_graph, retarget_graph_host_profile, save_project, view_model_for_graph,
+    view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView, StudioValidationStatus,
@@ -169,7 +170,7 @@ script_mod! {
     let PalettePanel = Panel{
         SectionTitle{text: "Reference Palette"}
         ButtonRow{
-            add_palette_module_button := ActionButton{text: "Add Palette Module"}
+            add_palette_module_button := ActionButton{text: "Add Module From Package"}
         }
         Row{FieldLabel{text: "packages"} catalog_packages := SmallValue{text: ""}}
         Rule{}
@@ -933,8 +934,22 @@ impl App {
             self.ui.redraw(cx);
             return;
         };
-        match add_next_catalog_module_to_project_source(&source, &model, self.selected_graph_index)
-        {
+        let package_reference_id = match selected_package_reference_id(&model) {
+            Ok(package_reference_id) => package_reference_id,
+            Err(error) => {
+                self.last_edit_report = None;
+                self.last_edit_save_issue = error;
+                self.sync_edit_report(cx);
+                self.ui.redraw(cx);
+                return;
+            }
+        };
+        match add_next_catalog_module_to_project_source(
+            &source,
+            &model,
+            self.selected_graph_index,
+            Some(&package_reference_id),
+        ) {
             Ok((report, refreshed_model)) => {
                 self.last_edit_report = Some(report);
                 self.last_edit_save_issue.clear();
@@ -1685,12 +1700,22 @@ fn add_next_catalog_module_to_project_source(
     project_path: &Path,
     model: &StudioViewModel,
     selected_graph_index: usize,
+    package_reference_id: Option<&str>,
 ) -> Result<(StudioEditReport, Option<StudioViewModel>), String> {
     let graph_id = selected_graph_id_for_model(model, selected_graph_index)
         .ok_or_else(|| "No graph is selected".to_string())?;
     let mut project =
         load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
-    let report = add_next_catalog_module_to_graph(&mut project, &graph_id, project_path.parent());
+    let report = if let Some(package_reference_id) = package_reference_id {
+        add_next_catalog_module_from_package_to_graph(
+            &mut project,
+            &graph_id,
+            package_reference_id,
+            project_path.parent(),
+        )
+    } else {
+        add_next_catalog_module_to_graph(&mut project, &graph_id, project_path.parent())
+    };
     if report.status != StudioEditStatus::Applied {
         return Ok((report, None));
     }
@@ -2201,6 +2226,19 @@ fn edit_validation_line(report: &StudioEditReport) -> String {
         StudioValidationStatus::Fail => "fail",
     };
     format!("{status}; {} check(s)", report.validation.checks.len())
+}
+
+fn selected_package_reference_id(model: &StudioViewModel) -> Result<String, String> {
+    let Some(node) = model.selected_node.as_ref() else {
+        return Err("No node is selected".to_string());
+    };
+    if node.kind != "package" {
+        return Err(format!(
+            "Selected node {} is {}; select a package node to add a package module",
+            node.node_id, node.kind
+        ));
+    }
+    Ok(node.reference_id.clone())
 }
 
 fn selected_module_reference_id(model: &StudioViewModel) -> Result<String, String> {
@@ -2927,7 +2965,7 @@ mod tests {
             .expect("load view model");
 
         let (report, refreshed_model) =
-            add_next_catalog_module_to_project_source(&project_path, &model, 0)
+            add_next_catalog_module_to_project_source(&project_path, &model, 0, None)
                 .expect("add next palette module to project source");
         let refreshed_model = refreshed_model.expect("refreshed model after applied edit");
         let saved_project = load_project(&project_path).expect("load saved edited project");
@@ -2940,6 +2978,43 @@ mod tests {
             node.kind == StudioNodeKind::Module && node.reference_id == "module.synthetic_provider"
         }));
         assert_eq!(refreshed_model.revision, 2);
+        assert_eq!(refreshed_model.graphs[0].module_count, 1);
+    }
+
+    #[test]
+    fn selected_package_drives_add_palette_module_request() {
+        let root = temp_root("selected-package-palette-module-source");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(
+            &project_path,
+            Some("studio.graph.makepad_edit"),
+            None,
+            Some("node.package.synthetic"),
+            None,
+        )
+        .expect("load selected package view model");
+
+        let package_reference_id =
+            selected_package_reference_id(&model).expect("selected package reference");
+        let (report, refreshed_model) = add_next_catalog_module_to_project_source(
+            &project_path,
+            &model,
+            0,
+            Some(&package_reference_id),
+        )
+        .expect("add selected package module to project source");
+        let refreshed_model = refreshed_model.expect("refreshed model after applied edit");
+        let saved_project = load_project(&project_path).expect("load saved edited project");
+
+        assert_eq!(package_reference_id, "package.synthetic");
+        assert_eq!(report.operation, StudioEditOperation::AddModule);
+        assert_eq!(report.status, StudioEditStatus::Applied);
+        assert_eq!(report.requested_reference_id, "module.synthetic_provider");
+        assert!(saved_project.graphs[0].nodes.iter().any(|node| {
+            node.kind == StudioNodeKind::Module && node.reference_id == "module.synthetic_provider"
+        }));
         assert_eq!(refreshed_model.graphs[0].module_count, 1);
     }
 
