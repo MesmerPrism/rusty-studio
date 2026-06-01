@@ -3,25 +3,36 @@ pub use makepad_widgets;
 use makepad_widgets::*;
 use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
-    add_next_catalog_module_to_graph, append_shell_handoff_acceptance_baseline_index_manifests,
+    add_next_catalog_module_to_graph, append_shell_export_package_baseline_index_manifests,
+    append_shell_handoff_acceptance_baseline_index_manifests,
+    compare_shell_export_packages_against_baseline_index_entry,
     compare_shell_handoff_acceptance_against_baseline_index_entry, load_project,
-    load_shell_handoff_acceptance_baseline_index, load_shell_handoff_acceptance_baseline_manifest,
-    load_shell_handoff_acceptance_checklist,
+    load_shell_export_package_baseline_index, load_shell_export_package_baseline_manifest,
+    load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
+    load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
+    promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default, remove_binding_from_graph,
     remove_module_from_graph, retarget_graph_host_profile, save_json, save_project,
-    save_shell_bundle, select_shell_handoff_acceptance_baseline_index_entry,
-    selected_shell_bundle_for_graph, shell_export_package_for_project,
+    save_shell_bundle, select_shell_export_package_baseline_index_entry,
+    select_shell_handoff_acceptance_baseline_index_entry, selected_shell_bundle_for_graph,
+    shell_export_package_baseline_index_for_manifests,
+    shell_export_package_baseline_manifest_for_report, shell_export_package_for_project,
     shell_handoff_acceptance_baseline_index_for_manifests,
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
-    shell_runbook_for_project, summarize_shell_handoff_acceptance_baseline_index_selection,
-    validate_selected_shell_bundle, view_model_for_graph, view_model_for_graph_issue_node_and_edge,
+    shell_runbook_for_project, summarize_shell_export_package_baseline_index_selection,
+    summarize_shell_handoff_acceptance_baseline_index_selection, validate_selected_shell_bundle,
+    view_model_for_graph, view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
-    StudioShellDescriptorStatus, StudioShellExportPackageReport, StudioShellExportPackageStatus,
+    StudioShellDescriptorStatus, StudioShellExportPackageBaselineIndex,
+    StudioShellExportPackageBaselineManifest, StudioShellExportPackageBaselineSelectionReport,
+    StudioShellExportPackageBaselineSelectionStatus, StudioShellExportPackageComparisonChange,
+    StudioShellExportPackageComparisonReport, StudioShellExportPackageComparisonStatus,
+    StudioShellExportPackageReport, StudioShellExportPackageStatus,
     StudioShellHandoffAcceptanceBaselineIndex, StudioShellHandoffAcceptanceBaselineManifest,
     StudioShellHandoffAcceptanceBaselineSelectionReport,
     StudioShellHandoffAcceptanceBaselineSelectionStatus,
@@ -196,6 +207,12 @@ script_mod! {
             shell_readiness_button := ActionButton{text: "Inspect All Handoffs"}
             shell_runbook_button := ActionButton{text: "Inspect Runbook"}
             shell_export_package_button := ActionButton{text: "Review Export Package"}
+            shell_export_package_baseline_button := ActionButton{text: "Write Package Baseline"}
+            shell_export_package_baseline_append_button := ActionButton{text: "Archive Package Baseline"}
+            shell_export_package_baseline_summary_button := ActionButton{text: "Inspect Package Baseline"}
+            shell_export_package_baseline_next_button := ActionButton{text: "Next Package Baseline"}
+            shell_export_package_baseline_promote_button := ActionButton{text: "Promote Package Baseline"}
+            shell_export_package_compare_button := ActionButton{text: "Compare Package"}
             shell_manifest_button := ActionButton{text: "Write Handoff Manifest"}
             shell_acceptance_button := ActionButton{text: "Review Acceptance"}
             shell_acceptance_baseline_button := ActionButton{text: "Write Baseline"}
@@ -1166,6 +1183,152 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn write_shell_export_package_baseline(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match write_shell_export_package_baseline_for_project_source(&source) {
+            Ok((report, baseline, index, package_path, baseline_path, index_path, bundle_root)) => {
+                self.last_shell_bundle_status = shell_export_package_baseline_status(
+                    &report,
+                    &baseline,
+                    &index,
+                    &package_path,
+                    &baseline_path,
+                    &index_path,
+                    &bundle_root,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn append_shell_export_package_baseline(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match append_shell_export_package_baseline_for_project_source(&source) {
+            Ok((report, baseline, index, package_path, baseline_path, index_path, bundle_root)) => {
+                self.last_shell_bundle_status = shell_export_package_baseline_append_status(
+                    &report,
+                    &baseline,
+                    &index,
+                    &package_path,
+                    &baseline_path,
+                    &index_path,
+                    &bundle_root,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn inspect_shell_export_package_baseline(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_export_package_baseline_summary_for_project_source(&source) {
+            Ok((baseline, index, baseline_path, index_path)) => {
+                self.last_shell_bundle_status = shell_export_package_baseline_summary_status(
+                    &baseline,
+                    &index,
+                    &baseline_path,
+                    &index_path,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn promote_shell_export_package_baseline_default(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match promote_shell_export_package_baseline_default_for_project_source(&source) {
+            Ok((baseline, index, baseline_path, index_path)) => {
+                self.last_shell_bundle_status = shell_export_package_baseline_promote_status(
+                    &baseline,
+                    &index,
+                    &baseline_path,
+                    &index_path,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn select_next_shell_export_package_baseline_default(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match select_next_shell_export_package_baseline_default_for_project_source(&source) {
+            Ok((baseline, index, baseline_path, index_path)) => {
+                self.last_shell_bundle_status = shell_export_package_baseline_select_status(
+                    &baseline,
+                    &index,
+                    &baseline_path,
+                    &index_path,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn compare_shell_export_package(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_export_package_comparison_for_project_source(&source) {
+            Ok((report, baseline_path, bundle_root)) => {
+                self.last_shell_bundle_status =
+                    shell_export_package_comparison_status(&report, &baseline_path, &bundle_root);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn write_shell_handoff_manifest(&mut self, cx: &mut Cx) {
         let Some(source) = self.project_source.clone() else {
             self.last_shell_bundle_status = "No project source is loaded".to_string();
@@ -2002,6 +2165,48 @@ impl MatchEvent for App {
         }
         if self
             .ui
+            .button(cx, ids!(shell_export_package_baseline_button))
+            .clicked(actions)
+        {
+            self.write_shell_export_package_baseline(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_export_package_baseline_append_button))
+            .clicked(actions)
+        {
+            self.append_shell_export_package_baseline(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_export_package_baseline_summary_button))
+            .clicked(actions)
+        {
+            self.inspect_shell_export_package_baseline(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_export_package_baseline_next_button))
+            .clicked(actions)
+        {
+            self.select_next_shell_export_package_baseline_default(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_export_package_baseline_promote_button))
+            .clicked(actions)
+        {
+            self.promote_shell_export_package_baseline_default(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_export_package_compare_button))
+            .clicked(actions)
+        {
+            self.compare_shell_export_package(cx);
+        }
+        if self
+            .ui
             .button(cx, ids!(shell_manifest_button))
             .clicked(actions)
         {
@@ -2222,6 +2427,305 @@ fn shell_export_package_for_project_source(
     let bundle_root = selected_shell_bundle_root_dir(project_path);
     let report = shell_export_package_for_project(&project, project_path.parent(), &bundle_root);
     Ok((report, bundle_root))
+}
+
+fn write_shell_export_package_baseline_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellExportPackageReport,
+        StudioShellExportPackageBaselineManifest,
+        StudioShellExportPackageBaselineIndex,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let (report, bundle_root) = shell_export_package_for_project_source(project_path)?;
+    let package_path = shell_export_package_output_path(project_path);
+    save_json(&package_path, &report)
+        .map_err(|error| format!("Shell export package review save failed: {error}"))?;
+    let baseline =
+        shell_export_package_baseline_manifest_for_report(&report, &package_path, None, None);
+    let baseline_path = shell_export_package_baseline_manifest_output_path(project_path);
+    save_json(&baseline_path, &baseline)
+        .map_err(|error| format!("Shell export package baseline identity save failed: {error}"))?;
+    let index = shell_export_package_baseline_index_for_manifests(
+        vec![(baseline.clone(), Some(baseline_path.clone()))],
+        Some(&baseline.baseline_id),
+    );
+    let index_path = shell_export_package_baseline_index_output_path(project_path);
+    save_json(&index_path, &index)
+        .map_err(|error| format!("Shell export package baseline index save failed: {error}"))?;
+    Ok((
+        report,
+        baseline,
+        index,
+        package_path,
+        baseline_path,
+        index_path,
+        bundle_root,
+    ))
+}
+
+fn append_shell_export_package_baseline_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellExportPackageReport,
+        StudioShellExportPackageBaselineManifest,
+        StudioShellExportPackageBaselineIndex,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let (report, bundle_root) = shell_export_package_for_project_source(project_path)?;
+    let index_path = shell_export_package_baseline_index_output_path(project_path);
+    let existing_index = if index_path.is_file() {
+        Some(
+            load_shell_export_package_baseline_index(&index_path)
+                .map_err(|error| format!("Export package baseline index load failed: {error}"))?,
+        )
+    } else {
+        None
+    };
+    let (baseline_id, label) =
+        next_shell_export_package_baseline_archive_identity(&report, existing_index.as_ref());
+    let package_path =
+        shell_export_package_baseline_archive_package_output_path(project_path, &baseline_id);
+    save_json(&package_path, &report)
+        .map_err(|error| format!("Shell export package baseline review save failed: {error}"))?;
+    let baseline = shell_export_package_baseline_manifest_for_report(
+        &report,
+        &package_path,
+        Some(&baseline_id),
+        Some(&label),
+    );
+    let baseline_path =
+        shell_export_package_baseline_archive_manifest_output_path(project_path, &baseline_id);
+    save_json(&baseline_path, &baseline)
+        .map_err(|error| format!("Shell export package baseline identity save failed: {error}"))?;
+    let index = if let Some(index) = existing_index.as_ref() {
+        append_shell_export_package_baseline_index_manifests(
+            index,
+            vec![(baseline.clone(), Some(baseline_path.clone()))],
+            Some(&baseline.baseline_id),
+        )
+    } else {
+        shell_export_package_baseline_index_for_manifests(
+            vec![(baseline.clone(), Some(baseline_path.clone()))],
+            Some(&baseline.baseline_id),
+        )
+    };
+    save_json(&index_path, &index)
+        .map_err(|error| format!("Shell export package baseline index save failed: {error}"))?;
+    Ok((
+        report,
+        baseline,
+        index,
+        package_path,
+        baseline_path,
+        index_path,
+        bundle_root,
+    ))
+}
+
+fn next_shell_export_package_baseline_archive_identity(
+    report: &StudioShellExportPackageReport,
+    index: Option<&StudioShellExportPackageBaselineIndex>,
+) -> (String, String) {
+    let status = shell_export_package_status_label(report.status);
+    let base_id = format!(
+        "{}.rev{}.{}",
+        report.project_id, report.project_revision, status
+    );
+    let next_slot = index
+        .map(|index| {
+            index
+                .entries
+                .iter()
+                .filter(|entry| {
+                    entry.baseline_id == base_id
+                        || entry
+                            .baseline_id
+                            .strip_prefix(base_id.as_str())
+                            .is_some_and(|suffix| suffix.starts_with(".archive"))
+                })
+                .count()
+                + 1
+        })
+        .unwrap_or(1);
+    let baseline_id = if next_slot == 1 {
+        base_id
+    } else {
+        format!("{base_id}.archive{next_slot}")
+    };
+    let label = if next_slot == 1 {
+        format!(
+            "{} revision {} {} export package baseline",
+            report.project_id, report.project_revision, status
+        )
+    } else {
+        format!(
+            "{} revision {} {} export package baseline archive {}",
+            report.project_id, report.project_revision, status, next_slot
+        )
+    };
+    (baseline_id, label)
+}
+
+fn shell_export_package_baseline_summary_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellExportPackageBaselineManifest,
+        StudioShellExportPackageBaselineIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let baseline_path = shell_export_package_baseline_manifest_output_path(project_path);
+    let baseline = load_shell_export_package_baseline_manifest(&baseline_path)
+        .map_err(|error| format!("Export package baseline identity load failed: {error}"))?;
+    let index_path = shell_export_package_baseline_index_output_path(project_path);
+    let index = load_shell_export_package_baseline_index(&index_path)
+        .map_err(|error| format!("Export package baseline index load failed: {error}"))?;
+    Ok((baseline, index, baseline_path, index_path))
+}
+
+fn promote_shell_export_package_baseline_default_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellExportPackageBaselineManifest,
+        StudioShellExportPackageBaselineIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let baseline_path = shell_export_package_baseline_manifest_output_path(project_path);
+    let baseline = load_shell_export_package_baseline_manifest(&baseline_path)
+        .map_err(|error| format!("Export package baseline identity load failed: {error}"))?;
+    let index_path = shell_export_package_baseline_index_output_path(project_path);
+    let index = load_shell_export_package_baseline_index(&index_path)
+        .map_err(|error| format!("Export package baseline index load failed: {error}"))?;
+    let promoted =
+        promote_shell_export_package_baseline_index_default(&index, &baseline.baseline_id)
+            .ok_or_else(|| {
+                format!(
+                    "Export package baseline index does not contain baseline {}",
+                    baseline.baseline_id
+                )
+            })?;
+    save_json(&index_path, &promoted)
+        .map_err(|error| format!("Export package baseline index save failed: {error}"))?;
+    Ok((baseline, promoted, baseline_path, index_path))
+}
+
+fn select_next_shell_export_package_baseline_default_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellExportPackageBaselineManifest,
+        StudioShellExportPackageBaselineIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let index_path = shell_export_package_baseline_index_output_path(project_path);
+    let index = load_shell_export_package_baseline_index(&index_path)
+        .map_err(|error| format!("Export package baseline index load failed: {error}"))?;
+    let baseline_id = next_shell_export_package_baseline_default_id(&index)?;
+    let baseline_path = index
+        .entries
+        .iter()
+        .find(|entry| entry.baseline_id == baseline_id)
+        .and_then(|entry| entry.baseline_manifest_path.as_ref())
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            format!("Export package baseline index entry {baseline_id} does not include a manifest path")
+        })?;
+    let baseline = load_shell_export_package_baseline_manifest(&baseline_path)
+        .map_err(|error| format!("Export package baseline identity load failed: {error}"))?;
+    let promoted =
+        promote_shell_export_package_baseline_index_default(&index, &baseline.baseline_id)
+            .ok_or_else(|| {
+                format!(
+                    "Export package baseline index does not contain baseline {}",
+                    baseline.baseline_id
+                )
+            })?;
+    save_json(&index_path, &promoted)
+        .map_err(|error| format!("Export package baseline index save failed: {error}"))?;
+    Ok((baseline, promoted, baseline_path, index_path))
+}
+
+fn next_shell_export_package_baseline_default_id(
+    index: &StudioShellExportPackageBaselineIndex,
+) -> Result<String, String> {
+    if index.entries.is_empty() {
+        return Err("Export package baseline index has no selectable entries".to_string());
+    }
+    let default_position = index.default_baseline_id.as_deref().and_then(|default_id| {
+        index
+            .entries
+            .iter()
+            .position(|entry| entry.baseline_id == default_id)
+    });
+    let selected_position = default_position.map_or(0, |position| {
+        if position + 1 >= index.entries.len() {
+            0
+        } else {
+            position + 1
+        }
+    });
+    Ok(index.entries[selected_position].baseline_id.clone())
+}
+
+fn shell_export_package_comparison_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellExportPackageComparisonReport, PathBuf, PathBuf), String> {
+    let index_path = shell_export_package_baseline_index_output_path(project_path);
+    let index = load_shell_export_package_baseline_index(&index_path)
+        .map_err(|error| format!("Export package baseline index load failed: {error}"))?;
+    let Some(baseline_index_entry) = select_shell_export_package_baseline_index_entry(&index, None)
+    else {
+        return Err(
+            "Export package baseline index does not contain a selected baseline".to_string(),
+        );
+    };
+    let baseline_path = baseline_index_entry
+        .baseline_manifest_path
+        .as_ref()
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            "Selected export package baseline index entry does not include a baseline manifest path"
+                .to_string()
+        })?;
+    let baseline_identity = load_shell_export_package_baseline_manifest(&baseline_path)
+        .map_err(|error| format!("Export package baseline identity load failed: {error}"))?;
+    let package_path = PathBuf::from(&baseline_identity.package_path);
+    let baseline = load_shell_export_package_report(&package_path)
+        .map_err(|error| format!("Export package baseline review load failed: {error}"))?;
+    let (candidate, bundle_root) = shell_export_package_for_project_source(project_path)?;
+    let report = compare_shell_export_packages_against_baseline_index_entry(
+        &index,
+        Some(&index_path),
+        baseline_index_entry,
+        Some(&baseline_path),
+        &baseline_identity,
+        &baseline,
+        &candidate,
+    );
+    Ok((report, baseline_path, bundle_root))
 }
 
 fn write_shell_handoff_manifest_for_project_source(
@@ -2768,6 +3272,58 @@ fn shell_handoff_acceptance_checklist_output_path(project_path: &Path) -> PathBu
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-handoff-acceptance-checklist.json")
+}
+
+fn shell_export_package_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-export-package.json")
+}
+
+fn shell_export_package_baseline_manifest_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-export-package-baseline.json")
+}
+
+fn shell_export_package_baseline_archive_dir(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("export-package-baselines")
+}
+
+fn shell_export_package_baseline_archive_package_output_path(
+    project_path: &Path,
+    baseline_id: &str,
+) -> PathBuf {
+    shell_export_package_baseline_archive_dir(project_path)
+        .join(format!("{baseline_id}.package.json"))
+}
+
+fn shell_export_package_baseline_archive_manifest_output_path(
+    project_path: &Path,
+    baseline_id: &str,
+) -> PathBuf {
+    shell_export_package_baseline_archive_dir(project_path)
+        .join(format!("{baseline_id}.baseline.json"))
+}
+
+fn shell_export_package_baseline_index_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-export-package-baselines.json")
 }
 
 fn shell_handoff_acceptance_baseline_manifest_output_path(project_path: &Path) -> PathBuf {
@@ -3716,6 +4272,358 @@ fn shell_export_package_status(
     )
 }
 
+fn shell_export_package_baseline_status(
+    report: &StudioShellExportPackageReport,
+    baseline: &StudioShellExportPackageBaselineManifest,
+    index: &StudioShellExportPackageBaselineIndex,
+    package_path: &Path,
+    baseline_path: &Path,
+    index_path: &Path,
+    bundle_root: &Path,
+) -> String {
+    let selection =
+        summarize_shell_export_package_baseline_index_selection(index, Some(index_path), None);
+    format!(
+        "export package baseline written\n  baseline: {} ({})\n  identity: {}\n  package: {}\n{}\n{}\n{}",
+        baseline.baseline_id,
+        baseline.label,
+        baseline_path.display(),
+        package_path.display(),
+        shell_export_package_baseline_selection_status(&selection),
+        shell_export_package_baseline_index_status(index, index_path),
+        shell_export_package_status(report, bundle_root)
+    )
+}
+
+fn shell_export_package_baseline_append_status(
+    report: &StudioShellExportPackageReport,
+    baseline: &StudioShellExportPackageBaselineManifest,
+    index: &StudioShellExportPackageBaselineIndex,
+    package_path: &Path,
+    baseline_path: &Path,
+    index_path: &Path,
+    bundle_root: &Path,
+) -> String {
+    let selection = summarize_shell_export_package_baseline_index_selection(
+        index,
+        Some(index_path),
+        Some(&baseline.baseline_id),
+    );
+    format!(
+        "export package baseline archived\n  baseline: {} ({})\n  identity: {}\n  package: {}\n{}\n{}\n{}",
+        baseline.baseline_id,
+        baseline.label,
+        baseline_path.display(),
+        package_path.display(),
+        shell_export_package_baseline_selection_status(&selection),
+        shell_export_package_baseline_index_status(index, index_path),
+        shell_export_package_status(report, bundle_root)
+    )
+}
+
+fn shell_export_package_baseline_index_status(
+    index: &StudioShellExportPackageBaselineIndex,
+    index_path: &Path,
+) -> String {
+    let default = index.default_baseline_id.as_deref().unwrap_or("none");
+    let projects = if index.project_ids.is_empty() {
+        "none".to_string()
+    } else {
+        index.project_ids.join(", ")
+    };
+    let packages = if index.package_ids.is_empty() {
+        "none".to_string()
+    } else {
+        index.package_ids.join(", ")
+    };
+    let manifests = if index.manifest_ids.is_empty() {
+        "none".to_string()
+    } else {
+        index.manifest_ids.join(", ")
+    };
+    let rows = index
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let status = shell_export_package_status_label(entry.status);
+            let issue = entry.issue_code.as_deref().unwrap_or("none");
+            let manifest_path = entry.baseline_manifest_path.as_deref().unwrap_or("unknown");
+            format!(
+                "{} [{}] project {} rev {}; ready {}; blocked {}; rejected {}; descriptors {}; templates {}; package {}; manifest {}; issue {}",
+                entry.baseline_id,
+                status,
+                entry.project_id,
+                entry.project_revision,
+                entry.ready_count,
+                entry.blocked_count,
+                entry.rejected_count,
+                entry.descriptor_count,
+                entry.template_manifest_count,
+                entry.package_path,
+                manifest_path,
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "export package baseline index slots {}; default {}; ready {}; blocked {}; rejected {}\n  index: {}\n  projects: {}\n  packages: {}\n  manifests: {}\n  entries:\n  {}",
+        index.baseline_count,
+        default,
+        index.ready_baseline_count,
+        index.blocked_baseline_count,
+        index.rejected_baseline_count,
+        index_path.display(),
+        projects,
+        packages,
+        manifests,
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
+fn shell_export_package_baseline_selection_status(
+    report: &StudioShellExportPackageBaselineSelectionReport,
+) -> String {
+    let status = shell_export_package_baseline_selection_status_label(report.status);
+    let requested = report.requested_baseline_id.as_deref().unwrap_or("none");
+    let default = report.default_baseline_id.as_deref().unwrap_or("none");
+    let selected = report.selected_baseline_id.as_deref().unwrap_or("none");
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let index_path = report.index_path.as_deref().unwrap_or("not saved");
+    let rows = report
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let entry_status = shell_export_package_status_label(entry.status);
+            let entry_issue = entry.issue_code.as_deref().unwrap_or("none");
+            let manifest_path = entry.baseline_manifest_path.as_deref().unwrap_or("unknown");
+            let selected_flag = if entry.selected { "yes" } else { "no" };
+            let default_flag = if entry.default { "yes" } else { "no" };
+            format!(
+                "{} [{}] selected {}; default {}; ready {}; blocked {}; rejected {}; descriptors {}; templates {}; package {}; manifest {}; issue {}",
+                entry.baseline_id,
+                entry_status,
+                selected_flag,
+                default_flag,
+                entry.ready_count,
+                entry.blocked_count,
+                entry.rejected_count,
+                entry.descriptor_count,
+                entry.template_manifest_count,
+                entry.package_path,
+                manifest_path,
+                entry_issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "export package baseline selection {status}; requested {requested}; default {default}; selected {selected}; slots {}; ready {}; blocked {}; rejected {}; issue {issue}\n  index: {}\n  entries:\n  {}",
+        report.baseline_count,
+        report.ready_baseline_count,
+        report.blocked_baseline_count,
+        report.rejected_baseline_count,
+        index_path,
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
+fn shell_export_package_baseline_summary_status(
+    baseline: &StudioShellExportPackageBaselineManifest,
+    index: &StudioShellExportPackageBaselineIndex,
+    baseline_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection =
+        summarize_shell_export_package_baseline_index_selection(index, Some(index_path), None);
+    let status = shell_export_package_status_label(baseline.status);
+    let issue = baseline.issue_code.as_deref().unwrap_or("none");
+    format!(
+        "export package baseline summary {status}; baseline {} ({}); project {} rev {}; package {}; manifest {}; ready {}; blocked {}; rejected {}; descriptors {}; templates {}; runbook entries {}; targets {}; issue {issue}\n  identity: {}\n  package review: {}\n  authority: command {}; host {}; studio {}; policy {}\n{}\n{}",
+        baseline.baseline_id,
+        baseline.label,
+        baseline.project_id,
+        baseline.project_revision,
+        baseline.package_id,
+        baseline.manifest_id,
+        baseline.ready_count,
+        baseline.blocked_count,
+        baseline.rejected_count,
+        baseline.descriptor_count,
+        baseline.template_manifest_count,
+        baseline.runbook_entry_count,
+        baseline.target_count,
+        baseline_path.display(),
+        baseline.package_path,
+        baseline.command_session_authority,
+        baseline.install_launch_evidence_authority,
+        baseline.studio_role,
+        baseline.execution_policy,
+        shell_export_package_baseline_selection_status(&selection),
+        shell_export_package_baseline_index_status(index, index_path)
+    )
+}
+
+fn shell_export_package_baseline_promote_status(
+    baseline: &StudioShellExportPackageBaselineManifest,
+    index: &StudioShellExportPackageBaselineIndex,
+    baseline_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection = summarize_shell_export_package_baseline_index_selection(
+        index,
+        Some(index_path),
+        Some(&baseline.baseline_id),
+    );
+    format!(
+        "export package baseline default promoted\n  baseline: {} ({})\n  identity: {}\n{}\n{}",
+        baseline.baseline_id,
+        baseline.label,
+        baseline_path.display(),
+        shell_export_package_baseline_selection_status(&selection),
+        shell_export_package_baseline_index_status(index, index_path)
+    )
+}
+
+fn shell_export_package_baseline_select_status(
+    baseline: &StudioShellExportPackageBaselineManifest,
+    index: &StudioShellExportPackageBaselineIndex,
+    baseline_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection = summarize_shell_export_package_baseline_index_selection(
+        index,
+        Some(index_path),
+        Some(&baseline.baseline_id),
+    );
+    format!(
+        "export package baseline default selected\n  baseline: {} ({})\n  identity: {}\n{}\n{}",
+        baseline.baseline_id,
+        baseline.label,
+        baseline_path.display(),
+        shell_export_package_baseline_selection_status(&selection),
+        shell_export_package_baseline_index_status(index, index_path)
+    )
+}
+
+fn shell_export_package_comparison_status(
+    report: &StudioShellExportPackageComparisonReport,
+    baseline_path: &Path,
+    bundle_root: &Path,
+) -> String {
+    let status = shell_export_package_comparison_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let baseline_id = report.baseline_id.as_deref().unwrap_or("unnamed");
+    let baseline_label = report.baseline_label.as_deref().unwrap_or("unlabeled");
+    let baseline_package = report.baseline_package_path.as_deref().unwrap_or("unknown");
+    let baseline_index_path = report.baseline_index_path.as_deref().unwrap_or("not used");
+    let baseline_index_default = report
+        .baseline_index_default_baseline_id
+        .as_deref()
+        .unwrap_or("none");
+    let baseline_index_selected = report
+        .baseline_index_selected_baseline_id
+        .as_deref()
+        .unwrap_or("none");
+    let failed_checks = report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .count();
+    let rows = report
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let target = entry
+                .target_kind
+                .map(shell_target_kind_label)
+                .unwrap_or("unknown");
+            let baseline = entry
+                .baseline_status
+                .map(shell_export_package_status_label)
+                .unwrap_or("missing");
+            let candidate = entry
+                .candidate_status
+                .map(shell_export_package_status_label)
+                .unwrap_or("missing");
+            let change = shell_export_package_comparison_change_label(entry.change);
+            let issue = entry.issue_code.as_deref().unwrap_or("none");
+            format!(
+                "{} [{}] {baseline}->{candidate}; change {change}; delta {}; descriptor {}->{}; template {}->{}; cli {}->{}; issue {}",
+                entry.graph_id,
+                target,
+                entry.score_delta,
+                present_label(entry.baseline_descriptor_present),
+                present_label(entry.candidate_descriptor_present),
+                present_label(entry.baseline_template_manifest_present),
+                present_label(entry.candidate_template_manifest_present),
+                present_label(entry.baseline_runbook_cli_request_present),
+                present_label(entry.candidate_runbook_cli_request_present),
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "export package comparison {status}; ready {}->{}, delta {}; blocked {}->{}, delta {}; rejected {}->{}, delta {}; descriptors {}->{}, delta {}; templates {}->{}, delta {}; runbook entries {}->{}, delta {}; issue {issue}\n  baseline: {} ({})\n  baseline source: {} rev {}; package {}; manifest {}\n  candidate: {} rev {}; package {}; manifest {}\n  baseline identity: {}\n  baseline package: {}\n  baseline index: {}; default {}; selected {}\n  current root: {}\n  checks: {}; failed {}\n  entries:\n  {}",
+        report.baseline_ready_count,
+        report.candidate_ready_count,
+        report.ready_delta,
+        report.baseline_blocked_count,
+        report.candidate_blocked_count,
+        report.blocked_delta,
+        report.baseline_rejected_count,
+        report.candidate_rejected_count,
+        report.rejected_delta,
+        report.baseline_descriptor_count,
+        report.candidate_descriptor_count,
+        report.descriptor_delta,
+        report.baseline_template_manifest_count,
+        report.candidate_template_manifest_count,
+        report.template_manifest_delta,
+        report.baseline_runbook_entry_count,
+        report.candidate_runbook_entry_count,
+        report.runbook_entry_delta,
+        baseline_id,
+        baseline_label,
+        report.baseline_project_id,
+        report.baseline_project_revision,
+        report.baseline_package_id,
+        report.baseline_manifest_id,
+        report.candidate_project_id,
+        report.candidate_project_revision,
+        report.candidate_package_id,
+        report.candidate_manifest_id,
+        baseline_path.display(),
+        baseline_package,
+        baseline_index_path,
+        baseline_index_default,
+        baseline_index_selected,
+        bundle_root.display(),
+        report.checks.len(),
+        failed_checks,
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
 fn shell_handoff_manifest_status(
     manifest: &StudioShellHandoffManifest,
     output_path: &Path,
@@ -4117,6 +5025,48 @@ fn shell_export_package_status_label(status: StudioShellExportPackageStatus) -> 
         StudioShellExportPackageStatus::Ready => "ready",
         StudioShellExportPackageStatus::Blocked => "blocked",
         StudioShellExportPackageStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_export_package_baseline_selection_status_label(
+    status: StudioShellExportPackageBaselineSelectionStatus,
+) -> &'static str {
+    match status {
+        StudioShellExportPackageBaselineSelectionStatus::Selected => "selected",
+        StudioShellExportPackageBaselineSelectionStatus::Missing => "missing",
+        StudioShellExportPackageBaselineSelectionStatus::Empty => "empty",
+    }
+}
+
+fn shell_export_package_comparison_status_label(
+    status: StudioShellExportPackageComparisonStatus,
+) -> &'static str {
+    match status {
+        StudioShellExportPackageComparisonStatus::Improved => "improved",
+        StudioShellExportPackageComparisonStatus::Unchanged => "unchanged",
+        StudioShellExportPackageComparisonStatus::Regressed => "regressed",
+        StudioShellExportPackageComparisonStatus::Incomparable => "incomparable",
+    }
+}
+
+fn shell_export_package_comparison_change_label(
+    change: StudioShellExportPackageComparisonChange,
+) -> &'static str {
+    match change {
+        StudioShellExportPackageComparisonChange::Added => "added",
+        StudioShellExportPackageComparisonChange::Removed => "removed",
+        StudioShellExportPackageComparisonChange::Improved => "improved",
+        StudioShellExportPackageComparisonChange::Unchanged => "unchanged",
+        StudioShellExportPackageComparisonChange::Regressed => "regressed",
+        StudioShellExportPackageComparisonChange::Changed => "changed",
+    }
+}
+
+fn present_label(present: bool) -> &'static str {
+    if present {
+        "present"
+    } else {
+        "missing"
     }
 }
 
@@ -5208,6 +6158,284 @@ mod tests {
         assert!(status.contains("review_with_runtime_owner"));
         assert!(status.contains("studio.shell_descriptor.studio.graph.makepad_edit"));
         assert!(status.contains("studio.shell_template.studio.graph.makepad_edit"));
+    }
+
+    #[test]
+    fn shell_export_package_baseline_writes_durable_artifact() {
+        let root = temp_root("shell-export-package-baseline");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+
+        let (report, baseline, index, package_path, baseline_path, index_path, bundle_root) =
+            write_shell_export_package_baseline_for_project_source(&project_path)
+                .expect("write export package baseline");
+
+        assert!(package_path.is_file());
+        assert!(baseline_path.is_file());
+        assert!(index_path.is_file());
+        assert_eq!(report.status, StudioShellExportPackageStatus::Ready);
+        assert_eq!(
+            baseline.schema_id,
+            "rusty.studio.shell_export_package_baseline_manifest.v1"
+        );
+        assert_eq!(
+            baseline.baseline_id,
+            "studio.project.makepad_edit.rev1.ready"
+        );
+        assert_eq!(baseline.package_path, package_path.display().to_string());
+        assert_eq!(
+            baseline.package_schema,
+            "rusty.studio.shell_export_package_report.v1"
+        );
+        assert_eq!(baseline.project_id, "studio.project.makepad_edit");
+        assert_eq!(baseline.project_revision, 1);
+        assert_eq!(baseline.status, StudioShellExportPackageStatus::Ready);
+        assert_eq!(baseline.ready_count, 1);
+        assert_eq!(baseline.blocked_count, 0);
+        assert_eq!(baseline.rejected_count, 0);
+        assert_eq!(baseline.descriptor_count, 1);
+        assert_eq!(baseline.template_manifest_count, 1);
+        assert_eq!(baseline.runbook_entry_count, 1);
+        assert_eq!(baseline.target_count, 1);
+        assert_eq!(baseline.execution_policy, "not_executed.review_only");
+        assert_eq!(baseline.command_session_authority, "rusty.manifold");
+        assert_eq!(baseline.install_launch_evidence_authority, "rusty.hostess");
+        assert_eq!(baseline.studio_role, "authoring.export_planning");
+        assert_eq!(
+            index.schema_id,
+            "rusty.studio.shell_export_package_baseline_index.v1"
+        );
+        assert_eq!(
+            index.default_baseline_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+        assert_eq!(index.baseline_count, 1);
+        assert_eq!(index.ready_baseline_count, 1);
+        assert_eq!(index.blocked_baseline_count, 0);
+        assert_eq!(
+            index.entries[0].package_path,
+            package_path.display().to_string()
+        );
+        let written = std::fs::read_to_string(&baseline_path).expect("read baseline manifest");
+        assert!(written
+            .contains("\"$schema\": \"rusty.studio.shell_export_package_baseline_manifest.v1\""));
+        let status = shell_export_package_baseline_status(
+            &report,
+            &baseline,
+            &index,
+            &package_path,
+            &baseline_path,
+            &index_path,
+            &bundle_root,
+        );
+        assert!(status.contains("export package baseline written"));
+        assert!(status.contains("baseline: studio.project.makepad_edit.rev1.ready"));
+        assert!(status.contains("export package baseline selection selected"));
+        assert!(status.contains("export package baseline index slots 1"));
+        assert!(status.contains("shell export package ready"));
+    }
+
+    #[test]
+    fn shell_export_package_baseline_appends_and_cycles_default() {
+        let root = temp_root("shell-export-package-baseline-cycle");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+        let (_, ready_baseline, _, _, ready_baseline_path, index_path, _) =
+            write_shell_export_package_baseline_for_project_source(&project_path)
+                .expect("write initial package baseline");
+        let (_, archived_baseline, archived_index, _, archived_baseline_path, _, _) =
+            append_shell_export_package_baseline_for_project_source(&project_path)
+                .expect("append package baseline");
+
+        assert_eq!(
+            archived_baseline.baseline_id,
+            "studio.project.makepad_edit.rev1.ready.archive2"
+        );
+        assert_eq!(
+            archived_index.default_baseline_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready.archive2")
+        );
+        assert_eq!(archived_index.baseline_count, 2);
+        assert_eq!(archived_index.ready_baseline_count, 2);
+        assert_eq!(
+            archived_index.entries[1].baseline_manifest_path.as_deref(),
+            Some(archived_baseline_path.display().to_string().as_str())
+        );
+
+        let (selected_ready_baseline, selected_ready_index, selected_ready_path, loaded_index_path) =
+            select_next_shell_export_package_baseline_default_for_project_source(&project_path)
+                .expect("select next package baseline default");
+        assert_eq!(selected_ready_baseline, ready_baseline);
+        assert_eq!(selected_ready_path, ready_baseline_path);
+        assert_eq!(loaded_index_path, index_path);
+        assert_eq!(
+            selected_ready_index.default_baseline_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+        let status = shell_export_package_baseline_select_status(
+            &selected_ready_baseline,
+            &selected_ready_index,
+            &selected_ready_path,
+            &loaded_index_path,
+        );
+        assert!(status.contains("export package baseline default selected"));
+        assert!(status.contains(
+            "export package baseline selection selected; requested studio.project.makepad_edit.rev1.ready; default studio.project.makepad_edit.rev1.ready; selected studio.project.makepad_edit.rev1.ready"
+        ));
+        assert!(status.contains("selected yes; default yes"));
+
+        let (promoted_baseline, promoted_index, promoted_path, loaded_index_path) =
+            promote_shell_export_package_baseline_default_for_project_source(&project_path)
+                .expect("promote saved package baseline");
+        assert_eq!(promoted_baseline, ready_baseline);
+        assert_eq!(promoted_path, ready_baseline_path);
+        assert_eq!(
+            promoted_index.default_baseline_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+        let written_index =
+            load_shell_export_package_baseline_index(&loaded_index_path).expect("load index");
+        assert_eq!(written_index, promoted_index);
+        let status = shell_export_package_baseline_promote_status(
+            &promoted_baseline,
+            &promoted_index,
+            &promoted_path,
+            &loaded_index_path,
+        );
+        assert!(status.contains("export package baseline default promoted"));
+        assert!(status.contains("export package baseline index slots 2"));
+        assert!(status.contains("studio.project.makepad_edit.rev1.ready.archive2 [ready]"));
+    }
+
+    #[test]
+    fn shell_export_package_comparison_reports_unchanged_from_makepad_route() {
+        let root = temp_root("shell-export-package-comparison");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+        let (_, saved_baseline, _, package_path, baseline_path, index_path, _) =
+            write_shell_export_package_baseline_for_project_source(&project_path)
+                .expect("write package baseline");
+
+        let (comparison, loaded_baseline_path, bundle_root) =
+            shell_export_package_comparison_for_project_source(&project_path)
+                .expect("compare package review");
+
+        assert_eq!(loaded_baseline_path, baseline_path);
+        assert_eq!(
+            comparison.baseline_identity_schema.as_deref(),
+            Some("rusty.studio.shell_export_package_baseline_manifest.v1")
+        );
+        assert_eq!(
+            comparison.baseline_id.as_deref(),
+            Some(saved_baseline.baseline_id.as_str())
+        );
+        assert_eq!(
+            comparison.baseline_package_path.as_deref(),
+            Some(package_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            comparison.baseline_index_schema.as_deref(),
+            Some("rusty.studio.shell_export_package_baseline_index.v1")
+        );
+        assert_eq!(
+            comparison.baseline_index_path.as_deref(),
+            Some(index_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            comparison.status,
+            StudioShellExportPackageComparisonStatus::Unchanged
+        );
+        assert_eq!(comparison.ready_delta, 0);
+        assert_eq!(comparison.blocked_delta, 0);
+        assert_eq!(comparison.rejected_delta, 0);
+        assert_eq!(comparison.descriptor_delta, 0);
+        assert_eq!(comparison.template_manifest_delta, 0);
+        assert_eq!(comparison.entries.len(), 1);
+        assert_eq!(
+            comparison.entries[0].change,
+            StudioShellExportPackageComparisonChange::Unchanged
+        );
+        let status = shell_export_package_comparison_status(
+            &comparison,
+            &loaded_baseline_path,
+            &bundle_root,
+        );
+        assert!(status.contains("export package comparison unchanged"));
+        assert!(status.contains("baseline: studio.project.makepad_edit.rev1.ready"));
+        assert!(status.contains(&format!("baseline package: {}", package_path.display())));
+        assert!(status.contains(&format!("baseline index: {}", index_path.display())));
+        assert!(status.contains("ready 1->1, delta 0"));
+        assert!(status.contains("descriptors 1->1, delta 0"));
+        assert!(status.contains("change unchanged"));
+        assert!(status.contains("studio.graph.makepad_edit [desktop]"));
+    }
+
+    #[test]
+    fn shell_export_package_comparison_reports_regression_from_makepad_route() {
+        let root = temp_root("shell-export-package-comparison-regressed");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+        let (_, _, _, _, baseline_path, index_path, _) =
+            write_shell_export_package_baseline_for_project_source(&project_path)
+                .expect("write package baseline");
+        std::fs::remove_dir_all(selected_shell_bundle_root_dir(&project_path))
+            .expect("remove selected shell bundle root");
+
+        let (comparison, _, bundle_root) =
+            shell_export_package_comparison_for_project_source(&project_path)
+                .expect("compare regressed package review");
+
+        assert_eq!(
+            comparison.status,
+            StudioShellExportPackageComparisonStatus::Regressed
+        );
+        assert_eq!(
+            comparison.issue_code.as_deref(),
+            Some("studio.issue.shell_bundle_file_missing")
+        );
+        assert_eq!(comparison.ready_delta, -1);
+        assert_eq!(comparison.blocked_delta, 1);
+        assert_eq!(comparison.descriptor_delta, -1);
+        assert_eq!(comparison.template_manifest_delta, -1);
+        assert_eq!(
+            comparison.baseline_index_path.as_deref(),
+            Some(index_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            comparison.entries[0].change,
+            StudioShellExportPackageComparisonChange::Regressed
+        );
+        let status =
+            shell_export_package_comparison_status(&comparison, &baseline_path, &bundle_root);
+        assert!(status.contains("export package comparison regressed"));
+        assert!(status.contains("baseline: studio.project.makepad_edit.rev1.ready"));
+        assert!(status.contains(&format!("baseline index: {}", index_path.display())));
+        assert!(status.contains("ready 1->0, delta -1"));
+        assert!(status.contains("blocked 0->1, delta 1"));
+        assert!(status.contains("descriptors 1->0, delta -1"));
+        assert!(status.contains("templates 1->0, delta -1"));
+        assert!(status.contains("issue studio.issue.shell_bundle_file_missing"));
+        assert!(status.contains("change regressed"));
     }
 
     #[test]

@@ -86,6 +86,8 @@ Current scope:
   for saved package-review slots;
 - compare export-package reviews by selecting a named baseline from that index
   without hand-opening raw package JSON;
+- expose export-package baseline write, archive, inspect, select, promote, and
+  compare actions in Makepad through the same shared core lifecycle route;
 - review shell handoff acceptance checklists from Makepad through the same
   manifest-to-intake-to-checklist core route used by CLI validation;
 - snapshot a current shell handoff acceptance checklist directly from a
@@ -205,7 +207,9 @@ whether a package review stayed unchanged, improved, regressed, or became
 incomparable without opening raw package JSON. Export-package baseline
 manifests and indexes give those saved reviews named slots, default selection,
 and promotion commands; indexed comparisons load the selected baseline package
-through the same core route and still remain review-only artifacts.
+through the same core route and still remain review-only artifacts. Makepad can
+write, archive, inspect, select, and promote package baselines, then render the
+indexed comparison status without hand-editing package or index JSON.
 Shell handoff acceptance checklists are also declarative: they
 enumerate downstream readiness
 checks and explicitly prohibit install, launch, command-session opening, and
