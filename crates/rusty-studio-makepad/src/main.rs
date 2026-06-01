@@ -185,6 +185,7 @@ script_mod! {
             shell_readiness_button := ActionButton{text: "Inspect All Handoffs"}
             shell_manifest_button := ActionButton{text: "Write Handoff Manifest"}
             shell_acceptance_button := ActionButton{text: "Review Acceptance"}
+            shell_acceptance_baseline_button := ActionButton{text: "Write Baseline"}
             shell_acceptance_compare_button := ActionButton{text: "Compare Acceptance"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
@@ -1150,6 +1151,26 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn write_shell_handoff_acceptance_baseline(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match write_shell_handoff_acceptance_baseline_for_project_source(&source) {
+            Ok((report, output_path, bundle_root)) => {
+                self.last_shell_bundle_status =
+                    shell_handoff_acceptance_baseline_status(&report, &output_path, &bundle_root);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn compare_shell_handoff_acceptance(&mut self, cx: &mut Cx) {
         let Some(source) = self.project_source.clone() else {
             self.last_shell_bundle_status = "No project source is loaded".to_string();
@@ -1804,6 +1825,13 @@ impl MatchEvent for App {
         }
         if self
             .ui
+            .button(cx, ids!(shell_acceptance_baseline_button))
+            .clicked(actions)
+        {
+            self.write_shell_handoff_acceptance_baseline(cx);
+        }
+        if self
+            .ui
             .button(cx, ids!(shell_acceptance_compare_button))
             .clicked(actions)
         {
@@ -1983,6 +2011,23 @@ fn shell_handoff_acceptance_for_project_source(
         &bundle_root,
     );
     Ok((report, bundle_root))
+}
+
+fn write_shell_handoff_acceptance_baseline_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellHandoffAcceptanceChecklistReport,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let (report, bundle_root) = shell_handoff_acceptance_for_project_source(project_path)?;
+    let output_path = shell_handoff_acceptance_checklist_output_path(project_path);
+    save_json(&output_path, &report)
+        .map_err(|error| format!("Shell handoff acceptance baseline save failed: {error}"))?;
+    Ok((report, output_path, bundle_root))
 }
 
 fn shell_handoff_acceptance_comparison_for_project_source(
@@ -3004,6 +3049,18 @@ fn shell_handoff_acceptance_status(
         } else {
             rows
         }
+    )
+}
+
+fn shell_handoff_acceptance_baseline_status(
+    report: &StudioShellHandoffAcceptanceChecklistReport,
+    output_path: &Path,
+    bundle_root: &Path,
+) -> String {
+    format!(
+        "acceptance baseline written\n  path: {}\n{}",
+        output_path.display(),
+        shell_handoff_acceptance_status(report, bundle_root)
     )
 }
 
@@ -4044,6 +4101,45 @@ mod tests {
         assert!(
             status.contains("owners rusty.manifold:pass, rusty.hostess:pass, rusty.studio:pass")
         );
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_baseline_writes_durable_artifact() {
+        let root = temp_root("shell-handoff-acceptance-baseline");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+
+        let (report, output_path, bundle_root) =
+            write_shell_handoff_acceptance_baseline_for_project_source(&project_path)
+                .expect("write acceptance baseline");
+
+        assert_eq!(
+            output_path,
+            shell_handoff_acceptance_checklist_output_path(&project_path)
+        );
+        assert!(output_path.is_file());
+        assert_eq!(
+            report.schema_id,
+            "rusty.studio.shell_handoff_acceptance_checklist.v1"
+        );
+        assert_eq!(report.status, StudioShellHandoffAcceptanceStatus::Ready);
+        assert_eq!(report.ready_count, 1);
+        assert_eq!(report.blocked_count, 0);
+        assert_eq!(report.rejected_count, 0);
+        let written = std::fs::read_to_string(&output_path).expect("read acceptance baseline");
+        assert!(
+            written.contains("\"$schema\": \"rusty.studio.shell_handoff_acceptance_checklist.v1\"")
+        );
+        let status = shell_handoff_acceptance_baseline_status(&report, &output_path, &bundle_root);
+        assert!(status.contains("acceptance baseline written"));
+        assert!(status.contains(&format!("path: {}", output_path.display())));
+        assert!(status.contains("handoff acceptance ready"));
+        assert!(status.contains("ready 1; blocked 0; rejected 0"));
     }
 
     #[test]

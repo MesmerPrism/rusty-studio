@@ -77,6 +77,8 @@ Current scope:
   manifest-to-intake-to-checklist core route used by CLI validation;
 - snapshot a current shell handoff acceptance checklist directly from a
   project and selected bundle root for durable baseline creation;
+- write the same acceptance baseline from Makepad through the shared snapshot
+  route before comparing later revisions;
 - compare acceptance checklist artifacts across revisions to detect improved,
   unchanged, regressed, or incomparable downstream handoff readiness;
 - surface acceptance comparison in Makepad as a read-only revision review of a
@@ -150,8 +152,8 @@ checks and explicitly prohibit install, launch, command-session opening, and
 device-evidence collection inside Studio. Acceptance snapshots derive the same
 checklist directly from a project and bundle root so agents and Makepad can
 create or compare baselines without hand-stitching manifest and intake steps.
-Makepad can review the same checklist in memory; it does not write or execute
-downstream runtime actions. Acceptance comparison reports are revision-review
-artifacts only: they compare checklist readiness and issue transitions without
-granting runtime authority. Makepad can render the same comparison without
-becoming the source of truth.
+Makepad can review the same checklist in memory or write it as a baseline
+artifact; it does not execute downstream runtime actions. Acceptance comparison
+reports are revision-review artifacts only: they compare checklist readiness
+and issue transitions without granting runtime authority. Makepad can render
+the same comparison without becoming the source of truth.
