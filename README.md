@@ -83,8 +83,9 @@ Current scope:
   status counts, target groups, consumers, routes, and issue codes;
 - write a named acceptance baseline identity manifest that points to the saved
   checklist and carries its summary for safer revision comparisons;
-- compare acceptance checklist artifacts across revisions to detect improved,
-  unchanged, regressed, or incomparable downstream handoff readiness;
+- compare acceptance checklist artifacts across revisions with optional named
+  baseline identity to detect improved, unchanged, regressed, or incomparable
+  downstream handoff readiness;
 - surface acceptance comparison in Makepad as a read-only revision review of a
   persisted baseline checklist against current generated handoff readiness;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
@@ -139,7 +140,7 @@ cargo run -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake tar
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-snapshot --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-summary --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-summary.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-baseline --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --baseline-id synthetic-ready --label "Synthetic ready acceptance baseline" --output target\studio-shell-handoffs\shell-handoff-acceptance-baseline.json
-cargo run -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --candidate target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json
+cargo run -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline-manifest target\studio-shell-handoffs\shell-handoff-acceptance-baseline.json --candidate target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -165,6 +166,8 @@ project revision, manifest id, target groups, consumers, routes, and issues
 without opening the full JSON. Acceptance baseline manifests give a saved
 checklist a stable baseline id and label, then embed the same summary so
 operators can confirm what they are comparing before opening the full checklist.
-Acceptance comparison reports are revision-review artifacts only: they compare
-checklist readiness and issue transitions without granting runtime authority.
-Makepad can render the same comparison without becoming the source of truth.
+Acceptance comparison reports carry that baseline identity when a baseline
+manifest is supplied, but they remain revision-review artifacts only: they
+compare checklist readiness and issue transitions without granting runtime
+authority. Makepad can render the same comparison without becoming the source
+of truth.

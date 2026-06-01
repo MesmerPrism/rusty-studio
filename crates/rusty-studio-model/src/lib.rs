@@ -808,6 +808,10 @@ pub struct StudioShellHandoffAcceptanceBaselineManifest {
 pub struct StudioShellHandoffAcceptanceComparisonReport {
     #[serde(rename = "$schema")]
     pub schema_id: String,
+    pub baseline_identity_schema: Option<String>,
+    pub baseline_id: Option<String>,
+    pub baseline_label: Option<String>,
+    pub baseline_checklist_path: Option<String>,
     pub baseline_schema: String,
     pub candidate_schema: String,
     pub baseline_manifest_id: String,

@@ -3265,7 +3265,33 @@ pub fn compare_shell_handoff_acceptance_checklists(
     baseline: &StudioShellHandoffAcceptanceChecklistReport,
     candidate: &StudioShellHandoffAcceptanceChecklistReport,
 ) -> StudioShellHandoffAcceptanceComparisonReport {
-    let checks = shell_handoff_acceptance_comparison_checks(baseline, candidate);
+    compare_shell_handoff_acceptance_checklists_with_identity(baseline, candidate, None)
+}
+
+pub fn compare_shell_handoff_acceptance_against_baseline_manifest(
+    baseline_identity: &StudioShellHandoffAcceptanceBaselineManifest,
+    baseline: &StudioShellHandoffAcceptanceChecklistReport,
+    candidate: &StudioShellHandoffAcceptanceChecklistReport,
+) -> StudioShellHandoffAcceptanceComparisonReport {
+    compare_shell_handoff_acceptance_checklists_with_identity(
+        baseline,
+        candidate,
+        Some(baseline_identity),
+    )
+}
+
+fn compare_shell_handoff_acceptance_checklists_with_identity(
+    baseline: &StudioShellHandoffAcceptanceChecklistReport,
+    candidate: &StudioShellHandoffAcceptanceChecklistReport,
+    baseline_identity: Option<&StudioShellHandoffAcceptanceBaselineManifest>,
+) -> StudioShellHandoffAcceptanceComparisonReport {
+    let mut checks = shell_handoff_acceptance_comparison_checks(baseline, candidate);
+    if let Some(baseline_identity) = baseline_identity {
+        checks.extend(shell_handoff_acceptance_baseline_identity_checks(
+            baseline_identity,
+            baseline,
+        ));
+    }
     let comparable = checks
         .iter()
         .all(|check| check.status == StudioValidationStatus::Pass);
@@ -3319,6 +3345,10 @@ pub fn compare_shell_handoff_acceptance_checklists(
 
     StudioShellHandoffAcceptanceComparisonReport {
         schema_id: SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA.to_string(),
+        baseline_identity_schema: baseline_identity.map(|identity| identity.schema_id.clone()),
+        baseline_id: baseline_identity.map(|identity| identity.baseline_id.clone()),
+        baseline_label: baseline_identity.map(|identity| identity.label.clone()),
+        baseline_checklist_path: baseline_identity.map(|identity| identity.checklist_path.clone()),
         baseline_schema: baseline.schema_id.clone(),
         candidate_schema: candidate.schema_id.clone(),
         baseline_manifest_id: baseline.manifest_id.clone(),
@@ -5635,6 +5665,67 @@ fn shell_handoff_acceptance_comparison_checks(
         "baseline and candidate prohibited actions match",
         "baseline and candidate prohibited actions differ",
         "studio.issue.shell_handoff_acceptance_prohibited_actions_mismatch",
+    );
+    checks
+}
+
+fn shell_handoff_acceptance_baseline_identity_checks(
+    baseline_identity: &StudioShellHandoffAcceptanceBaselineManifest,
+    baseline: &StudioShellHandoffAcceptanceChecklistReport,
+) -> Vec<StudioValidationCheck> {
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.baseline_identity_schema",
+        baseline_identity.schema_id == SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA,
+        "baseline identity schema id is supported",
+        "baseline identity schema id is unsupported",
+        "studio.issue.shell_handoff_acceptance_baseline_identity_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.baseline_identity_summary_schema",
+        baseline_identity.summary.schema_id == SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA,
+        "baseline identity summary schema id is supported",
+        "baseline identity summary schema id is unsupported",
+        "studio.issue.shell_handoff_acceptance_summary_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.baseline_identity_checklist_schema",
+        baseline_identity.summary.checklist_schema == baseline.schema_id,
+        "baseline identity summary names the loaded checklist schema",
+        "baseline identity summary does not name the loaded checklist schema",
+        "studio.issue.shell_handoff_acceptance_baseline_identity_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.baseline_identity_manifest",
+        baseline_identity.summary.manifest_id == baseline.manifest_id,
+        "baseline identity manifest id matches the loaded checklist",
+        "baseline identity manifest id differs from the loaded checklist",
+        "studio.issue.shell_handoff_acceptance_baseline_identity_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.baseline_identity_project",
+        baseline_identity.summary.project_id == baseline.project_id
+            && baseline_identity.summary.project_revision == baseline.project_revision,
+        "baseline identity project metadata matches the loaded checklist",
+        "baseline identity project metadata differs from the loaded checklist",
+        "studio.issue.shell_handoff_acceptance_baseline_identity_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_handoff_acceptance_comparison.baseline_identity_status_counts",
+        baseline_identity.summary.status == baseline.status
+            && baseline_identity.summary.ready_count == baseline.ready_count
+            && baseline_identity.summary.blocked_count == baseline.blocked_count
+            && baseline_identity.summary.rejected_count == baseline.rejected_count
+            && baseline_identity.summary.entry_count == baseline.entries.len(),
+        "baseline identity readiness counts match the loaded checklist",
+        "baseline identity readiness counts differ from the loaded checklist",
+        "studio.issue.shell_handoff_acceptance_baseline_identity_mismatch",
     );
     checks
 }
@@ -9558,6 +9649,10 @@ mod tests {
             comparison.schema_id,
             SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA
         );
+        assert_eq!(comparison.baseline_identity_schema, None);
+        assert_eq!(comparison.baseline_id, None);
+        assert_eq!(comparison.baseline_label, None);
+        assert_eq!(comparison.baseline_checklist_path, None);
         assert_eq!(
             comparison.status,
             StudioShellHandoffAcceptanceComparisonStatus::Unchanged
@@ -9574,6 +9669,103 @@ mod tests {
             .checks
             .iter()
             .all(|check| check.status == StudioValidationStatus::Pass));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_comparison_carries_baseline_identity() {
+        let root = temp_root("shell-handoff-acceptance-compare-baseline-identity");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let checklist =
+            shell_handoff_acceptance_checklist_for_project(&project, Some(&root), &bundle_root);
+        let checklist_path = root.join("shell-handoff-acceptance-checklist.json");
+        let baseline_identity = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &checklist,
+            &checklist_path,
+            Some("synthetic-ready"),
+            Some("Synthetic ready acceptance baseline"),
+        );
+
+        let comparison = compare_shell_handoff_acceptance_against_baseline_manifest(
+            &baseline_identity,
+            &checklist,
+            &checklist,
+        );
+
+        assert_eq!(
+            comparison.baseline_identity_schema.as_deref(),
+            Some(SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA)
+        );
+        assert_eq!(comparison.baseline_id.as_deref(), Some("synthetic-ready"));
+        assert_eq!(
+            comparison.baseline_label.as_deref(),
+            Some("Synthetic ready acceptance baseline")
+        );
+        let checklist_path_text = checklist_path.display().to_string();
+        assert_eq!(
+            comparison.baseline_checklist_path.as_deref(),
+            Some(checklist_path_text.as_str())
+        );
+        assert_eq!(
+            comparison.status,
+            StudioShellHandoffAcceptanceComparisonStatus::Unchanged
+        );
+        assert!(comparison
+            .checks
+            .iter()
+            .filter(|check| check.check_id.contains("baseline_identity"))
+            .all(|check| check.status == StudioValidationStatus::Pass));
+        assert_eq!(comparison.entries.len(), 3);
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_comparison_rejects_stale_baseline_identity() {
+        let root = temp_root("shell-handoff-acceptance-compare-stale-baseline-identity");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let checklist =
+            shell_handoff_acceptance_checklist_for_project(&project, Some(&root), &bundle_root);
+        let checklist_path = root.join("shell-handoff-acceptance-checklist.json");
+        let mut baseline_identity = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &checklist,
+            &checklist_path,
+            None,
+            None,
+        );
+        baseline_identity.summary.project_revision += 1;
+
+        let comparison = compare_shell_handoff_acceptance_against_baseline_manifest(
+            &baseline_identity,
+            &checklist,
+            &checklist,
+        );
+
+        assert_eq!(
+            comparison.status,
+            StudioShellHandoffAcceptanceComparisonStatus::Incomparable
+        );
+        assert_eq!(
+            comparison.issue_code.as_deref(),
+            Some("studio.issue.shell_handoff_acceptance_baseline_identity_mismatch")
+        );
+        assert!(comparison.entries.is_empty());
+        assert!(comparison.checks.iter().any(|check| {
+            check.check_id
+                == "studio.check.shell_handoff_acceptance_comparison.baseline_identity_project"
+                && check.status == StudioValidationStatus::Fail
+        }));
     }
 
     #[test]

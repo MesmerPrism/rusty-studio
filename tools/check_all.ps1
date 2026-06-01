@@ -1789,7 +1789,7 @@ try {
             throw "shell handoff acceptance baseline target count mismatch"
         }
     }
-    $HandoffAcceptanceComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline $ShellHandoffAcceptanceChecklistPath --candidate $ShellHandoffAcceptanceChecklistPath --output $ShellHandoffAcceptanceComparisonPath
+    $HandoffAcceptanceComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline-manifest $ShellHandoffAcceptanceBaselinePath --candidate $ShellHandoffAcceptanceChecklistPath --output $ShellHandoffAcceptanceComparisonPath
     if ($LASTEXITCODE -ne 0) {
         throw "studio shell handoff acceptance comparison failed with exit code $LASTEXITCODE"
     }
@@ -1801,6 +1801,15 @@ try {
     foreach ($ComparisonView in @($HandoffAcceptanceComparison, $WrittenHandoffAcceptanceComparison)) {
         if ($ComparisonView.'$schema' -ne "rusty.studio.shell_handoff_acceptance_comparison.v1") {
             throw "shell handoff acceptance comparison schema mismatch"
+        }
+        if ($ComparisonView.baseline_identity_schema -ne "rusty.studio.shell_handoff_acceptance_baseline_manifest.v1") {
+            throw "shell handoff acceptance comparison baseline identity schema mismatch"
+        }
+        if ($ComparisonView.baseline_id -ne "synthetic-ready" -or $ComparisonView.baseline_label -ne "Synthetic ready acceptance baseline") {
+            throw "shell handoff acceptance comparison baseline identity mismatch"
+        }
+        if ($ComparisonView.baseline_checklist_path -ne $ShellHandoffAcceptanceChecklistPath) {
+            throw "shell handoff acceptance comparison baseline checklist path mismatch"
         }
         if ($ComparisonView.status -ne "unchanged") {
             throw "shell handoff acceptance comparison should be unchanged"
@@ -1823,6 +1832,9 @@ try {
         if (@($ComparisonView.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
             throw "shell handoff acceptance comparison checks reported failures"
         }
+        if (@($ComparisonView.checks | Where-Object { $_.check_id -like "*baseline_identity*" }).Count -lt 6) {
+            throw "shell handoff acceptance comparison did not include baseline identity checks"
+        }
     }
     $MissingHandoffManifestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-manifest --project "examples\synthetic-studio-project.json" --bundle-root $MissingShellBundleRoot --output $MissingShellHandoffManifestPath
     if ($LASTEXITCODE -ne 0) {
@@ -1843,13 +1855,16 @@ try {
     if ($MissingHandoffAcceptanceChecklist.ready_count -ne 0 -or $MissingHandoffAcceptanceChecklist.blocked_count -ne 3 -or $MissingHandoffAcceptanceChecklist.rejected_count -ne 0) {
         throw "missing shell handoff acceptance checklist counts mismatch"
     }
-    $RegressedHandoffAcceptanceComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline $ShellHandoffAcceptanceChecklistPath --candidate $MissingShellHandoffAcceptanceChecklistPath
+    $RegressedHandoffAcceptanceComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline-manifest $ShellHandoffAcceptanceBaselinePath --candidate $MissingShellHandoffAcceptanceChecklistPath
     if ($LASTEXITCODE -ne 0) {
         throw "studio regressed shell handoff acceptance comparison failed with exit code $LASTEXITCODE"
     }
     $RegressedHandoffAcceptanceComparison = ($RegressedHandoffAcceptanceComparisonOutput -join [Environment]::NewLine) | ConvertFrom-Json
     if ($RegressedHandoffAcceptanceComparison.status -ne "regressed") {
         throw "regressed shell handoff acceptance comparison status mismatch"
+    }
+    if ($RegressedHandoffAcceptanceComparison.baseline_id -ne "synthetic-ready") {
+        throw "regressed shell handoff acceptance comparison baseline id mismatch"
     }
     if ($RegressedHandoffAcceptanceComparison.issue_code -ne "studio.issue.shell_bundle_file_missing") {
         throw "regressed shell handoff acceptance comparison issue mismatch"

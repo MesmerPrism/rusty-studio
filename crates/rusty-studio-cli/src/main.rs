@@ -1,9 +1,10 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rusty_studio_core::{
     add_binding_to_graph, add_module_to_graph, add_next_catalog_module_from_package_to_graph,
-    add_next_catalog_module_to_graph, compare_shell_handoff_acceptance_checklists,
-    desktop_shell_handoff_for_bundle, export_plan, load_project, load_shell_artifact_manifest,
-    load_shell_descriptor, load_shell_handoff_acceptance_checklist,
+    add_next_catalog_module_to_graph, compare_shell_handoff_acceptance_against_baseline_manifest,
+    compare_shell_handoff_acceptance_checklists, desktop_shell_handoff_for_bundle, export_plan,
+    load_project, load_shell_artifact_manifest, load_shell_descriptor,
+    load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
     load_shell_handoff_intake_report, load_shell_handoff_manifest, load_shell_template_index,
     remove_binding_from_graph, remove_module_from_graph, resolve_project,
     retarget_graph_host_profile, save_json, save_project, save_shell_bundle,
@@ -315,7 +316,9 @@ struct ShellHandoffAcceptanceBaselineArgs {
 #[derive(Debug, Parser)]
 struct ShellHandoffAcceptanceComparisonArgs {
     #[arg(long)]
-    baseline: PathBuf,
+    baseline: Option<PathBuf>,
+    #[arg(long)]
+    baseline_manifest: Option<PathBuf>,
     #[arg(long)]
     candidate: PathBuf,
     #[arg(long)]
@@ -738,9 +741,32 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Command::ShellHandoffAcceptanceComparison(args) => {
-            let baseline = load_shell_handoff_acceptance_checklist(&args.baseline)?;
+            let baseline_manifest = args
+                .baseline_manifest
+                .as_ref()
+                .map(|path| load_shell_handoff_acceptance_baseline_manifest(path))
+                .transpose()?;
+            let baseline_path = baseline_manifest
+                .as_ref()
+                .map(|identity| PathBuf::from(&identity.checklist_path))
+                .or(args.baseline.clone())
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--baseline or --baseline-manifest is required",
+                    )
+                })?;
+            let baseline = load_shell_handoff_acceptance_checklist(&baseline_path)?;
             let candidate = load_shell_handoff_acceptance_checklist(&args.candidate)?;
-            let report = compare_shell_handoff_acceptance_checklists(&baseline, &candidate);
+            let report = if let Some(baseline_manifest) = baseline_manifest.as_ref() {
+                compare_shell_handoff_acceptance_against_baseline_manifest(
+                    baseline_manifest,
+                    &baseline,
+                    &candidate,
+                )
+            } else {
+                compare_shell_handoff_acceptance_checklists(&baseline, &candidate)
+            };
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }
