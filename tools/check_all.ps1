@@ -36,6 +36,7 @@ try {
     $ShellHandoffAcceptanceChecklistPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json"
     $ShellHandoffAcceptanceSnapshotPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json"
     $ShellHandoffAcceptanceSummaryPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-summary.json"
+    $ShellHandoffAcceptanceBaselinePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-baseline.json"
     $ShellHandoffAcceptanceComparisonPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json"
     $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
     $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
@@ -47,7 +48,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -1742,6 +1743,50 @@ try {
             if (@($SummaryTarget.issue_codes).Count -ne 0) {
                 throw "shell handoff acceptance summary target should not report issues for $($RequiredSummary.TargetKind)"
             }
+        }
+    }
+    $HandoffAcceptanceBaselineOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-baseline --checklist $ShellHandoffAcceptanceChecklistPath --baseline-id "synthetic-ready" --label "Synthetic ready acceptance baseline" --output $ShellHandoffAcceptanceBaselinePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell handoff acceptance baseline failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellHandoffAcceptanceBaselinePath)) {
+        throw "shell handoff acceptance baseline manifest was not written"
+    }
+    $HandoffAcceptanceBaseline = ($HandoffAcceptanceBaselineOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenHandoffAcceptanceBaseline = Get-Content -Raw $ShellHandoffAcceptanceBaselinePath | ConvertFrom-Json
+    foreach ($BaselineView in @($HandoffAcceptanceBaseline, $WrittenHandoffAcceptanceBaseline)) {
+        if ($BaselineView.'$schema' -ne "rusty.studio.shell_handoff_acceptance_baseline_manifest.v1") {
+            throw "shell handoff acceptance baseline schema mismatch"
+        }
+        if ($BaselineView.baseline_id -ne "synthetic-ready") {
+            throw "shell handoff acceptance baseline id mismatch"
+        }
+        if ($BaselineView.label -ne "Synthetic ready acceptance baseline") {
+            throw "shell handoff acceptance baseline label mismatch"
+        }
+        if ($BaselineView.checklist_path -ne $ShellHandoffAcceptanceChecklistPath) {
+            throw "shell handoff acceptance baseline checklist path mismatch"
+        }
+        if ($BaselineView.summary.'$schema' -ne "rusty.studio.shell_handoff_acceptance_summary.v1") {
+            throw "shell handoff acceptance baseline summary schema mismatch"
+        }
+        if ($BaselineView.summary.checklist_schema -ne "rusty.studio.shell_handoff_acceptance_checklist.v1") {
+            throw "shell handoff acceptance baseline checklist schema mismatch"
+        }
+        if ($BaselineView.summary.manifest_id -ne $HandoffAcceptanceChecklist.manifest_id) {
+            throw "shell handoff acceptance baseline manifest mismatch"
+        }
+        if ($BaselineView.summary.project_id -ne $HandoffAcceptanceChecklist.project_id -or $BaselineView.summary.project_revision -ne $HandoffAcceptanceChecklist.project_revision) {
+            throw "shell handoff acceptance baseline project metadata mismatch"
+        }
+        if ($BaselineView.summary.status -ne "ready") {
+            throw "shell handoff acceptance baseline summary was not ready"
+        }
+        if ($BaselineView.summary.ready_count -ne 3 -or $BaselineView.summary.blocked_count -ne 0 -or $BaselineView.summary.rejected_count -ne 0 -or $BaselineView.summary.entry_count -ne 3) {
+            throw "shell handoff acceptance baseline summary counts mismatch"
+        }
+        if (@($BaselineView.summary.targets).Count -ne 3) {
+            throw "shell handoff acceptance baseline target count mismatch"
         }
     }
     $HandoffAcceptanceComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline $ShellHandoffAcceptanceChecklistPath --candidate $ShellHandoffAcceptanceChecklistPath --output $ShellHandoffAcceptanceComparisonPath

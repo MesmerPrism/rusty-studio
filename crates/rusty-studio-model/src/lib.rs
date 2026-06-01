@@ -33,6 +33,8 @@ pub const SHELL_HANDOFF_ACCEPTANCE_CHECKLIST_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_checklist.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_summary.v1";
+pub const SHELL_HANDOFF_ACCEPTANCE_BASELINE_MANIFEST_SCHEMA: &str =
+    "rusty.studio.shell_handoff_acceptance_baseline_manifest.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_comparison.v1";
 
@@ -790,6 +792,16 @@ pub struct StudioShellHandoffAcceptanceTargetSummary {
     pub consumer_ids: Vec<String>,
     pub route_kinds: Vec<String>,
     pub issue_codes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffAcceptanceBaselineManifest {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub baseline_id: String,
+    pub label: String,
+    pub checklist_path: String,
+    pub summary: StudioShellHandoffAcceptanceSummaryReport,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
