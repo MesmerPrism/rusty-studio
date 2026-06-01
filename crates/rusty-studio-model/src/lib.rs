@@ -444,6 +444,10 @@ pub struct StudioViewModel {
     pub selected_graph_index: Option<usize>,
     pub selected_graph_id: Option<String>,
     pub selection_issue_code: Option<String>,
+    pub requested_node_id: Option<String>,
+    pub selected_node_id: Option<String>,
+    pub node_selection_code: Option<String>,
+    pub selected_node: Option<StudioNodeInspectorView>,
     pub catalog_package_count: usize,
     pub catalog_module_count: usize,
     pub host_profile_count: usize,
@@ -478,6 +482,33 @@ pub struct StudioIssueFocusView {
     pub node_id: Option<String>,
     pub edge_id: Option<String>,
     pub reference_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioNodeInspectorView {
+    pub graph_id: String,
+    pub node_id: String,
+    pub kind: String,
+    pub reference_id: String,
+    pub label: String,
+    pub validation_issue_count: usize,
+    pub reference_status: String,
+    pub package_manifest_path: Option<String>,
+    pub package_module_ids: Vec<String>,
+    pub module_package_ids: Vec<String>,
+    pub host_profile: Option<StudioNodeHostProfileView>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioNodeHostProfileView {
+    pub profile_id: String,
+    pub host_profile: Option<String>,
+    pub app_id: Option<String>,
+    pub install_route: Option<String>,
+    pub launch_route: Option<String>,
+    pub command_bridge: Option<String>,
+    pub evidence_pull_route: Option<String>,
+    pub required_permissions: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

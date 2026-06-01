@@ -125,6 +125,18 @@ try {
     if ($null -ne $ViewModel.issue_selection_code) {
         throw "valid view model should not expose issue selection code"
     }
+    if ($null -eq $ViewModel.selected_node) {
+        throw "valid view model should expose selected node inspector"
+    }
+    if ($ViewModel.selected_node_id -ne "node.package.synthetic_wave") {
+        throw "valid view model selected node id mismatch"
+    }
+    if ($ViewModel.selected_node.reference_status -ne "resolved") {
+        throw "valid view model selected package should resolve"
+    }
+    if (@($ViewModel.selected_node.package_module_ids) -notcontains "module.synthetic_wave_provider") {
+        throw "valid view model selected package missing provider module detail"
+    }
     $ViewModelDesktopGraph = $ViewModel.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $ViewModelDesktopGraph) {
         throw "view model missing desktop graph row"
@@ -162,6 +174,39 @@ try {
     }
     if ($HeadsetProfile.targets_selected_graph) {
         throw "view model should not mark headset profile as desktop target"
+    }
+    $RequestedNodeViewOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --node "node.host_profile.desktop"
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio requested node view model failed with exit code $LASTEXITCODE"
+    }
+    $RequestedNodeViewText = $RequestedNodeViewOutput -join [Environment]::NewLine
+    $RequestedNodeView = $RequestedNodeViewText | ConvertFrom-Json
+    if ($RequestedNodeView.requested_node_id -ne "node.host_profile.desktop") {
+        throw "requested node view model requested node mismatch"
+    }
+    if ($RequestedNodeView.selected_node_id -ne "node.host_profile.desktop") {
+        throw "requested node view model selected node mismatch"
+    }
+    if ($RequestedNodeView.selected_node.kind -ne "host_profile") {
+        throw "requested node view model selected node kind mismatch"
+    }
+    if ($RequestedNodeView.selected_node.host_profile.profile_id -ne "host_run.profile.desktop") {
+        throw "requested node view model host profile id mismatch"
+    }
+    if ($RequestedNodeView.selected_node.host_profile.install_route -ne "install.local_process") {
+        throw "requested node view model install route mismatch"
+    }
+    $MissingRequestedNodeViewOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --node "node.missing"
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio missing requested node view model failed with exit code $LASTEXITCODE"
+    }
+    $MissingRequestedNodeViewText = $MissingRequestedNodeViewOutput -join [Environment]::NewLine
+    $MissingRequestedNodeView = $MissingRequestedNodeViewText | ConvertFrom-Json
+    if ($MissingRequestedNodeView.node_selection_code -ne "studio.issue.node_selection_missing") {
+        throw "missing requested node view model should expose node selection code"
+    }
+    if ($MissingRequestedNodeView.selected_node_id -ne "node.package.synthetic_wave") {
+        throw "missing requested node view model should fall back to deterministic selected node"
     }
     $DiagnosticProject = Get-Content -Raw -Path "examples\synthetic-studio-project.json" | ConvertFrom-Json
     $DiagnosticProject.graphs[0].nodes[0].reference_id = "package.missing"
@@ -215,6 +260,15 @@ try {
     }
     if ($DiagnosticView.focused_issue.reference_id -ne "package.missing") {
         throw "diagnostic focused issue reference id mismatch"
+    }
+    if ($DiagnosticView.selected_node_id -ne "node.package.synthetic_wave") {
+        throw "diagnostic selected node should follow focused issue"
+    }
+    if ($DiagnosticView.selected_node.reference_status -ne "missing") {
+        throw "diagnostic selected node should expose missing reference status"
+    }
+    if ($DiagnosticView.selected_node.validation_issue_count -lt 1) {
+        throw "diagnostic selected node should expose validation issue count"
     }
     if ($DiagnosticView.selected_issue_check_id -ne "studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs") {
         throw "diagnostic selected issue check id mismatch"

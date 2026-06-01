@@ -20,7 +20,8 @@ use rusty_studio_model::{
     SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
-    StudioCatalogPackageView, StudioEdgeView, StudioGraphView, StudioNodeView,
+    StudioCatalogPackageView, StudioEdgeView, StudioGraphView, StudioNodeHostProfileView,
+    StudioNodeInspectorView, StudioNodeView,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -293,6 +294,22 @@ pub fn view_model_for_graph_and_issue(
     requested_graph_id: Option<&str>,
     requested_issue_check_id: Option<&str>,
 ) -> StudioViewModel {
+    view_model_for_graph_issue_and_node(
+        project,
+        base_dir,
+        requested_graph_id,
+        requested_issue_check_id,
+        None,
+    )
+}
+
+pub fn view_model_for_graph_issue_and_node(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    requested_graph_id: Option<&str>,
+    requested_issue_check_id: Option<&str>,
+    requested_node_id: Option<&str>,
+) -> StudioViewModel {
     let validation = validate_project_with_base(project, base_dir);
     let validation_pass_count = validation
         .checks
@@ -313,9 +330,17 @@ pub fn view_model_for_graph_and_issue(
     let validation_issues = validation_issue_views(&validation, selected_graph_id.as_deref());
     let issue_selection = focused_issue_selection(&validation_issues, requested_issue_check_id);
     let selected_graph = selected_graph_index.and_then(|index| project.graphs.get(index));
+    let selected_graph_view = selected_graph_index.and_then(|index| graphs.get(index));
     let reference_index = reference_index_for_project(project, base_dir);
     let catalog_packages = catalog_package_views(reference_index.as_ref(), selected_graph);
     let host_profiles = host_profile_views(reference_index.as_ref(), selected_graph);
+    let node_selection = selected_node_selection(
+        selected_graph,
+        selected_graph_view,
+        reference_index.as_ref(),
+        issue_selection.focused_issue.as_ref(),
+        requested_node_id,
+    );
     let catalog_module_count = catalog_packages
         .iter()
         .map(|package| package.module_count)
@@ -343,6 +368,10 @@ pub fn view_model_for_graph_and_issue(
         selected_graph_index,
         selected_graph_id,
         selection_issue_code,
+        requested_node_id: requested_node_id.map(str::to_string),
+        selected_node_id: node_selection.selected_node_id,
+        node_selection_code: node_selection.node_selection_code,
+        selected_node: node_selection.selected_node,
         catalog_package_count: catalog_packages.len(),
         catalog_module_count,
         host_profile_count: host_profiles.len(),
@@ -2293,6 +2322,186 @@ fn selected_node_reference_ids(
         .filter(|node| node.kind == kind)
         .map(|node| node.reference_id.clone())
         .collect()
+}
+
+struct SelectedNodeSelection {
+    selected_node: Option<StudioNodeInspectorView>,
+    selected_node_id: Option<String>,
+    node_selection_code: Option<String>,
+}
+
+fn selected_node_selection(
+    selected_graph: Option<&StudioGraph>,
+    selected_graph_view: Option<&StudioGraphView>,
+    reference_index: Option<&ReferenceIndex>,
+    focused_issue: Option<&StudioIssueFocusView>,
+    requested_node_id: Option<&str>,
+) -> SelectedNodeSelection {
+    let Some(graph) = selected_graph else {
+        return SelectedNodeSelection {
+            selected_node: None,
+            selected_node_id: None,
+            node_selection_code: requested_node_id
+                .map(|_| "studio.issue.node_selection_missing".to_string()),
+        };
+    };
+    let fallback_node_id = focused_issue
+        .filter(|focus| focus.graph_id == graph.graph_id)
+        .and_then(|focus| focus.node_id.as_deref())
+        .filter(|node_id| graph.nodes.iter().any(|node| node.node_id == *node_id))
+        .or_else(|| graph.nodes.first().map(|node| node.node_id.as_str()));
+    let (selected_node_id, node_selection_code) = if let Some(requested_node_id) = requested_node_id
+    {
+        if graph
+            .nodes
+            .iter()
+            .any(|node| node.node_id == requested_node_id)
+        {
+            (Some(requested_node_id), None)
+        } else {
+            (
+                fallback_node_id,
+                Some("studio.issue.node_selection_missing".to_string()),
+            )
+        }
+    } else {
+        (fallback_node_id, None)
+    };
+    let selected_node = selected_node_id
+        .and_then(|node_id| graph.nodes.iter().find(|node| node.node_id == node_id))
+        .map(|node| node_inspector_view(graph, selected_graph_view, reference_index, node));
+    SelectedNodeSelection {
+        selected_node_id: selected_node.as_ref().map(|node| node.node_id.clone()),
+        selected_node,
+        node_selection_code,
+    }
+}
+
+fn node_inspector_view(
+    graph: &StudioGraph,
+    graph_view: Option<&StudioGraphView>,
+    reference_index: Option<&ReferenceIndex>,
+    node: &StudioNode,
+) -> StudioNodeInspectorView {
+    let validation_issue_count = graph_view
+        .and_then(|graph| {
+            graph
+                .node_rows
+                .iter()
+                .find(|row| row.node_id == node.node_id)
+        })
+        .map(|row| row.validation_issue_count)
+        .unwrap_or(0);
+    let package_module_ids = package_module_ids(reference_index, &node.reference_id);
+    let module_package_ids = module_package_ids(reference_index, &node.reference_id);
+    let package_manifest_path =
+        package_manifest_path(reference_index, node.kind, &node.reference_id);
+    let host_profile = host_profile_inspector(reference_index, node.kind, &node.reference_id);
+    StudioNodeInspectorView {
+        graph_id: graph.graph_id.clone(),
+        node_id: node.node_id.clone(),
+        kind: node_kind_label(node.kind).to_string(),
+        reference_id: node.reference_id.clone(),
+        label: node.label.clone(),
+        validation_issue_count,
+        reference_status: node_reference_status(reference_index, node.kind, &node.reference_id)
+            .to_string(),
+        package_manifest_path,
+        package_module_ids,
+        module_package_ids,
+        host_profile,
+    }
+}
+
+fn node_reference_status(
+    reference_index: Option<&ReferenceIndex>,
+    kind: StudioNodeKind,
+    reference_id: &str,
+) -> &'static str {
+    let Some(reference_index) = reference_index else {
+        return match kind {
+            StudioNodeKind::OperatorShell | StudioNodeKind::ValidationSlot => "authored",
+            _ => "reference_index_unavailable",
+        };
+    };
+    match kind {
+        StudioNodeKind::Package => {
+            if reference_index.package_ids.contains(reference_id) {
+                "resolved"
+            } else {
+                "missing"
+            }
+        }
+        StudioNodeKind::Module => {
+            if reference_index.module_ids.contains(reference_id) {
+                "resolved"
+            } else {
+                "missing"
+            }
+        }
+        StudioNodeKind::HostProfile => {
+            if reference_index.host_profiles.contains_key(reference_id) {
+                "resolved"
+            } else {
+                "missing"
+            }
+        }
+        StudioNodeKind::OperatorShell | StudioNodeKind::ValidationSlot => "authored",
+    }
+}
+
+fn package_manifest_path(
+    reference_index: Option<&ReferenceIndex>,
+    kind: StudioNodeKind,
+    reference_id: &str,
+) -> Option<String> {
+    if kind != StudioNodeKind::Package {
+        return None;
+    }
+    reference_index
+        .and_then(|index| index.package_manifest_paths.get(reference_id))
+        .cloned()
+}
+
+fn package_module_ids(reference_index: Option<&ReferenceIndex>, package_id: &str) -> Vec<String> {
+    reference_index
+        .and_then(|index| index.package_modules.get(package_id))
+        .map(|modules| modules.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn module_package_ids(reference_index: Option<&ReferenceIndex>, module_id: &str) -> Vec<String> {
+    reference_index
+        .map(|index| {
+            index
+                .package_modules
+                .iter()
+                .filter(|(_, module_ids)| module_ids.contains(module_id))
+                .map(|(package_id, _)| package_id.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn host_profile_inspector(
+    reference_index: Option<&ReferenceIndex>,
+    kind: StudioNodeKind,
+    reference_id: &str,
+) -> Option<StudioNodeHostProfileView> {
+    if kind != StudioNodeKind::HostProfile {
+        return None;
+    }
+    let reference = reference_index?.host_profiles.get(reference_id)?;
+    Some(StudioNodeHostProfileView {
+        profile_id: reference.profile_id.clone(),
+        host_profile: reference.host_profile.clone(),
+        app_id: reference.app_id.clone(),
+        install_route: reference.install_route.clone(),
+        launch_route: reference.launch_route.clone(),
+        command_bridge: reference.command_bridge.clone(),
+        evidence_pull_route: reference.evidence_pull_route.clone(),
+        required_permissions: reference.required_permissions.clone(),
+    })
 }
 
 fn next_available_catalog_module(
@@ -5610,6 +5819,24 @@ mod tests {
         assert_eq!(model.selected_issue_index, None);
         assert_eq!(model.selected_issue_check_id, None);
         assert_eq!(model.issue_selection_code, None);
+        assert_eq!(model.requested_node_id, None);
+        assert_eq!(
+            model.selected_node_id.as_deref(),
+            Some("node.package.synthetic")
+        );
+        assert_eq!(model.node_selection_code, None);
+        let selected_node = model.selected_node.as_ref().expect("selected node");
+        assert_eq!(selected_node.kind, "package");
+        assert_eq!(selected_node.reference_id, "package.synthetic");
+        assert_eq!(selected_node.reference_status, "resolved");
+        assert_eq!(
+            selected_node.package_manifest_path.as_deref(),
+            Some("packages/synthetic/manifests/package.manifold.json")
+        );
+        assert_eq!(
+            selected_node.package_module_ids,
+            vec!["module.synthetic_provider".to_string()]
+        );
         assert_eq!(model.graph_count, 1);
         assert_eq!(model.graphs[0].validation_issue_count, 0);
         assert_eq!(model.graphs[0].node_rows[0].kind, "package");
@@ -5728,6 +5955,14 @@ mod tests {
             Some("studio.check.graph.studio.graph.test.package_refs")
         );
         assert_eq!(model.issue_selection_code, None);
+        assert_eq!(
+            model.selected_node_id.as_deref(),
+            Some("node.package.synthetic")
+        );
+        let selected_node = model.selected_node.as_ref().expect("selected node");
+        assert_eq!(selected_node.reference_id, "package.missing");
+        assert_eq!(selected_node.reference_status, "missing");
+        assert_eq!(selected_node.validation_issue_count, 1);
     }
 
     #[test]
@@ -5773,6 +6008,73 @@ mod tests {
         assert_eq!(
             focused_issue.reference_id.as_deref(),
             Some("module.missing")
+        );
+        assert_eq!(
+            model.selected_node_id.as_deref(),
+            Some("node.module.missing")
+        );
+        let selected_node = model.selected_node.as_ref().expect("selected node");
+        assert_eq!(selected_node.kind, "module");
+        assert_eq!(selected_node.reference_status, "missing");
+    }
+
+    #[test]
+    fn view_model_selects_requested_node_for_inspector() {
+        let root = temp_root("view-model-requested-node");
+        write_reference_fixture_tree(&root);
+        let project = valid_project_with_relative_references();
+
+        let model = view_model_for_graph_issue_and_node(
+            &project,
+            Some(&root),
+            Some("studio.graph.test"),
+            None,
+            Some("node.host.desktop"),
+        );
+
+        assert_eq!(
+            model.requested_node_id.as_deref(),
+            Some("node.host.desktop")
+        );
+        assert_eq!(model.selected_node_id.as_deref(), Some("node.host.desktop"));
+        assert_eq!(model.node_selection_code, None);
+        let selected_node = model.selected_node.as_ref().expect("selected node");
+        assert_eq!(selected_node.kind, "host_profile");
+        assert_eq!(selected_node.reference_status, "resolved");
+        let profile = selected_node
+            .host_profile
+            .as_ref()
+            .expect("host profile details");
+        assert_eq!(profile.profile_id, "host_run.profile.desktop");
+        assert_eq!(profile.host_profile.as_deref(), Some("host.desktop"));
+        assert_eq!(
+            profile.install_route.as_deref(),
+            Some("install.local_process")
+        );
+    }
+
+    #[test]
+    fn view_model_reports_missing_requested_node() {
+        let root = temp_root("view-model-missing-requested-node");
+        write_reference_fixture_tree(&root);
+        let project = valid_project_with_relative_references();
+
+        let model = view_model_for_graph_issue_and_node(
+            &project,
+            Some(&root),
+            Some("studio.graph.test"),
+            None,
+            Some("node.missing"),
+        );
+
+        assert_eq!(model.requested_node_id.as_deref(), Some("node.missing"));
+        assert_eq!(
+            model.node_selection_code.as_deref(),
+            Some("studio.issue.node_selection_missing")
+        );
+        assert_eq!(
+            model.selected_node_id.as_deref(),
+            Some("node.package.synthetic")
         );
     }
 
