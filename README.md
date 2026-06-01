@@ -91,6 +91,8 @@ Current scope:
   default baseline through shared core/CLI lifecycle commands;
 - promote the saved Makepad acceptance baseline as the baseline-index default
   through the same shared lifecycle route;
+- archive additional Makepad acceptance baselines into a durable history folder
+  and append them to the same schema-only baseline index;
 - compare acceptance checklist artifacts across revisions with optional named
   baseline identity to detect improved, unchanged, regressed, or incomparable
   downstream handoff readiness;
@@ -170,19 +172,21 @@ checks and explicitly prohibit install, launch, command-session opening, and
 device-evidence collection inside Studio. Acceptance snapshots derive the same
 checklist directly from a project and bundle root so agents and Makepad can
 create or compare baselines without hand-stitching manifest and intake steps.
-Makepad can review the same checklist in memory or write it as a baseline
-artifact; it does not execute downstream runtime actions. Acceptance summaries
-are compact metadata views over saved baseline checklists so operators can see
-project revision, manifest id, target groups, consumers, routes, and issues
-without opening the full JSON. Acceptance baseline manifests give a saved
-checklist a stable baseline id and label, then embed the same summary so
-operators can confirm what they are comparing before opening the full checklist.
+Makepad can review the same checklist in memory, write the current saved
+baseline artifact, or archive additional uniquely named baseline artifacts under
+the handoff baseline history folder; it does not execute downstream runtime
+actions. Acceptance summaries are compact metadata views over saved baseline
+checklists so operators can see project revision, manifest id, target groups,
+consumers, routes, and issues without opening the full JSON. Acceptance
+baseline manifests give a saved checklist a stable baseline id and label, then
+embed the same summary so operators can confirm what they are comparing before
+opening the full checklist.
 Acceptance baseline indexes are slot lists over those identity manifests; they
 name the default baseline and summarize readiness across saved baselines without
-becoming a runtime registry or execution authority. Makepad writes, inspects,
-and promotes its saved baseline as the index default through the same shared
-lifecycle route. Baseline selection reports are read-only views over that index:
-they show the requested id, default id, selected id, missing/empty status, and
+becoming a runtime registry or execution authority. Makepad writes, archives,
+inspects, and promotes baselines through the same shared lifecycle route.
+Baseline selection reports are read-only views over that index: they show the
+requested id, default id, selected id, missing/empty status, and
 selected/default flags per entry without opening raw index JSON. Baseline index
 lifecycle commands append additional baseline manifests and promote a default
 baseline by id while preserving the same schema-only index contract: use

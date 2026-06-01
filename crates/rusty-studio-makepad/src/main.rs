@@ -3,7 +3,7 @@ pub use makepad_widgets;
 use makepad_widgets::*;
 use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
-    add_next_catalog_module_to_graph,
+    add_next_catalog_module_to_graph, append_shell_handoff_acceptance_baseline_index_manifests,
     compare_shell_handoff_acceptance_against_baseline_index_entry, load_project,
     load_shell_handoff_acceptance_baseline_index, load_shell_handoff_acceptance_baseline_manifest,
     load_shell_handoff_acceptance_checklist,
@@ -196,6 +196,7 @@ script_mod! {
             shell_manifest_button := ActionButton{text: "Write Handoff Manifest"}
             shell_acceptance_button := ActionButton{text: "Review Acceptance"}
             shell_acceptance_baseline_button := ActionButton{text: "Write Baseline"}
+            shell_acceptance_baseline_append_button := ActionButton{text: "Archive Baseline"}
             shell_acceptance_baseline_summary_button := ActionButton{text: "Inspect Baseline"}
             shell_acceptance_baseline_promote_button := ActionButton{text: "Promote Baseline"}
             shell_acceptance_compare_button := ActionButton{text: "Compare Acceptance"}
@@ -1198,6 +1199,41 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn append_shell_handoff_acceptance_baseline(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match append_shell_handoff_acceptance_baseline_for_project_source(&source) {
+            Ok((
+                report,
+                baseline,
+                index,
+                checklist_path,
+                baseline_path,
+                index_path,
+                bundle_root,
+            )) => {
+                self.last_shell_bundle_status = shell_handoff_acceptance_baseline_append_status(
+                    &report,
+                    &baseline,
+                    &index,
+                    &checklist_path,
+                    &baseline_path,
+                    &index_path,
+                    &bundle_root,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn inspect_shell_handoff_acceptance_baseline(&mut self, cx: &mut Cx) {
         let Some(source) = self.project_source.clone() else {
             self.last_shell_bundle_status = "No project source is loaded".to_string();
@@ -1907,6 +1943,13 @@ impl MatchEvent for App {
         }
         if self
             .ui
+            .button(cx, ids!(shell_acceptance_baseline_append_button))
+            .clicked(actions)
+        {
+            self.append_shell_handoff_acceptance_baseline(cx);
+        }
+        if self
+            .ui
             .button(cx, ids!(shell_acceptance_baseline_summary_button))
             .clicked(actions)
         {
@@ -2142,6 +2185,116 @@ fn write_shell_handoff_acceptance_baseline_for_project_source(
         index_path,
         bundle_root,
     ))
+}
+
+fn append_shell_handoff_acceptance_baseline_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellHandoffAcceptanceChecklistReport,
+        StudioShellHandoffAcceptanceBaselineManifest,
+        StudioShellHandoffAcceptanceBaselineIndex,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let (report, bundle_root) = shell_handoff_acceptance_for_project_source(project_path)?;
+    let index_path = shell_handoff_acceptance_baseline_index_output_path(project_path);
+    let existing_index = if index_path.is_file() {
+        Some(
+            load_shell_handoff_acceptance_baseline_index(&index_path)
+                .map_err(|error| format!("Baseline acceptance index load failed: {error}"))?,
+        )
+    } else {
+        None
+    };
+    let (baseline_id, label) =
+        next_shell_handoff_acceptance_baseline_archive_identity(&report, existing_index.as_ref());
+    let checklist_path =
+        shell_handoff_acceptance_baseline_archive_checklist_output_path(project_path, &baseline_id);
+    save_json(&checklist_path, &report)
+        .map_err(|error| format!("Shell handoff acceptance baseline save failed: {error}"))?;
+    let baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+        &report,
+        &checklist_path,
+        Some(&baseline_id),
+        Some(&label),
+    );
+    let baseline_path =
+        shell_handoff_acceptance_baseline_archive_manifest_output_path(project_path, &baseline_id);
+    save_json(&baseline_path, &baseline).map_err(|error| {
+        format!("Shell handoff acceptance baseline identity save failed: {error}")
+    })?;
+    let index = if let Some(index) = existing_index.as_ref() {
+        append_shell_handoff_acceptance_baseline_index_manifests(
+            index,
+            vec![(baseline.clone(), Some(baseline_path.clone()))],
+            Some(&baseline.baseline_id),
+        )
+    } else {
+        shell_handoff_acceptance_baseline_index_for_manifests(
+            vec![(baseline.clone(), Some(baseline_path.clone()))],
+            Some(&baseline.baseline_id),
+        )
+    };
+    save_json(&index_path, &index)
+        .map_err(|error| format!("Shell handoff acceptance baseline index save failed: {error}"))?;
+    Ok((
+        report,
+        baseline,
+        index,
+        checklist_path,
+        baseline_path,
+        index_path,
+        bundle_root,
+    ))
+}
+
+fn next_shell_handoff_acceptance_baseline_archive_identity(
+    report: &StudioShellHandoffAcceptanceChecklistReport,
+    index: Option<&StudioShellHandoffAcceptanceBaselineIndex>,
+) -> (String, String) {
+    let status = shell_handoff_acceptance_status_label(report.status);
+    let base_id = format!(
+        "{}.rev{}.{}",
+        report.project_id, report.project_revision, status
+    );
+    let next_slot = index
+        .map(|index| {
+            index
+                .entries
+                .iter()
+                .filter(|entry| {
+                    entry.baseline_id == base_id
+                        || entry
+                            .baseline_id
+                            .strip_prefix(base_id.as_str())
+                            .is_some_and(|suffix| suffix.starts_with(".archive"))
+                })
+                .count()
+                + 1
+        })
+        .unwrap_or(1);
+    let baseline_id = if next_slot == 1 {
+        base_id
+    } else {
+        format!("{base_id}.archive{next_slot}")
+    };
+    let label = if next_slot == 1 {
+        format!(
+            "{} revision {} {} acceptance baseline",
+            report.project_id, report.project_revision, status
+        )
+    } else {
+        format!(
+            "{} revision {} {} acceptance baseline archive {}",
+            report.project_id, report.project_revision, status, next_slot
+        )
+    };
+    (baseline_id, label)
 }
 
 fn shell_handoff_acceptance_baseline_summary_for_project_source(
@@ -2454,6 +2607,31 @@ fn shell_handoff_acceptance_baseline_manifest_output_path(project_path: &Path) -
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-handoff-acceptance-baseline.json")
+}
+
+fn shell_handoff_acceptance_baseline_archive_dir(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("baselines")
+}
+
+fn shell_handoff_acceptance_baseline_archive_checklist_output_path(
+    project_path: &Path,
+    baseline_id: &str,
+) -> PathBuf {
+    shell_handoff_acceptance_baseline_archive_dir(project_path)
+        .join(format!("{baseline_id}.checklist.json"))
+}
+
+fn shell_handoff_acceptance_baseline_archive_manifest_output_path(
+    project_path: &Path,
+    baseline_id: &str,
+) -> PathBuf {
+    shell_handoff_acceptance_baseline_archive_dir(project_path)
+        .join(format!("{baseline_id}.baseline.json"))
 }
 
 fn shell_handoff_acceptance_baseline_index_output_path(project_path: &Path) -> PathBuf {
@@ -3272,6 +3450,32 @@ fn shell_handoff_acceptance_baseline_status(
         summarize_shell_handoff_acceptance_baseline_index_selection(index, Some(index_path), None);
     format!(
         "acceptance baseline written\n  baseline: {} ({})\n  identity: {}\n  checklist: {}\n{}\n{}\n{}",
+        baseline.baseline_id,
+        baseline.label,
+        baseline_path.display(),
+        checklist_path.display(),
+        shell_handoff_acceptance_baseline_selection_status(&selection),
+        shell_handoff_acceptance_baseline_index_status(index, index_path),
+        shell_handoff_acceptance_status(report, bundle_root)
+    )
+}
+
+fn shell_handoff_acceptance_baseline_append_status(
+    report: &StudioShellHandoffAcceptanceChecklistReport,
+    baseline: &StudioShellHandoffAcceptanceBaselineManifest,
+    index: &StudioShellHandoffAcceptanceBaselineIndex,
+    checklist_path: &Path,
+    baseline_path: &Path,
+    index_path: &Path,
+    bundle_root: &Path,
+) -> String {
+    let selection = summarize_shell_handoff_acceptance_baseline_index_selection(
+        index,
+        Some(index_path),
+        Some(&baseline.baseline_id),
+    );
+    format!(
+        "acceptance baseline archived\n  baseline: {} ({})\n  identity: {}\n  checklist: {}\n{}\n{}\n{}",
         baseline.baseline_id,
         baseline.label,
         baseline_path.display(),
@@ -4664,6 +4868,100 @@ mod tests {
             .contains("baseline index slots 1; default studio.project.makepad_edit.rev1.ready"));
         assert!(status.contains("handoff acceptance ready"));
         assert!(status.contains("ready 1; blocked 0; rejected 0"));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_baseline_appends_history_entry() {
+        let root = temp_root("shell-handoff-acceptance-baseline-append");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+        let (_, saved_baseline, saved_index, _, saved_baseline_path, index_path, _) =
+            write_shell_handoff_acceptance_baseline_for_project_source(&project_path)
+                .expect("write initial baseline");
+        assert_eq!(
+            saved_index.default_baseline_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+
+        let (
+            report,
+            archived_baseline,
+            archived_index,
+            checklist_path,
+            baseline_path,
+            loaded_index_path,
+            bundle_root,
+        ) = append_shell_handoff_acceptance_baseline_for_project_source(&project_path)
+            .expect("append baseline history entry");
+
+        assert_eq!(loaded_index_path, index_path);
+        assert_eq!(
+            archived_baseline.baseline_id,
+            "studio.project.makepad_edit.rev1.ready.archive2"
+        );
+        assert_eq!(
+            archived_baseline.label,
+            "studio.project.makepad_edit revision 1 ready acceptance baseline archive 2"
+        );
+        assert!(checklist_path.ends_with(
+            "target/studio-shell-handoffs/baselines/studio.project.makepad_edit.rev1.ready.archive2.checklist.json"
+        ));
+        assert!(baseline_path.ends_with(
+            "target/studio-shell-handoffs/baselines/studio.project.makepad_edit.rev1.ready.archive2.baseline.json"
+        ));
+        assert!(checklist_path.is_file());
+        assert!(baseline_path.is_file());
+        assert_eq!(
+            archived_baseline.checklist_path,
+            checklist_path.display().to_string()
+        );
+        assert_eq!(
+            archived_index.default_baseline_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready.archive2")
+        );
+        assert_eq!(archived_index.baseline_count, 2);
+        assert_eq!(archived_index.ready_baseline_count, 2);
+        assert_eq!(archived_index.blocked_baseline_count, 0);
+        assert_eq!(archived_index.rejected_baseline_count, 0);
+        assert!(archived_index
+            .entries
+            .iter()
+            .any(|entry| entry.baseline_id == saved_baseline.baseline_id
+                && entry.baseline_manifest_path.as_deref()
+                    == Some(saved_baseline_path.display().to_string().as_str())));
+        assert!(archived_index.entries.iter().any(|entry| {
+            entry.baseline_id == archived_baseline.baseline_id
+                && entry.baseline_manifest_path.as_deref()
+                    == Some(baseline_path.display().to_string().as_str())
+        }));
+        let readback =
+            load_shell_handoff_acceptance_baseline_index(&index_path).expect("load appended index");
+        assert_eq!(readback, archived_index);
+
+        let status = shell_handoff_acceptance_baseline_append_status(
+            &report,
+            &archived_baseline,
+            &archived_index,
+            &checklist_path,
+            &baseline_path,
+            &loaded_index_path,
+            &bundle_root,
+        );
+        assert!(status.contains("acceptance baseline archived"));
+        assert!(status.contains("baseline: studio.project.makepad_edit.rev1.ready.archive2"));
+        assert!(status.contains(
+            "baseline selection selected; requested studio.project.makepad_edit.rev1.ready.archive2; default studio.project.makepad_edit.rev1.ready.archive2; selected studio.project.makepad_edit.rev1.ready.archive2"
+        ));
+        assert!(status.contains(
+            "baseline index slots 2; default studio.project.makepad_edit.rev1.ready.archive2"
+        ));
+        assert!(status.contains("studio.project.makepad_edit.rev1.ready [ready]"));
+        assert!(status.contains("studio.project.makepad_edit.rev1.ready.archive2 [ready]"));
     }
 
     #[test]
