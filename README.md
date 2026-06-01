@@ -156,6 +156,7 @@ cargo run -p rusty-studio-cli -- validate-shell-handoff-manifest --manifest targ
 cargo run -p rusty-studio-cli -- shell-handoff-intake --manifest target\studio-shell-handoffs\shell-handoffs.json --output target\studio-shell-handoffs\shell-handoff-intake.json
 cargo run -p rusty-studio-cli -- shell-runbook --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-runbook.json
 cargo run -p rusty-studio-cli -- shell-export-package --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-export-package.json
+cargo run -p rusty-studio-cli -- shell-export-package --manifest target\studio-shell-handoffs\shell-handoffs.json --output target\studio-shell-handoffs\shell-export-package.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-checklist --intake target\studio-shell-handoffs\shell-handoff-intake.json --output target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-snapshot --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-summary --checklist target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-summary.json
@@ -184,6 +185,9 @@ those requests. Shell export-package summaries are review-only bundles over the
 same generated shell descriptors, template manifests, and runbook rows: they
 help a Hostess/Manifold owner inspect what would be staged, but Studio still
 does not stage, install, launch, open command sessions, or collect evidence.
+They can be regenerated from an archived shell handoff manifest so stale or
+damaged descriptor/template files are caught as review blockers while intact
+targets remain visible.
 Shell handoff acceptance checklists are also declarative: they
 enumerate downstream readiness
 checks and explicitly prohibit install, launch, command-session opening, and

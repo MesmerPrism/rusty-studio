@@ -13,8 +13,8 @@ use rusty_studio_core::{
     remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
     save_project, save_shell_bundle, select_shell_handoff_acceptance_baseline_index_entry,
     selected_shell_bundle_for_graph, shell_artifacts_for_project, shell_descriptor_artifact_path,
-    shell_descriptor_for_graph, shell_export_package_for_project,
-    shell_handoff_acceptance_baseline_index_for_manifests,
+    shell_descriptor_for_graph, shell_export_package_for_manifest,
+    shell_export_package_for_project, shell_handoff_acceptance_baseline_index_for_manifests,
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_intake, shell_handoff_acceptance_checklist_for_project,
     shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
@@ -302,9 +302,11 @@ struct ShellRunbookArgs {
 #[derive(Debug, Parser)]
 struct ShellExportPackageArgs {
     #[arg(long)]
-    project: PathBuf,
+    project: Option<PathBuf>,
     #[arg(long)]
-    bundle_root: PathBuf,
+    bundle_root: Option<PathBuf>,
+    #[arg(long)]
+    manifest: Option<PathBuf>,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -785,12 +787,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Command::ShellExportPackage(args) => {
-            let project = load_project(&args.project)?;
-            let report = shell_export_package_for_project(
-                &project,
-                args.project.parent(),
-                &args.bundle_root,
-            );
+            let report = if let Some(manifest_path) = args.manifest.as_ref() {
+                let manifest = load_shell_handoff_manifest(manifest_path)?;
+                shell_export_package_for_manifest(&manifest)
+            } else {
+                let project_path = args.project.as_ref().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--project is required unless --manifest is supplied",
+                    )
+                })?;
+                let bundle_root = args.bundle_root.as_ref().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--bundle-root is required unless --manifest is supplied",
+                    )
+                })?;
+                let project = load_project(project_path)?;
+                shell_export_package_for_project(&project, project_path.parent(), bundle_root)
+            };
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }

@@ -74,6 +74,9 @@ try {
     $ShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake.json"
     $ShellRunbookPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-runbook.json"
     $ShellExportPackagePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package.json"
+    $DamagedShellBundleRoot = Join-Path $RepoRoot "target\studio-damaged-selected-shell"
+    $DamagedShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-damaged-descriptor.json"
+    $DamagedShellExportPackagePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-export-package-damaged-descriptor.json"
     $ShellHandoffAcceptanceChecklistPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json"
     $ShellHandoffAcceptanceSnapshotPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-snapshot.json"
     $ShellHandoffAcceptanceSummaryPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-acceptance-summary.json"
@@ -94,12 +97,12 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
     }
-    foreach ($GeneratedDir in @($ShellArtifactsDir, $ShellTemplatesDir, $MissingShellBundleRoot, $SelectedShellBundleDir, $SelectedPhoneShellBundleDir, $SelectedQuestShellBundleDir)) {
+    foreach ($GeneratedDir in @($ShellArtifactsDir, $ShellTemplatesDir, $DamagedShellBundleRoot, $MissingShellBundleRoot, $SelectedShellBundleDir, $SelectedPhoneShellBundleDir, $SelectedQuestShellBundleDir)) {
         if (Test-Path $GeneratedDir) {
             Remove-Item -Recurse -Force -LiteralPath $GeneratedDir
         }
@@ -1822,6 +1825,93 @@ try {
             }
             if ($RunbookRequest -notcontains "--templates") {
                 throw "shell export package runbook CLI request missing --templates for $($RequiredPackage.Graph)"
+            }
+        }
+    }
+    Copy-Item -Recurse -LiteralPath $SelectedShellBundleRoot -Destination $DamagedShellBundleRoot
+    $DamagedShellHandoffManifestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-manifest --project $SourceProjectPath --bundle-root $DamagedShellBundleRoot --output $DamagedShellHandoffManifestPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio damaged shell handoff manifest failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $DamagedShellHandoffManifestPath)) {
+        throw "damaged shell handoff manifest was not written"
+    }
+    $DamagedManifest = ($DamagedShellHandoffManifestOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($DamagedManifest.status -ne "pass" -or $DamagedManifest.ready_count -ne 3) {
+        throw "damaged shell manifest should be archived before descriptor removal"
+    }
+    $DamagedPhoneDescriptorPath = Join-Path $DamagedShellBundleRoot "studio.graph.synthetic_wave_phone\descriptors\studio.graph.synthetic_wave_phone.shell-descriptor.json"
+    if (-not (Test-Path $DamagedPhoneDescriptorPath)) {
+        throw "damaged shell descriptor fixture path missing before removal"
+    }
+    Remove-Item -LiteralPath $DamagedPhoneDescriptorPath
+    $DamagedShellExportPackageOutput = & cargo run --quiet -p rusty-studio-cli -- shell-export-package --manifest $DamagedShellHandoffManifestPath --output $DamagedShellExportPackagePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio damaged shell export package failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $DamagedShellExportPackagePath)) {
+        throw "damaged shell export package was not written"
+    }
+    $DamagedShellExportPackage = ($DamagedShellExportPackageOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenDamagedShellExportPackage = Get-Content -Raw $DamagedShellExportPackagePath | ConvertFrom-Json
+    foreach ($DamagedPackageView in @($DamagedShellExportPackage, $WrittenDamagedShellExportPackage)) {
+        if ($DamagedPackageView.'$schema' -ne "rusty.studio.shell_export_package_report.v1") {
+            throw "damaged shell export package schema mismatch"
+        }
+        if ($DamagedPackageView.source_manifest_schema -ne "rusty.studio.shell_handoff_manifest.v1" -or $DamagedPackageView.source_runbook_schema -ne "rusty.studio.shell_runbook_report.v1") {
+            throw "damaged shell export package source schema mismatch"
+        }
+        if ($DamagedPackageView.status -ne "blocked") {
+            throw "damaged shell export package should be blocked"
+        }
+        if ($DamagedPackageView.issue_code -ne "studio.issue.shell_export_package_descriptor_load_failed") {
+            throw "damaged shell export package issue mismatch"
+        }
+        if ($DamagedPackageView.ready_count -ne 2 -or $DamagedPackageView.blocked_count -ne 1 -or $DamagedPackageView.rejected_count -ne 0) {
+            throw "damaged shell export package counts mismatch"
+        }
+        if ($DamagedPackageView.descriptor_count -ne 2 -or $DamagedPackageView.template_manifest_count -ne 3 -or $DamagedPackageView.runbook_entry_count -ne 3) {
+            throw "damaged shell export package artifact counts mismatch"
+        }
+        if ($DamagedPackageView.execution_policy -ne "not_executed.review_only" -or $DamagedPackageView.review_owner -ne "rusty.hostess") {
+            throw "damaged shell export package review policy mismatch"
+        }
+        if ($DamagedPackageView.command_session_authority -ne "rusty.manifold" -or $DamagedPackageView.install_launch_evidence_authority -ne "rusty.hostess" -or $DamagedPackageView.studio_role -ne "authoring.export_planning") {
+            throw "damaged shell export package authority mismatch"
+        }
+        $DamagedPhoneTarget = @($DamagedPackageView.target_summaries | Where-Object { $_.target_kind -eq "phone" }) | Select-Object -First 1
+        if ($null -eq $DamagedPhoneTarget -or $DamagedPhoneTarget.ready_count -ne 0 -or $DamagedPhoneTarget.blocked_count -ne 1 -or $DamagedPhoneTarget.descriptor_count -ne 0 -or $DamagedPhoneTarget.template_manifest_count -ne 1) {
+            throw "damaged shell export package phone target mismatch"
+        }
+        if (-not (@($DamagedPhoneTarget.issue_codes) -contains "studio.issue.shell_export_package_descriptor_load_failed")) {
+            throw "damaged shell export package phone issue mismatch"
+        }
+        $DamagedPhoneEntry = @($DamagedPackageView.entries | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_phone" }) | Select-Object -First 1
+        if ($null -eq $DamagedPhoneEntry) {
+            throw "damaged shell export package missing phone entry"
+        }
+        if ($DamagedPhoneEntry.status -ne "blocked" -or $DamagedPhoneEntry.responsible_owner -ne "rusty.studio" -or $DamagedPhoneEntry.issue_code -ne "studio.issue.shell_export_package_descriptor_load_failed") {
+            throw "damaged shell export package phone entry status mismatch"
+        }
+        if ($null -ne $DamagedPhoneEntry.descriptor -or $null -eq $DamagedPhoneEntry.template_manifest) {
+            throw "damaged shell export package phone refs mismatch"
+        }
+        if (@($DamagedPhoneEntry.runbook_cli_request).Count -ne 0) {
+            throw "damaged shell export package blocked phone should not expose a CLI request"
+        }
+        if ($DamagedPhoneEntry.template_manifest.host_routes.command_bridge -ne "bridge.adb_intent_file") {
+            throw "damaged shell export package phone template host route mismatch"
+        }
+        foreach ($ReadyGraph in @("studio.graph.synthetic_wave_desktop", "studio.graph.synthetic_wave_headset")) {
+            $ReadyEntry = @($DamagedPackageView.entries | Where-Object { $_.graph_id -eq $ReadyGraph }) | Select-Object -First 1
+            if ($null -eq $ReadyEntry) {
+                throw "damaged shell export package missing ready graph $ReadyGraph"
+            }
+            if ($ReadyEntry.status -ne "ready" -or $ReadyEntry.responsible_owner -ne "rusty.hostess" -or $null -eq $ReadyEntry.descriptor -or $null -eq $ReadyEntry.template_manifest) {
+                throw "damaged shell export package ready graph mismatch for $ReadyGraph"
+            }
+            if (@($ReadyEntry.runbook_cli_request).Count -lt 7 -or -not (@($ReadyEntry.runbook_cli_request) -contains "--templates")) {
+                throw "damaged shell export package ready graph CLI request mismatch for $ReadyGraph"
             }
         }
     }

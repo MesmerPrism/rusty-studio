@@ -3542,7 +3542,11 @@ fn shell_export_package_entry(entry: &StudioShellRunbookEntry) -> StudioShellExp
         bundle_dir: entry.bundle_dir.clone(),
         descriptor,
         template_manifest,
-        runbook_cli_request: entry.cli_request.clone(),
+        runbook_cli_request: if status == StudioShellExportPackageStatus::Ready {
+            entry.cli_request.clone()
+        } else {
+            Vec::new()
+        },
         host_routes: entry.host_routes.clone(),
         package_ids: entry.package_ids.clone(),
         module_ids: entry.module_ids.clone(),
@@ -10533,6 +10537,89 @@ mod tests {
                 && entry.runbook_cli_request.is_empty()
                 && entry.execution_policy == "not_executed.review_only"
         }));
+    }
+
+    #[test]
+    fn shell_export_package_blocks_one_damaged_descriptor_from_valid_manifest() {
+        let root = temp_root("shell-export-package-damaged-descriptor");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        let runbook = shell_runbook_for_manifest(&manifest);
+        assert_eq!(runbook.status, StudioShellRunbookStatus::Ready);
+
+        std::fs::remove_file(
+            bundle_root
+                .join("studio.graph.phone")
+                .join("descriptors/studio.graph.phone.shell-descriptor.json"),
+        )
+        .expect("remove phone descriptor");
+
+        let package = shell_export_package_for_manifest(&manifest);
+
+        assert_eq!(package.status, StudioShellExportPackageStatus::Blocked);
+        assert_eq!(
+            package.issue_code.as_deref(),
+            Some("studio.issue.shell_export_package_descriptor_load_failed")
+        );
+        assert_eq!(package.ready_count, 2);
+        assert_eq!(package.blocked_count, 1);
+        assert_eq!(package.rejected_count, 0);
+        assert_eq!(package.descriptor_count, 2);
+        assert_eq!(package.template_manifest_count, 3);
+        assert_eq!(package.runbook_entry_count, 3);
+
+        let phone = package
+            .entries
+            .iter()
+            .find(|entry| entry.graph_id == "studio.graph.phone")
+            .expect("phone export package row");
+        assert_eq!(phone.status, StudioShellExportPackageStatus::Blocked);
+        assert_eq!(phone.responsible_owner, "rusty.studio");
+        assert_eq!(
+            phone.issue_code.as_deref(),
+            Some("studio.issue.shell_export_package_descriptor_load_failed")
+        );
+        assert!(phone.descriptor.is_none());
+        assert!(phone.template_manifest.is_some());
+        assert!(phone.runbook_cli_request.is_empty());
+        assert_eq!(
+            phone.host_routes.command_bridge.as_deref(),
+            Some("bridge.adb_intent_file")
+        );
+
+        for target_kind in [StudioShellTargetKind::Desktop, StudioShellTargetKind::Quest] {
+            let entry = package
+                .entries
+                .iter()
+                .find(|entry| entry.target_kind == target_kind)
+                .expect("undamaged export package row");
+            assert_eq!(entry.status, StudioShellExportPackageStatus::Ready);
+            assert_eq!(entry.responsible_owner, "rusty.hostess");
+            assert!(entry.descriptor.is_some());
+            assert!(entry.template_manifest.is_some());
+            assert!(!entry.runbook_cli_request.is_empty());
+        }
+
+        let phone_summary = package
+            .target_summaries
+            .iter()
+            .find(|summary| summary.target_kind == StudioShellTargetKind::Phone)
+            .expect("phone summary");
+        assert_eq!(phone_summary.ready_count, 0);
+        assert_eq!(phone_summary.blocked_count, 1);
+        assert_eq!(phone_summary.descriptor_count, 0);
+        assert_eq!(phone_summary.template_manifest_count, 1);
+        assert_eq!(
+            phone_summary.issue_codes,
+            vec!["studio.issue.shell_export_package_descriptor_load_failed"]
+        );
     }
 
     #[test]
