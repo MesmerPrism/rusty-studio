@@ -28,6 +28,7 @@ pub const SHELL_HANDOFF_READINESS_REPORT_SCHEMA: &str =
 pub const SHELL_HANDOFF_MANIFEST_SCHEMA: &str = "rusty.studio.shell_handoff_manifest.v1";
 pub const SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA: &str =
     "rusty.studio.shell_handoff_manifest_validation_report.v1";
+pub const SHELL_HANDOFF_INTAKE_REPORT_SCHEMA: &str = "rusty.studio.shell_handoff_intake_report.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -627,6 +628,77 @@ pub struct StudioShellHandoffManifestValidationReport {
     pub manifest_id: String,
     pub status: StudioValidationStatus,
     pub checks: Vec<StudioValidationCheck>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffIntakeReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: &'static str,
+    pub manifest_id: String,
+    pub project_id: String,
+    pub project_revision: u64,
+    pub status: StudioShellHandoffIntakeStatus,
+    pub issue_code: Option<String>,
+    pub command_session_authority: String,
+    pub install_launch_evidence_authority: String,
+    pub studio_role: String,
+    pub accepted_count: usize,
+    pub blocked_count: usize,
+    pub target_summaries: Vec<StudioShellHandoffIntakeTargetSummary>,
+    pub entries: Vec<StudioShellHandoffIntakeEntry>,
+    pub validation: StudioShellHandoffManifestValidationReport,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHandoffIntakeStatus {
+    Accepted,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffIntakeTargetSummary {
+    pub target_kind: StudioShellTargetKind,
+    pub accepted_count: usize,
+    pub blocked_count: usize,
+    pub graph_ids: Vec<String>,
+    pub consumer_ids: Vec<String>,
+    pub bundle_dirs: Vec<String>,
+    pub template_index_paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffIntakeEntry {
+    pub export_bundle_id: String,
+    pub graph_id: String,
+    pub display_name: String,
+    pub target_host_profile: String,
+    pub target_kind: StudioShellTargetKind,
+    pub handoff_kind: StudioShellHandoffKind,
+    pub consumer_id: String,
+    pub handoff_status: StudioValidationStatus,
+    pub issue_code: Option<String>,
+    pub decision: StudioShellHandoffIntakeDecision,
+    pub handoff_request_kind: String,
+    pub runtime_route_kind: String,
+    pub next_required_action: String,
+    pub bundle_dir: String,
+    pub template_index_path: String,
+    pub consumer_args: Vec<String>,
+    pub command_session_authority: String,
+    pub install_launch_evidence_authority: String,
+    pub studio_role: String,
+    pub package_ids: Vec<String>,
+    pub module_ids: Vec<String>,
+    pub operator_shell_ids: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHandoffIntakeDecision {
+    ReadyForRuntimeOwner,
+    BlockedByManifestIssue,
+    BlockedByHandoffIssue,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

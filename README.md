@@ -120,6 +120,7 @@ cargo run -p rusty-studio-cli -- shell-handoff --project examples\synthetic-stud
 cargo run -p rusty-studio-cli -- shell-handoff-readiness --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell
 cargo run -p rusty-studio-cli -- shell-handoff-manifest --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-handoffs.json
 cargo run -p rusty-studio-cli -- validate-shell-handoff-manifest --manifest target\studio-shell-handoffs\shell-handoffs.json
+cargo run -p rusty-studio-cli -- shell-handoff-intake --manifest target\studio-shell-handoffs\shell-handoffs.json --output target\studio-shell-handoffs\shell-handoff-intake.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -130,4 +131,6 @@ All CLI commands print JSON. The Makepad surface uses the same core edit
 operations and displays the resulting edit report after an accepted or rejected
 request. The desktop shell is a read-only descriptor, artifact-manifest, or
 template-index consumer; it does not own runtime command/session authority,
-launch, or evidence collection.
+launch, or evidence collection. Shell handoff intake is a schema-only
+classification report for Hostess/Manifold-owned next steps; it does not install,
+launch, open command sessions, or collect device evidence.

@@ -7,7 +7,9 @@ use rusty_studio_model::{
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
-    StudioShellDescriptorValidationReport, StudioShellHandoffKind, StudioShellHandoffManifest,
+    StudioShellDescriptorValidationReport, StudioShellHandoffIntakeDecision,
+    StudioShellHandoffIntakeEntry, StudioShellHandoffIntakeReport, StudioShellHandoffIntakeStatus,
+    StudioShellHandoffIntakeTargetSummary, StudioShellHandoffKind, StudioShellHandoffManifest,
     StudioShellHandoffManifestEntry, StudioShellHandoffManifestTarget,
     StudioShellHandoffManifestValidationReport, StudioShellHandoffReadinessEntry,
     StudioShellHandoffReadinessReport, StudioShellHandoffReadinessTargetSummary,
@@ -21,11 +23,12 @@ use rusty_studio_model::{
     SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_ARTIFACT_REPORT_SCHEMA,
     SHELL_BUNDLE_REPORT_SCHEMA, SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA,
     SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
-    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
-    SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
-    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
-    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
-    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
+    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+    SHELL_HANDOFF_MANIFEST_SCHEMA, SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA,
+    SHELL_HANDOFF_READINESS_REPORT_SCHEMA, SHELL_HANDOFF_REPORT_SCHEMA,
+    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
+    VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -3003,6 +3006,60 @@ pub fn validate_shell_handoff_manifest(
     }
 }
 
+pub fn shell_handoff_intake_for_manifest(
+    manifest: &StudioShellHandoffManifest,
+) -> StudioShellHandoffIntakeReport {
+    let validation = validate_shell_handoff_manifest(manifest);
+    let authority = shell_runtime_authority();
+    if validation.status == StudioValidationStatus::Fail {
+        return StudioShellHandoffIntakeReport {
+            schema_id: SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+            manifest_id: manifest.manifest_id.clone(),
+            project_id: manifest.project_id.clone(),
+            project_revision: manifest.project_revision,
+            status: StudioShellHandoffIntakeStatus::Rejected,
+            issue_code: first_failed_validation_check_issue_code(&validation.checks),
+            command_session_authority: authority.command_session_authority,
+            install_launch_evidence_authority: authority.install_launch_evidence_authority,
+            studio_role: authority.studio_role,
+            accepted_count: 0,
+            blocked_count: 0,
+            target_summaries: Vec::new(),
+            entries: Vec::new(),
+            validation,
+        };
+    }
+
+    let entries = manifest
+        .handoffs
+        .iter()
+        .map(|handoff| shell_handoff_intake_entry(handoff, &authority))
+        .collect::<Vec<_>>();
+    let accepted_count = entries
+        .iter()
+        .filter(|entry| entry.decision == StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner)
+        .count();
+    let blocked_count = entries.len() - accepted_count;
+    let target_summaries = shell_handoff_intake_target_summaries(&entries);
+
+    StudioShellHandoffIntakeReport {
+        schema_id: SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+        manifest_id: manifest.manifest_id.clone(),
+        project_id: manifest.project_id.clone(),
+        project_revision: manifest.project_revision,
+        status: StudioShellHandoffIntakeStatus::Accepted,
+        issue_code: None,
+        command_session_authority: authority.command_session_authority,
+        install_launch_evidence_authority: authority.install_launch_evidence_authority,
+        studio_role: authority.studio_role,
+        accepted_count,
+        blocked_count,
+        target_summaries,
+        entries,
+        validation,
+    }
+}
+
 pub fn validate_shell_template_index(
     index: &StudioShellTemplateIndex,
     base_dir: Option<&Path>,
@@ -4592,12 +4649,22 @@ fn shell_handoff_readiness_entry(
     let package_count = export_bundle.package_ids.len();
     let module_count = export_bundle.module_ids.len();
     let operator_shell_count = export_bundle.operator_shell_ids.len();
-    let target_kind = if handoff.target_kind == StudioShellTargetKind::Unknown
-        && handoff.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
-    {
+    let uses_intended_target = handoff.target_kind == StudioShellTargetKind::Unknown
+        && handoff.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing");
+    let target_kind = if uses_intended_target {
         intended_target_kind
     } else {
         handoff.target_kind
+    };
+    let handoff_kind = if uses_intended_target {
+        shell_handoff_kind_for_target(target_kind)
+    } else {
+        handoff.handoff_kind
+    };
+    let consumer_id = if uses_intended_target {
+        shell_handoff_consumer_id(target_kind).to_string()
+    } else {
+        handoff.consumer_id
     };
     StudioShellHandoffReadinessEntry {
         export_bundle_id: export_bundle.bundle_id.clone(),
@@ -4614,8 +4681,8 @@ fn shell_handoff_readiness_entry(
         status: handoff.status,
         issue_code: handoff.issue_code,
         message: handoff.message,
-        handoff_kind: handoff.handoff_kind,
-        consumer_id: handoff.consumer_id,
+        handoff_kind,
+        consumer_id,
         bundle_dir: handoff.bundle_dir,
         template_index_path: handoff.template_index_path,
         consumer_args: handoff.consumer_args,
@@ -4804,6 +4871,100 @@ fn shell_handoff_manifest_entry(
         validation_status: entry.validation_status,
         failed_check_count: entry.failed_check_count,
     }
+}
+
+fn shell_handoff_intake_entry(
+    handoff: &StudioShellHandoffManifestEntry,
+    authority: &StudioShellRuntimeAuthority,
+) -> StudioShellHandoffIntakeEntry {
+    let decision = if handoff.status == StudioValidationStatus::Pass {
+        StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner
+    } else {
+        StudioShellHandoffIntakeDecision::BlockedByHandoffIssue
+    };
+    StudioShellHandoffIntakeEntry {
+        export_bundle_id: handoff.export_bundle_id.clone(),
+        graph_id: handoff.graph_id.clone(),
+        display_name: handoff.display_name.clone(),
+        target_host_profile: handoff.target_host_profile.clone(),
+        target_kind: handoff.target_kind,
+        handoff_kind: handoff.handoff_kind,
+        consumer_id: handoff.consumer_id.clone(),
+        handoff_status: handoff.status,
+        issue_code: handoff.issue_code.clone(),
+        decision,
+        handoff_request_kind: "operator_shell_handoff".to_string(),
+        runtime_route_kind: format!(
+            "{}_operator_shell",
+            shell_target_kind_label(handoff.target_kind)
+        ),
+        next_required_action: shell_handoff_intake_next_action(decision).to_string(),
+        bundle_dir: handoff.bundle_dir.clone(),
+        template_index_path: handoff.template_index_path.clone(),
+        consumer_args: handoff.consumer_args.clone(),
+        command_session_authority: authority.command_session_authority.clone(),
+        install_launch_evidence_authority: authority.install_launch_evidence_authority.clone(),
+        studio_role: authority.studio_role.clone(),
+        package_ids: handoff.package_ids.clone(),
+        module_ids: handoff.module_ids.clone(),
+        operator_shell_ids: handoff.operator_shell_ids.clone(),
+    }
+}
+
+fn shell_handoff_intake_next_action(decision: StudioShellHandoffIntakeDecision) -> &'static str {
+    match decision {
+        StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner => "stage_with_runtime_owner",
+        StudioShellHandoffIntakeDecision::BlockedByManifestIssue => "repair_handoff_manifest",
+        StudioShellHandoffIntakeDecision::BlockedByHandoffIssue => "repair_export_bundle",
+    }
+}
+
+fn shell_handoff_intake_target_summaries(
+    entries: &[StudioShellHandoffIntakeEntry],
+) -> Vec<StudioShellHandoffIntakeTargetSummary> {
+    shell_target_kinds()
+        .iter()
+        .filter_map(|target_kind| shell_handoff_intake_target_summary(entries, *target_kind))
+        .collect()
+}
+
+fn shell_handoff_intake_target_summary(
+    entries: &[StudioShellHandoffIntakeEntry],
+    target_kind: StudioShellTargetKind,
+) -> Option<StudioShellHandoffIntakeTargetSummary> {
+    let target_entries = entries
+        .iter()
+        .filter(|entry| entry.target_kind == target_kind)
+        .collect::<Vec<_>>();
+    if target_entries.is_empty() {
+        return None;
+    }
+
+    let accepted_count = target_entries
+        .iter()
+        .filter(|entry| entry.decision == StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner)
+        .count();
+    let blocked_count = target_entries.len() - accepted_count;
+    Some(StudioShellHandoffIntakeTargetSummary {
+        target_kind,
+        accepted_count,
+        blocked_count,
+        graph_ids: unique_strings(target_entries.iter().map(|entry| entry.graph_id.clone())),
+        consumer_ids: unique_strings(target_entries.iter().map(|entry| entry.consumer_id.clone())),
+        bundle_dirs: unique_strings(target_entries.iter().map(|entry| entry.bundle_dir.clone())),
+        template_index_paths: unique_strings(
+            target_entries
+                .iter()
+                .map(|entry| entry.template_index_path.clone()),
+        ),
+    })
+}
+
+fn first_failed_validation_check_issue_code(checks: &[StudioValidationCheck]) -> Option<String> {
+    checks
+        .iter()
+        .find(|check| check.status == StudioValidationStatus::Fail)
+        .and_then(|check| check.issue_code.clone())
 }
 
 fn validate_shell_handoff_manifest_counts(
@@ -6810,10 +6971,11 @@ mod tests {
         StudioBindingKind, StudioEdgeKind, StudioEdgeLayout, StudioEdgeRouteKind,
         StudioEditOperation, StudioEditStatus, StudioGraphLayout, StudioNode, StudioNodeKind,
         StudioNodeLayout, StudioShellArtifactStatus, StudioShellBundleStatus,
-        StudioShellDescriptorStatus, StudioShellHandoffKind, StudioShellTargetKind,
-        StudioShellTemplateStatus, SHELL_HANDOFF_MANIFEST_SCHEMA,
-        SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
-        SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+        StudioShellDescriptorStatus, StudioShellHandoffIntakeDecision,
+        StudioShellHandoffIntakeStatus, StudioShellHandoffKind, StudioShellTargetKind,
+        StudioShellTemplateStatus, SHELL_HANDOFF_INTAKE_REPORT_SCHEMA,
+        SHELL_HANDOFF_MANIFEST_SCHEMA, SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA,
+        SHELL_HANDOFF_READINESS_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
     };
 
     fn valid_project() -> StudioProject {
@@ -8119,6 +8281,124 @@ mod tests {
         assert_eq!(validation.status, StudioValidationStatus::Fail);
         assert!(validation.checks.iter().any(|check| {
             check.issue_code.as_deref() == Some("studio.issue.handoff_consumer_args_mismatch")
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_intake_accepts_valid_manifest() {
+        let root = temp_root("shell-handoff-intake");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+
+        let intake = shell_handoff_intake_for_manifest(&manifest);
+
+        assert_eq!(intake.schema_id, SHELL_HANDOFF_INTAKE_REPORT_SCHEMA);
+        assert_eq!(intake.status, StudioShellHandoffIntakeStatus::Accepted);
+        assert_eq!(intake.issue_code, None);
+        assert_eq!(intake.validation.status, StudioValidationStatus::Pass);
+        assert_eq!(intake.accepted_count, 3);
+        assert_eq!(intake.blocked_count, 0);
+        assert_eq!(intake.target_summaries.len(), 3);
+        assert_eq!(intake.entries.len(), 3);
+        assert_eq!(intake.command_session_authority, "rusty.manifold");
+        assert_eq!(intake.install_launch_evidence_authority, "rusty.hostess");
+        assert_eq!(intake.studio_role, "authoring.export_planning");
+        for target_kind in [
+            StudioShellTargetKind::Desktop,
+            StudioShellTargetKind::Phone,
+            StudioShellTargetKind::Quest,
+        ] {
+            let summary = intake
+                .target_summaries
+                .iter()
+                .find(|summary| summary.target_kind == target_kind)
+                .expect("intake target summary");
+            assert_eq!(summary.accepted_count, 1);
+            assert_eq!(summary.blocked_count, 0);
+            assert_eq!(summary.graph_ids.len(), 1);
+            assert_eq!(summary.consumer_ids.len(), 1);
+            assert_eq!(summary.bundle_dirs.len(), 1);
+            assert_eq!(summary.template_index_paths.len(), 1);
+        }
+        assert!(intake.entries.iter().all(|entry| {
+            entry.decision == StudioShellHandoffIntakeDecision::ReadyForRuntimeOwner
+                && entry.handoff_status == StudioValidationStatus::Pass
+                && entry.issue_code.is_none()
+                && entry.handoff_request_kind == "operator_shell_handoff"
+                && entry.next_required_action == "stage_with_runtime_owner"
+                && entry.command_session_authority == "rusty.manifold"
+                && entry.install_launch_evidence_authority == "rusty.hostess"
+                && entry.studio_role == "authoring.export_planning"
+                && entry.consumer_args.iter().any(|arg| arg == "--templates")
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_intake_rejects_invalid_manifest() {
+        let root = temp_root("shell-handoff-intake-invalid");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let mut manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        manifest.runtime_authority.command_session_authority = "rusty.studio".to_string();
+
+        let intake = shell_handoff_intake_for_manifest(&manifest);
+
+        assert_eq!(intake.schema_id, SHELL_HANDOFF_INTAKE_REPORT_SCHEMA);
+        assert_eq!(intake.status, StudioShellHandoffIntakeStatus::Rejected);
+        assert_eq!(
+            intake.issue_code.as_deref(),
+            Some("studio.issue.runtime_authority_mismatch")
+        );
+        assert_eq!(intake.validation.status, StudioValidationStatus::Fail);
+        assert_eq!(intake.accepted_count, 0);
+        assert_eq!(intake.blocked_count, 0);
+        assert!(intake.target_summaries.is_empty());
+        assert!(intake.entries.is_empty());
+        assert_eq!(intake.command_session_authority, "rusty.manifold");
+        assert_eq!(intake.install_launch_evidence_authority, "rusty.hostess");
+    }
+
+    #[test]
+    fn shell_handoff_intake_blocks_missing_bundles_after_valid_manifest_shape() {
+        let root = temp_root("shell-handoff-intake-missing");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("missing-selected-shells");
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+
+        let intake = shell_handoff_intake_for_manifest(&manifest);
+
+        assert_eq!(intake.status, StudioShellHandoffIntakeStatus::Accepted);
+        assert_eq!(intake.validation.status, StudioValidationStatus::Pass);
+        assert_eq!(intake.accepted_count, 0);
+        assert_eq!(intake.blocked_count, 3);
+        assert_eq!(intake.target_summaries.len(), 3);
+        assert_eq!(intake.entries.len(), 3);
+        assert!(intake.target_summaries.iter().all(|summary| {
+            summary.accepted_count == 0
+                && summary.blocked_count == 1
+                && summary.graph_ids.len() == 1
+                && summary.consumer_ids.len() == 1
+        }));
+        assert!(intake.entries.iter().all(|entry| {
+            entry.decision == StudioShellHandoffIntakeDecision::BlockedByHandoffIssue
+                && entry.handoff_status == StudioValidationStatus::Fail
+                && entry.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
+                && entry.next_required_action == "repair_export_bundle"
+                && entry.consumer_args.is_empty()
         }));
     }
 

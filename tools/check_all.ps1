@@ -32,12 +32,13 @@ try {
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
     $SelectedShellBundleRoot = Join-Path $RepoRoot "target\studio-selected-shell"
     $ShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs.json"
+    $ShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake.json"
     $InvalidShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-invalid-authority.json"
     $SelectedShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_desktop"
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $InvalidShellHandoffManifestPath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $InvalidShellHandoffManifestPath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -1470,6 +1471,88 @@ try {
     if (@($HandoffManifestValidation.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
         throw "shell handoff manifest validation reported failed checks"
     }
+    $HandoffIntakeOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-intake --manifest $ShellHandoffManifestPath --output $ShellHandoffIntakePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell handoff intake failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ShellHandoffIntakePath)) {
+        throw "shell handoff intake was not written"
+    }
+    $HandoffIntake = ($HandoffIntakeOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenHandoffIntake = Get-Content -Raw $ShellHandoffIntakePath | ConvertFrom-Json
+    foreach ($IntakeView in @($HandoffIntake, $WrittenHandoffIntake)) {
+        if ($IntakeView.'$schema' -ne "rusty.studio.shell_handoff_intake_report.v1") {
+            throw "shell handoff intake schema mismatch"
+        }
+        if ($IntakeView.status -ne "accepted") {
+            throw "shell handoff intake was not accepted"
+        }
+        if ($null -ne $IntakeView.issue_code) {
+            throw "shell handoff intake should not carry a top-level issue"
+        }
+        if ($IntakeView.validation.status -ne "pass") {
+            throw "shell handoff intake validation did not pass"
+        }
+        if ($IntakeView.accepted_count -ne 3) {
+            throw "shell handoff intake accepted count mismatch"
+        }
+        if ($IntakeView.blocked_count -ne 0) {
+            throw "shell handoff intake blocked count mismatch"
+        }
+        if (@($IntakeView.target_summaries).Count -ne 3) {
+            throw "shell handoff intake target count mismatch"
+        }
+        if (@($IntakeView.entries).Count -ne 3) {
+            throw "shell handoff intake entry count mismatch"
+        }
+        if ($IntakeView.command_session_authority -ne "rusty.manifold") {
+            throw "shell handoff intake command/session authority mismatch"
+        }
+        if ($IntakeView.install_launch_evidence_authority -ne "rusty.hostess") {
+            throw "shell handoff intake install/launch/evidence authority mismatch"
+        }
+        if ($IntakeView.studio_role -ne "authoring.export_planning") {
+            throw "shell handoff intake Studio role mismatch"
+        }
+        foreach ($RequiredIntake in @(
+            @{ Graph = "studio.graph.synthetic_wave_desktop"; TargetKind = "desktop"; RouteKind = "desktop_operator_shell"; Consumer = "rusty-studio-desktop-shell" },
+            @{ Graph = "studio.graph.synthetic_wave_phone"; TargetKind = "phone"; RouteKind = "phone_operator_shell"; Consumer = "rusty-studio-phone-shell" },
+            @{ Graph = "studio.graph.synthetic_wave_headset"; TargetKind = "quest"; RouteKind = "quest_operator_shell"; Consumer = "rusty-studio-quest-shell" }
+        )) {
+            $IntakeTarget = @($IntakeView.target_summaries | Where-Object { $_.target_kind -eq $RequiredIntake.TargetKind }) | Select-Object -First 1
+            if ($null -eq $IntakeTarget) {
+                throw "shell handoff intake missing target $($RequiredIntake.TargetKind)"
+            }
+            if ($IntakeTarget.accepted_count -ne 1 -or $IntakeTarget.blocked_count -ne 0) {
+                throw "shell handoff intake target counts mismatch for $($RequiredIntake.TargetKind)"
+            }
+            if (@($IntakeTarget.consumer_ids).Count -ne 1 -or @($IntakeTarget.consumer_ids)[0] -ne $RequiredIntake.Consumer) {
+                throw "shell handoff intake target consumer mismatch for $($RequiredIntake.TargetKind)"
+            }
+            $IntakeEntry = @($IntakeView.entries | Where-Object { $_.graph_id -eq $RequiredIntake.Graph }) | Select-Object -First 1
+            if ($null -eq $IntakeEntry) {
+                throw "shell handoff intake missing graph $($RequiredIntake.Graph)"
+            }
+            if ($IntakeEntry.decision -ne "ready_for_runtime_owner" -or $IntakeEntry.handoff_status -ne "pass") {
+                throw "shell handoff intake decision mismatch for $($RequiredIntake.Graph)"
+            }
+            if ($IntakeEntry.handoff_request_kind -ne "operator_shell_handoff" -or $IntakeEntry.runtime_route_kind -ne $RequiredIntake.RouteKind) {
+                throw "shell handoff intake route kind mismatch for $($RequiredIntake.Graph)"
+            }
+            if ($IntakeEntry.next_required_action -ne "stage_with_runtime_owner") {
+                throw "shell handoff intake next action mismatch for $($RequiredIntake.Graph)"
+            }
+            if ($IntakeEntry.command_session_authority -ne "rusty.manifold") {
+                throw "shell handoff intake entry command/session authority mismatch for $($RequiredIntake.Graph)"
+            }
+            if ($IntakeEntry.install_launch_evidence_authority -ne "rusty.hostess") {
+                throw "shell handoff intake entry install/launch/evidence authority mismatch for $($RequiredIntake.Graph)"
+            }
+            if ($IntakeEntry.studio_role -ne "authoring.export_planning") {
+                throw "shell handoff intake entry Studio role mismatch for $($RequiredIntake.Graph)"
+            }
+        }
+    }
     $InvalidHandoffManifest = Get-Content -Raw $ShellHandoffManifestPath | ConvertFrom-Json
     $InvalidHandoffManifest.runtime_authority.command_session_authority = "rusty.studio"
     $InvalidHandoffManifest | ConvertTo-Json -Depth 100 | Set-Content -Encoding ascii $InvalidShellHandoffManifestPath
@@ -1483,6 +1566,29 @@ try {
     }
     if (@($InvalidHandoffManifestValidation.checks | Where-Object { $_.issue_code -eq "studio.issue.runtime_authority_mismatch" }).Count -lt 1) {
         throw "invalid shell handoff manifest validation missing runtime authority mismatch"
+    }
+    $InvalidHandoffIntakeOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-intake --manifest $InvalidShellHandoffManifestPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio invalid shell handoff intake failed with exit code $LASTEXITCODE"
+    }
+    $InvalidHandoffIntake = ($InvalidHandoffIntakeOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($InvalidHandoffIntake.'$schema' -ne "rusty.studio.shell_handoff_intake_report.v1") {
+        throw "invalid shell handoff intake schema mismatch"
+    }
+    if ($InvalidHandoffIntake.status -ne "rejected") {
+        throw "invalid shell handoff intake should be rejected"
+    }
+    if ($InvalidHandoffIntake.issue_code -ne "studio.issue.runtime_authority_mismatch") {
+        throw "invalid shell handoff intake issue mismatch"
+    }
+    if ($InvalidHandoffIntake.validation.status -ne "fail") {
+        throw "invalid shell handoff intake validation should fail"
+    }
+    if ($InvalidHandoffIntake.accepted_count -ne 0 -or $InvalidHandoffIntake.blocked_count -ne 0) {
+        throw "invalid shell handoff intake counts should be empty"
+    }
+    if (@($InvalidHandoffIntake.target_summaries).Count -ne 0 -or @($InvalidHandoffIntake.entries).Count -ne 0) {
+        throw "invalid shell handoff intake should not expose entries"
     }
 } finally {
     Pop-Location
