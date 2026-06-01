@@ -25,6 +25,7 @@ Current scope:
   endpoint references through the shared view model;
 - expose optional schema-only graph layout hints for nodes and edges through
   the shared view model and Makepad read-only canvas;
+- render those layout hints in a Makepad custom read-only node graph canvas;
 - add the next available catalog module from that palette through a shared
   core/CLI/Makepad mutation path;
 - render the resolved synthetic project in a Makepad desktop authoring surface;

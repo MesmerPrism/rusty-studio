@@ -107,6 +107,39 @@ script_mod! {
         draw_bg.color: #xe7ebef
     }
 
+    let StudioGraphCanvasBase = #(StudioGraphCanvas::register_widget(vm))
+    let StudioGraphCanvas = set_type_default() do StudioGraphCanvasBase{
+        width: Fill
+        height: 280.0
+        draw_bg +: {
+            draw_depth: 0.0
+            color: #xf8fafc
+        }
+        draw_edge +: {
+            draw_depth: 1.0
+        }
+        draw_node +: {
+            draw_depth: 2.0
+            color: #xffffffff
+        }
+        draw_text +: {
+            draw_depth: 3.0
+            color: #x17202a
+            text_style.font_size: 10.0
+        }
+        bg_color: #xf8fafc
+        node_color: #xffffffff
+        node_selected_color: #xe7f1ff
+        node_issue_color: #xfff4e5
+        edge_color: #x64748b
+        edge_selected_color: #x1d4ed8
+        edge_issue_color: #xd97706
+        border_color: #xcbd5e1
+        selected_border_color: #x2563eb
+        text_color: #x17202a
+        issue_text_color: #x9a3412
+    }
+
     let ProjectPanel = Panel{
         SectionTitle{text: "Project"}
         Row{FieldLabel{text: "source"} project_source := SmallValue{text: ""}}
@@ -164,6 +197,8 @@ script_mod! {
 
     let CanvasPanel = Panel{
         SectionTitle{text: "Read-Only Graph Canvas"}
+        graph_canvas := StudioGraphCanvas{}
+        Rule{}
         Row{FieldLabel{text: "layout"} graph_layout := SmallValue{text: ""}}
         Rule{}
         Row{FieldLabel{text: "nodes"} graph_nodes := SmallValue{text: ""}}
@@ -243,6 +278,310 @@ script_mod! {
                 }
             }
         }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct StudioGraphCanvasModel {
+    layout_id: String,
+    coordinate_space: String,
+    nodes: Vec<StudioGraphCanvasNode>,
+    edges: Vec<StudioGraphCanvasEdge>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct StudioGraphCanvasNode {
+    node_id: String,
+    label: String,
+    kind: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    validation_issue_count: usize,
+    selected: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct StudioGraphCanvasEdge {
+    edge_id: String,
+    source_node_id: String,
+    target_node_id: String,
+    route: String,
+    validation_issue_count: usize,
+    selected: bool,
+}
+
+#[derive(Script, ScriptHook, Widget)]
+pub struct StudioGraphCanvas {
+    #[uid]
+    uid: WidgetUid,
+    #[walk]
+    walk: Walk,
+    #[redraw]
+    #[live]
+    draw_bg: DrawColor,
+    #[live]
+    draw_edge: DrawVector,
+    #[live]
+    draw_node: DrawColor,
+    #[live]
+    draw_text: DrawText,
+    #[live]
+    bg_color: Vec4f,
+    #[live]
+    node_color: Vec4f,
+    #[live]
+    node_selected_color: Vec4f,
+    #[live]
+    node_issue_color: Vec4f,
+    #[live]
+    edge_color: Vec4f,
+    #[live]
+    edge_selected_color: Vec4f,
+    #[live]
+    edge_issue_color: Vec4f,
+    #[live]
+    border_color: Vec4f,
+    #[live]
+    selected_border_color: Vec4f,
+    #[live]
+    text_color: Vec4f,
+    #[live]
+    issue_text_color: Vec4f,
+    #[rust]
+    area: Area,
+    #[rust]
+    model: StudioGraphCanvasModel,
+}
+
+impl Widget for StudioGraphCanvas {
+    fn handle_event(&mut self, _cx: &mut Cx, _event: &Event, _scope: &mut Scope) {}
+
+    fn draw_walk(&mut self, cx: &mut Cx2d, _scope: &mut Scope, walk: Walk) -> DrawStep {
+        let rect = cx.walk_turtle_with_area(&mut self.area, walk);
+        self.draw_bg.color = self.bg_color;
+        self.draw_bg.draw_abs(cx, rect);
+        if rect.size.x <= 2.0 || rect.size.y <= 2.0 {
+            return DrawStep::done();
+        }
+
+        let Some(bounds) = self.logical_bounds() else {
+            self.draw_text.color = self.text_color;
+            self.draw_text
+                .draw_abs(cx, dvec2(rect.pos.x + 18.0, rect.pos.y + 18.0), "no layout");
+            return DrawStep::done();
+        };
+
+        let viewport = self.viewport_for_rect(rect, bounds);
+        self.draw_edges(cx, &viewport);
+        self.draw_nodes(cx, &viewport);
+        DrawStep::done()
+    }
+}
+
+impl StudioGraphCanvas {
+    fn set_canvas_model(&mut self, cx: &mut Cx, model: StudioGraphCanvasModel) {
+        self.model = model;
+        self.redraw(cx);
+    }
+
+    fn logical_bounds(&self) -> Option<CanvasViewportBounds> {
+        let first = self.model.nodes.first()?;
+        let mut min_x = first.x;
+        let mut min_y = first.y;
+        let mut max_x = first.x + first.width;
+        let mut max_y = first.y + first.height;
+        for node in &self.model.nodes {
+            min_x = min_x.min(node.x);
+            min_y = min_y.min(node.y);
+            max_x = max_x.max(node.x + node.width);
+            max_y = max_y.max(node.y + node.height);
+        }
+        Some(CanvasViewportBounds {
+            min_x: min_x as f64,
+            min_y: min_y as f64,
+            width: (max_x - min_x).max(1) as f64,
+            height: (max_y - min_y).max(1) as f64,
+        })
+    }
+
+    fn viewport_for_rect(&self, rect: Rect, bounds: CanvasViewportBounds) -> CanvasViewport {
+        let margin = 18.0_f64;
+        let content_width = (rect.size.x - margin * 2.0).max(1.0);
+        let content_height = (rect.size.y - margin * 2.0).max(1.0);
+        let scale = (content_width / bounds.width)
+            .min(content_height / bounds.height)
+            .max(0.1);
+        let drawn_width = bounds.width * scale;
+        let drawn_height = bounds.height * scale;
+        CanvasViewport {
+            origin_x: rect.pos.x + (rect.size.x - drawn_width) * 0.5,
+            origin_y: rect.pos.y + (rect.size.y - drawn_height) * 0.5,
+            scale,
+            bounds,
+        }
+    }
+
+    fn draw_edges(&mut self, cx: &mut Cx2d, viewport: &CanvasViewport) {
+        self.draw_edge.begin();
+        for edge in &self.model.edges {
+            let Some(source) = self
+                .model
+                .nodes
+                .iter()
+                .find(|node| node.node_id == edge.source_node_id)
+            else {
+                continue;
+            };
+            let Some(target) = self
+                .model
+                .nodes
+                .iter()
+                .find(|node| node.node_id == edge.target_node_id)
+            else {
+                continue;
+            };
+            let source_center = viewport.node_center(source);
+            let target_center = viewport.node_center(target);
+            let color = if edge.selected {
+                self.edge_selected_color
+            } else if edge.validation_issue_count > 0 {
+                self.edge_issue_color
+            } else {
+                self.edge_color
+            };
+            self.draw_edge.set_color(color.x, color.y, color.z, color.w);
+            self.draw_edge
+                .move_to(source_center.x as f32, source_center.y as f32);
+            if edge.route == "orthogonal" {
+                let mid_x = (source_center.x + target_center.x) * 0.5;
+                self.draw_edge.line_to(mid_x as f32, source_center.y as f32);
+                self.draw_edge.line_to(mid_x as f32, target_center.y as f32);
+            }
+            self.draw_edge
+                .line_to(target_center.x as f32, target_center.y as f32);
+            self.draw_edge.stroke(if edge.selected { 3.0 } else { 1.6 });
+        }
+        self.draw_edge.end(cx);
+    }
+
+    fn draw_nodes(&mut self, cx: &mut Cx2d, viewport: &CanvasViewport) {
+        let nodes = self.model.nodes.clone();
+        for node in &nodes {
+            let rect = viewport.node_rect(node);
+            let fill = if node.selected {
+                self.node_selected_color
+            } else if node.validation_issue_count > 0 {
+                self.node_issue_color
+            } else {
+                self.node_color
+            };
+            self.draw_node.color = fill;
+            self.draw_node.draw_abs(cx, rect);
+            self.draw_node_border(
+                cx,
+                rect,
+                if node.selected {
+                    self.selected_border_color
+                } else {
+                    self.border_color
+                },
+                if node.selected { 2.0 } else { 1.0 },
+            );
+            self.draw_text.color = if node.validation_issue_count > 0 {
+                self.issue_text_color
+            } else {
+                self.text_color
+            };
+            self.draw_text.draw_abs(
+                cx,
+                dvec2(rect.pos.x + 8.0, rect.pos.y + 8.0),
+                &short_canvas_label(&node.label, 26),
+            );
+            self.draw_text.draw_abs(
+                cx,
+                dvec2(rect.pos.x + 8.0, rect.pos.y + 24.0),
+                &format!("{}  {}", node.kind, node.node_id),
+            );
+            if node.validation_issue_count > 0 {
+                self.draw_text.draw_abs(
+                    cx,
+                    dvec2(rect.pos.x + 8.0, rect.pos.y + 40.0),
+                    &format!("issues: {}", node.validation_issue_count),
+                );
+            }
+        }
+    }
+
+    fn draw_node_border(&mut self, cx: &mut Cx2d, rect: Rect, color: Vec4f, width: f64) {
+        self.draw_node.color = color;
+        self.draw_node.draw_abs(
+            cx,
+            Rect {
+                pos: rect.pos,
+                size: dvec2(rect.size.x, width),
+            },
+        );
+        self.draw_node.draw_abs(
+            cx,
+            Rect {
+                pos: dvec2(rect.pos.x, rect.pos.y + rect.size.y - width),
+                size: dvec2(rect.size.x, width),
+            },
+        );
+        self.draw_node.draw_abs(
+            cx,
+            Rect {
+                pos: rect.pos,
+                size: dvec2(width, rect.size.y),
+            },
+        );
+        self.draw_node.draw_abs(
+            cx,
+            Rect {
+                pos: dvec2(rect.pos.x + rect.size.x - width, rect.pos.y),
+                size: dvec2(width, rect.size.y),
+            },
+        );
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CanvasViewportBounds {
+    min_x: f64,
+    min_y: f64,
+    width: f64,
+    height: f64,
+}
+
+struct CanvasViewport {
+    origin_x: f64,
+    origin_y: f64,
+    scale: f64,
+    bounds: CanvasViewportBounds,
+}
+
+impl CanvasViewport {
+    fn node_rect(&self, node: &StudioGraphCanvasNode) -> Rect {
+        Rect {
+            pos: dvec2(
+                self.origin_x + (node.x as f64 - self.bounds.min_x) * self.scale,
+                self.origin_y + (node.y as f64 - self.bounds.min_y) * self.scale,
+            ),
+            size: dvec2(
+                (node.width as f64 * self.scale).max(42.0),
+                (node.height as f64 * self.scale).max(32.0),
+            ),
+        }
+    }
+
+    fn node_center(&self, node: &StudioGraphCanvasNode) -> DVec2 {
+        let rect = self.node_rect(node);
+        dvec2(
+            rect.pos.x + rect.size.x * 0.5,
+            rect.pos.y + rect.size.y * 0.5,
+        )
     }
 }
 
@@ -372,6 +711,7 @@ impl App {
         self.ui
             .label(cx, ids!(graph_layout))
             .set_text(cx, &layout_lines(graph));
+        self.sync_graph_canvas(cx, model, graph);
         self.ui
             .label(cx, ids!(graph_nodes))
             .set_text(cx, &node_lines(graph));
@@ -652,6 +992,13 @@ impl App {
         self.ui.label(cx, ids!(graph_target)).set_text(cx, "");
         self.ui.label(cx, ids!(graph_counts)).set_text(cx, "");
         self.ui.label(cx, ids!(graph_layout)).set_text(cx, "");
+        if let Some(mut canvas) = self
+            .ui
+            .widget(cx, ids!(graph_canvas))
+            .borrow_mut::<StudioGraphCanvas>()
+        {
+            canvas.set_canvas_model(cx, StudioGraphCanvasModel::default());
+        }
         self.ui.label(cx, ids!(graph_nodes)).set_text(cx, "");
         self.ui.label(cx, ids!(graph_edges)).set_text(cx, "");
         self.ui.label(cx, ids!(selected_node)).set_text(cx, "");
@@ -664,6 +1011,16 @@ impl App {
             .label(cx, ids!(selected_edge_details))
             .set_text(cx, "");
         self.ui.label(cx, ids!(focused_issue)).set_text(cx, "");
+    }
+
+    fn sync_graph_canvas(&mut self, cx: &mut Cx, model: &StudioViewModel, graph: &StudioGraphView) {
+        if let Some(mut canvas) = self
+            .ui
+            .widget(cx, ids!(graph_canvas))
+            .borrow_mut::<StudioGraphCanvas>()
+        {
+            canvas.set_canvas_model(cx, graph_canvas_model(model, graph));
+        }
     }
 
     fn select_previous_graph(&mut self, cx: &mut Cx) {
@@ -1562,6 +1919,118 @@ fn edit_validation_line(report: &StudioEditReport) -> String {
     format!("{status}; {} check(s)", report.validation.checks.len())
 }
 
+fn graph_canvas_model(model: &StudioViewModel, graph: &StudioGraphView) -> StudioGraphCanvasModel {
+    if let Some(layout) = graph.layout.as_ref() {
+        return StudioGraphCanvasModel {
+            layout_id: layout.layout_id.clone(),
+            coordinate_space: layout.coordinate_space.clone(),
+            nodes: layout
+                .nodes
+                .iter()
+                .map(|layout_node| {
+                    let row = graph
+                        .node_rows
+                        .iter()
+                        .find(|node| node.node_id == layout_node.node_id);
+                    StudioGraphCanvasNode {
+                        node_id: layout_node.node_id.clone(),
+                        label: row
+                            .map(|node| node.label.clone())
+                            .unwrap_or_else(|| layout_node.node_id.clone()),
+                        kind: row
+                            .map(|node| node.kind.clone())
+                            .unwrap_or_else(|| "missing".to_string()),
+                        x: layout_node.x,
+                        y: layout_node.y,
+                        width: layout_node.width,
+                        height: layout_node.height,
+                        validation_issue_count: layout_node.validation_issue_count,
+                        selected: model.selected_node_id.as_deref()
+                            == Some(layout_node.node_id.as_str()),
+                    }
+                })
+                .collect(),
+            edges: layout
+                .edges
+                .iter()
+                .map(|layout_edge| {
+                    let row = graph
+                        .edge_rows
+                        .iter()
+                        .find(|edge| edge.edge_id == layout_edge.edge_id);
+                    StudioGraphCanvasEdge {
+                        edge_id: layout_edge.edge_id.clone(),
+                        source_node_id: row
+                            .map(|edge| edge.source_node_id.clone())
+                            .unwrap_or_default(),
+                        target_node_id: row
+                            .map(|edge| edge.target_node_id.clone())
+                            .unwrap_or_default(),
+                        route: layout_edge.route.clone(),
+                        validation_issue_count: layout_edge.validation_issue_count,
+                        selected: model.selected_edge_id.as_deref()
+                            == Some(layout_edge.edge_id.as_str()),
+                    }
+                })
+                .collect(),
+        };
+    }
+
+    generated_canvas_model(model, graph)
+}
+
+fn generated_canvas_model(
+    model: &StudioViewModel,
+    graph: &StudioGraphView,
+) -> StudioGraphCanvasModel {
+    let nodes = graph
+        .node_rows
+        .iter()
+        .enumerate()
+        .map(|(index, node)| StudioGraphCanvasNode {
+            node_id: node.node_id.clone(),
+            label: node.label.clone(),
+            kind: node.kind.clone(),
+            x: 40 + ((index % 3) as i32 * 260),
+            y: 40 + ((index / 3) as i32 * 150),
+            width: 220,
+            height: 72,
+            validation_issue_count: node.validation_issue_count,
+            selected: model.selected_node_id.as_deref() == Some(node.node_id.as_str()),
+        })
+        .collect();
+    let edges = graph
+        .edge_rows
+        .iter()
+        .map(|edge| StudioGraphCanvasEdge {
+            edge_id: edge.edge_id.clone(),
+            source_node_id: edge.source_node_id.clone(),
+            target_node_id: edge.target_node_id.clone(),
+            route: "direct".to_string(),
+            validation_issue_count: edge.validation_issue_count,
+            selected: model.selected_edge_id.as_deref() == Some(edge.edge_id.as_str()),
+        })
+        .collect();
+    StudioGraphCanvasModel {
+        layout_id: "studio.layout.generated_readonly".to_string(),
+        coordinate_space: "studio.canvas.generated_2d".to_string(),
+        nodes,
+        edges,
+    }
+}
+
+fn short_canvas_label(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+    let mut truncated = value
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    truncated.push_str("...");
+    truncated
+}
+
 fn layout_lines(graph: &StudioGraphView) -> String {
     let Some(layout) = graph.layout.as_ref() else {
         return "none".to_string();
@@ -1854,6 +2323,18 @@ mod tests {
         assert!(layout.contains("studio.layout.makepad_edit / studio.canvas.logical_2d"));
         assert!(layout.contains("node.shell.operator @ 320,40 180x72"));
         assert!(layout.contains("edge.shell_host route: direct"));
+        let canvas = graph_canvas_model(&model, &model.graphs[0]);
+        assert_eq!(canvas.layout_id, "studio.layout.makepad_edit");
+        assert_eq!(canvas.nodes.len(), 3);
+        assert_eq!(canvas.edges.len(), 1);
+        assert!(canvas
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "node.package.synthetic" && node.selected));
+        assert!(canvas
+            .edges
+            .iter()
+            .any(|edge| edge.edge_id == "edge.shell_host" && edge.selected));
         assert_eq!(
             selected_edge_line(&model),
             "edge.shell_host [shell_targets_host_profile]"
@@ -1968,6 +2449,21 @@ mod tests {
         assert!(requested_edge_details.contains("source: node.shell.operator / operator_shell"));
         assert!(requested_edge_details.contains("target: node.host.profile / host_profile"));
         assert_eq!(next_edge_id(&requested_edge_model), Some("edge.shell_host"));
+
+        let mut generated_layout_model = requested_edge_model.clone();
+        generated_layout_model.graphs[0].layout = None;
+        let generated_canvas =
+            graph_canvas_model(&generated_layout_model, &generated_layout_model.graphs[0]);
+        assert_eq!(
+            generated_canvas.layout_id,
+            "studio.layout.generated_readonly"
+        );
+        assert_eq!(
+            generated_canvas.coordinate_space,
+            "studio.canvas.generated_2d"
+        );
+        assert_eq!(generated_canvas.nodes[0].x, 40);
+        assert_eq!(generated_canvas.nodes[0].width, 220);
     }
 
     #[test]
