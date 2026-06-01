@@ -6,10 +6,11 @@ use rusty_studio_core::{
     add_next_catalog_module_to_graph,
     compare_shell_handoff_acceptance_against_baseline_index_entry, load_project,
     load_shell_handoff_acceptance_baseline_index, load_shell_handoff_acceptance_baseline_manifest,
-    load_shell_handoff_acceptance_checklist, remove_binding_from_graph, remove_module_from_graph,
-    retarget_graph_host_profile, save_json, save_project, save_shell_bundle,
-    select_shell_handoff_acceptance_baseline_index_entry, selected_shell_bundle_for_graph,
-    shell_handoff_acceptance_baseline_index_for_manifests,
+    load_shell_handoff_acceptance_checklist,
+    promote_shell_handoff_acceptance_baseline_index_default, remove_binding_from_graph,
+    remove_module_from_graph, retarget_graph_host_profile, save_json, save_project,
+    save_shell_bundle, select_shell_handoff_acceptance_baseline_index_entry,
+    selected_shell_bundle_for_graph, shell_handoff_acceptance_baseline_index_for_manifests,
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
@@ -196,6 +197,7 @@ script_mod! {
             shell_acceptance_button := ActionButton{text: "Review Acceptance"}
             shell_acceptance_baseline_button := ActionButton{text: "Write Baseline"}
             shell_acceptance_baseline_summary_button := ActionButton{text: "Inspect Baseline"}
+            shell_acceptance_baseline_promote_button := ActionButton{text: "Promote Baseline"}
             shell_acceptance_compare_button := ActionButton{text: "Compare Acceptance"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
@@ -1220,6 +1222,30 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn promote_shell_handoff_acceptance_baseline_default(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match promote_shell_handoff_acceptance_baseline_default_for_project_source(&source) {
+            Ok((baseline, index, baseline_path, index_path)) => {
+                self.last_shell_bundle_status = shell_handoff_acceptance_baseline_promote_status(
+                    &baseline,
+                    &index,
+                    &baseline_path,
+                    &index_path,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn compare_shell_handoff_acceptance(&mut self, cx: &mut Cx) {
         let Some(source) = self.project_source.clone() else {
             self.last_shell_bundle_status = "No project source is loaded".to_string();
@@ -1888,6 +1914,13 @@ impl MatchEvent for App {
         }
         if self
             .ui
+            .button(cx, ids!(shell_acceptance_baseline_promote_button))
+            .clicked(actions)
+        {
+            self.promote_shell_handoff_acceptance_baseline_default(cx);
+        }
+        if self
+            .ui
             .button(cx, ids!(shell_acceptance_compare_button))
             .clicked(actions)
         {
@@ -2129,6 +2162,36 @@ fn shell_handoff_acceptance_baseline_summary_for_project_source(
     let index = load_shell_handoff_acceptance_baseline_index(&index_path)
         .map_err(|error| format!("Baseline acceptance index load failed: {error}"))?;
     Ok((baseline, index, baseline_path, index_path))
+}
+
+fn promote_shell_handoff_acceptance_baseline_default_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellHandoffAcceptanceBaselineManifest,
+        StudioShellHandoffAcceptanceBaselineIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let baseline_path = shell_handoff_acceptance_baseline_manifest_output_path(project_path);
+    let baseline = load_shell_handoff_acceptance_baseline_manifest(&baseline_path)
+        .map_err(|error| format!("Baseline acceptance identity load failed: {error}"))?;
+    let index_path = shell_handoff_acceptance_baseline_index_output_path(project_path);
+    let index = load_shell_handoff_acceptance_baseline_index(&index_path)
+        .map_err(|error| format!("Baseline acceptance index load failed: {error}"))?;
+    let promoted =
+        promote_shell_handoff_acceptance_baseline_index_default(&index, &baseline.baseline_id)
+            .ok_or_else(|| {
+                format!(
+                    "Baseline acceptance index does not contain baseline {}",
+                    baseline.baseline_id
+                )
+            })?;
+    save_json(&index_path, &promoted)
+        .map_err(|error| format!("Baseline acceptance index save failed: {error}"))?;
+    Ok((baseline, promoted, baseline_path, index_path))
 }
 
 fn shell_handoff_acceptance_comparison_for_project_source(
@@ -3390,6 +3453,27 @@ fn shell_handoff_acceptance_summary_status(
         } else {
             target_rows
         },
+        shell_handoff_acceptance_baseline_selection_status(&selection),
+        shell_handoff_acceptance_baseline_index_status(index, index_path)
+    )
+}
+
+fn shell_handoff_acceptance_baseline_promote_status(
+    baseline: &StudioShellHandoffAcceptanceBaselineManifest,
+    index: &StudioShellHandoffAcceptanceBaselineIndex,
+    baseline_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection = summarize_shell_handoff_acceptance_baseline_index_selection(
+        index,
+        Some(index_path),
+        Some(&baseline.baseline_id),
+    );
+    format!(
+        "acceptance baseline default promoted\n  baseline: {} ({})\n  identity: {}\n{}\n{}",
+        baseline.baseline_id,
+        baseline.label,
+        baseline_path.display(),
         shell_handoff_acceptance_baseline_selection_status(&selection),
         shell_handoff_acceptance_baseline_index_status(index, index_path)
     )
@@ -4665,6 +4749,83 @@ mod tests {
         assert!(status.contains("desktop: ready 1/1; blocked 0; rejected 0"));
         assert!(status.contains("consumers rusty-studio-desktop-shell"));
         assert!(status.contains("routes desktop_operator_shell"));
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_baseline_promotes_saved_default() {
+        let root = temp_root("shell-handoff-acceptance-baseline-promote");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+        let (_, ready_baseline, ready_index, _, ready_baseline_path, index_path, _) =
+            write_shell_handoff_acceptance_baseline_for_project_source(&project_path)
+                .expect("write acceptance baseline");
+
+        let project = load_project(&project_path).expect("load project");
+        let blocked_checklist = shell_handoff_acceptance_checklist_for_project(
+            &project,
+            project_path.parent(),
+            &root.join("missing-selected-shells"),
+        );
+        let blocked_checklist_path = root.join("blocked-checklist.json");
+        save_json(&blocked_checklist_path, &blocked_checklist)
+            .expect("save blocked acceptance checklist");
+        let blocked_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &blocked_checklist,
+            &blocked_checklist_path,
+            Some("studio.project.makepad_edit.rev1.blocked"),
+            Some("studio.project.makepad_edit revision 1 blocked acceptance baseline"),
+        );
+        let blocked_baseline_path = root.join("blocked-baseline.json");
+        save_json(&blocked_baseline_path, &blocked_baseline).expect("save blocked baseline");
+        let multi_index =
+            rusty_studio_core::append_shell_handoff_acceptance_baseline_index_manifests(
+                &ready_index,
+                vec![(blocked_baseline, Some(blocked_baseline_path))],
+                Some("studio.project.makepad_edit.rev1.blocked"),
+            );
+        save_json(&index_path, &multi_index).expect("save multi-baseline index");
+        assert_eq!(
+            multi_index.default_baseline_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.blocked")
+        );
+
+        let (baseline, promoted, baseline_path, loaded_index_path) =
+            promote_shell_handoff_acceptance_baseline_default_for_project_source(&project_path)
+                .expect("promote saved baseline");
+
+        assert_eq!(baseline, ready_baseline);
+        assert_eq!(baseline_path, ready_baseline_path);
+        assert_eq!(loaded_index_path, index_path);
+        assert_eq!(
+            promoted.default_baseline_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+        assert_eq!(promoted.baseline_count, 2);
+        assert_eq!(promoted.ready_baseline_count, 1);
+        assert_eq!(promoted.blocked_baseline_count, 1);
+        let written_index =
+            load_shell_handoff_acceptance_baseline_index(&index_path).expect("load written index");
+        assert_eq!(written_index, promoted);
+
+        let status = shell_handoff_acceptance_baseline_promote_status(
+            &baseline,
+            &promoted,
+            &baseline_path,
+            &loaded_index_path,
+        );
+        assert!(status.contains("acceptance baseline default promoted"));
+        assert!(status.contains("baseline: studio.project.makepad_edit.rev1.ready"));
+        assert!(status.contains(
+            "baseline selection selected; requested studio.project.makepad_edit.rev1.ready; default studio.project.makepad_edit.rev1.ready; selected studio.project.makepad_edit.rev1.ready"
+        ));
+        assert!(status
+            .contains("baseline index slots 2; default studio.project.makepad_edit.rev1.ready"));
+        assert!(status.contains("studio.project.makepad_edit.rev1.blocked [blocked]"));
     }
 
     #[test]

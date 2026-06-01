@@ -89,6 +89,8 @@ Current scope:
   requested id, default id, selected id, selection status, and entry flags;
 - append named baseline manifests to a saved baseline index and promote the
   default baseline through shared core/CLI lifecycle commands;
+- promote the saved Makepad acceptance baseline as the baseline-index default
+  through the same shared lifecycle route;
 - compare acceptance checklist artifacts across revisions with optional named
   baseline identity to detect improved, unchanged, regressed, or incomparable
   downstream handoff readiness;
@@ -177,16 +179,17 @@ checklist a stable baseline id and label, then embed the same summary so
 operators can confirm what they are comparing before opening the full checklist.
 Acceptance baseline indexes are slot lists over those identity manifests; they
 name the default baseline and summarize readiness across saved baselines without
-becoming a runtime registry or execution authority. Makepad writes and inspects
-the same index when it writes or reviews a baseline. Baseline selection reports
-are read-only views over that index: they show the requested id, default id,
-selected id, missing/empty status, and selected/default flags per entry without
-opening raw index JSON. Baseline index lifecycle commands append additional
-baseline manifests and promote a default baseline by id while preserving the
-same schema-only index contract: use
+becoming a runtime registry or execution authority. Makepad writes, inspects,
+and promotes its saved baseline as the index default through the same shared
+lifecycle route. Baseline selection reports are read-only views over that index:
+they show the requested id, default id, selected id, missing/empty status, and
+selected/default flags per entry without opening raw index JSON. Baseline index
+lifecycle commands append additional baseline manifests and promote a default
+baseline by id while preserving the same schema-only index contract: use
 `shell-handoff-acceptance-baseline-index-append` for new baseline manifests and
 `shell-handoff-acceptance-baseline-index-promote` for default changes. Agents
-and Makepad should use those commands instead of hand-editing the index.
+should use those commands, and Makepad should use the matching shared core
+action instead of hand-editing the index.
 Comparisons can select a baseline from the index by id, so multi-baseline
 revision review stays on the same CLI/core path as the JSON artifacts.
 Acceptance comparison reports carry that baseline identity when a baseline
