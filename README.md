@@ -221,6 +221,7 @@ cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-checklist --ha
 cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-manifest --checklist target\studio-shell-handoffs\shell-hostess-staging-acceptance-checklist.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-manifest.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-index --acceptance-manifest target\studio-shell-handoffs\shell-hostess-staging-acceptance-manifest.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptances.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-selection --acceptance-index target\studio-shell-handoffs\shell-hostess-staging-acceptances.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-selection.json
+cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-comparison --acceptance-index target\studio-shell-handoffs\shell-hostess-staging-acceptances.json --candidate target\studio-shell-handoffs\shell-hostess-staging-acceptance-checklist.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-comparison.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -255,7 +256,9 @@ instructions for Hostess and Manifold without copying, staging, installing,
 launching, opening command sessions, or collecting evidence. Staging
 acceptance checklists verify those handoff envelopes into explicit
 Hostess/Manifold acceptance rows while preserving the same non-execution
-boundary. Saved
+boundary. Hostess staging acceptance comparison reports compare the current
+checklist against a saved Hostess acceptance manifest or index entry before any
+Hostess install, launch, copy, or evidence action exists inside Studio. Saved
 export-package comparisons let agents review
 whether a package review stayed unchanged, improved, regressed, or became
 incomparable without opening raw package JSON. Export-package baseline

@@ -76,6 +76,8 @@ pub const SHELL_HOSTESS_STAGING_ACCEPTANCE_INDEX_SCHEMA: &str =
     "rusty.studio.shell_hostess_staging_acceptance_index.v1";
 pub const SHELL_HOSTESS_STAGING_ACCEPTANCE_SELECTION_SCHEMA: &str =
     "rusty.studio.shell_hostess_staging_acceptance_selection.v1";
+pub const SHELL_HOSTESS_STAGING_ACCEPTANCE_COMPARISON_SCHEMA: &str =
+    "rusty.studio.shell_hostess_staging_acceptance_comparison.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -2123,6 +2125,80 @@ pub struct StudioShellHostessStagingAcceptanceSelectionEntry {
     pub rejected_item_count: usize,
     pub request_count: usize,
     pub instruction_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingAcceptanceComparisonReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub baseline_identity_schema: Option<String>,
+    pub baseline_acceptance_id: Option<String>,
+    pub baseline_label: Option<String>,
+    pub baseline_checklist_path: Option<String>,
+    pub baseline_index_schema: Option<String>,
+    pub baseline_index_path: Option<String>,
+    pub baseline_index_default_acceptance_id: Option<String>,
+    pub baseline_index_selected_acceptance_id: Option<String>,
+    pub baseline_schema: String,
+    pub candidate_schema: String,
+    pub baseline_envelope_id: String,
+    pub candidate_envelope_id: String,
+    pub baseline_manifest_id: Option<String>,
+    pub candidate_manifest_id: Option<String>,
+    pub baseline_project_id: Option<String>,
+    pub candidate_project_id: Option<String>,
+    pub baseline_project_revision: Option<u64>,
+    pub candidate_project_revision: Option<u64>,
+    pub baseline_status: StudioShellHostessStagingAcceptanceStatus,
+    pub candidate_status: StudioShellHostessStagingAcceptanceStatus,
+    pub status: StudioShellHostessStagingAcceptanceComparisonStatus,
+    pub issue_code: Option<String>,
+    pub baseline_ready_item_count: usize,
+    pub candidate_ready_item_count: usize,
+    pub ready_item_delta: isize,
+    pub baseline_blocked_item_count: usize,
+    pub candidate_blocked_item_count: usize,
+    pub blocked_item_delta: isize,
+    pub baseline_rejected_item_count: usize,
+    pub candidate_rejected_item_count: usize,
+    pub rejected_item_delta: isize,
+    pub checks: Vec<StudioValidationCheck>,
+    pub entries: Vec<StudioShellHostessStagingAcceptanceComparisonEntry>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingAcceptanceComparisonStatus {
+    Improved,
+    Unchanged,
+    Regressed,
+    Incomparable,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingAcceptanceComparisonEntry {
+    pub item_id: String,
+    pub owner: String,
+    pub baseline_status: Option<StudioShellHostessStagingAcceptanceStatus>,
+    pub candidate_status: Option<StudioShellHostessStagingAcceptanceStatus>,
+    pub change: StudioShellHostessStagingAcceptanceComparisonChange,
+    pub score_delta: isize,
+    pub baseline_route_kind: Option<String>,
+    pub candidate_route_kind: Option<String>,
+    pub baseline_issue_code: Option<String>,
+    pub candidate_issue_code: Option<String>,
+    pub issue_code: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingAcceptanceComparisonChange {
+    Added,
+    Removed,
+    Improved,
+    Unchanged,
+    Regressed,
+    Changed,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

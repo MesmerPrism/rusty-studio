@@ -9,8 +9,11 @@ use rusty_studio_core::{
     compare_shell_export_packages_against_baseline_manifest,
     compare_shell_handoff_acceptance_against_baseline_index_entry,
     compare_shell_handoff_acceptance_against_baseline_manifest,
-    compare_shell_handoff_acceptance_checklists, desktop_shell_handoff_for_bundle, export_plan,
-    load_project, load_shell_artifact_manifest, load_shell_descriptor,
+    compare_shell_handoff_acceptance_checklists,
+    compare_shell_hostess_staging_acceptance_against_index_entry,
+    compare_shell_hostess_staging_acceptance_against_manifest,
+    compare_shell_hostess_staging_acceptance_checklists, desktop_shell_handoff_for_bundle,
+    export_plan, load_project, load_shell_artifact_manifest, load_shell_descriptor,
     load_shell_export_package_baseline_index, load_shell_export_package_baseline_manifest,
     load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
@@ -27,7 +30,8 @@ use rusty_studio_core::{
     promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
     remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
     save_project, save_shell_bundle, select_shell_export_package_baseline_index_entry,
-    select_shell_handoff_acceptance_baseline_index_entry, selected_shell_bundle_for_graph,
+    select_shell_handoff_acceptance_baseline_index_entry,
+    select_shell_hostess_staging_acceptance_index_entry, selected_shell_bundle_for_graph,
     shell_artifacts_for_project, shell_descriptor_artifact_path, shell_descriptor_for_graph,
     shell_export_package_baseline_index_for_manifests,
     shell_export_package_baseline_manifest_for_report, shell_export_package_for_manifest,
@@ -130,6 +134,7 @@ enum Command {
     ShellHostessStagingAcceptanceIndexAppend(ShellHostessStagingAcceptanceIndexAppendArgs),
     ShellHostessStagingAcceptanceIndexPromote(ShellHostessStagingAcceptanceIndexPromoteArgs),
     ShellHostessStagingAcceptanceSelection(ShellHostessStagingAcceptanceSelectionArgs),
+    ShellHostessStagingAcceptanceComparison(ShellHostessStagingAcceptanceComparisonArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -699,6 +704,22 @@ struct ShellHostessStagingAcceptanceSelectionArgs {
     acceptance_index: PathBuf,
     #[arg(long)]
     acceptance_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHostessStagingAcceptanceComparisonArgs {
+    #[arg(long)]
+    baseline: Option<PathBuf>,
+    #[arg(long)]
+    baseline_manifest: Option<PathBuf>,
+    #[arg(long)]
+    acceptance_index: Option<PathBuf>,
+    #[arg(long)]
+    acceptance_id: Option<String>,
+    #[arg(long)]
+    candidate: PathBuf,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -1723,6 +1744,91 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 Some(&args.acceptance_index),
                 args.acceptance_id.as_deref(),
             );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHostessStagingAcceptanceComparison(args) => {
+            let candidate = load_shell_hostess_staging_acceptance_checklist(&args.candidate)?;
+            let report = if let Some(acceptance_index_path) = args.acceptance_index.as_ref() {
+                if args.baseline.is_some() || args.baseline_manifest.is_some() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--acceptance-index cannot be combined with --baseline or --baseline-manifest",
+                    )
+                    .into());
+                }
+                let acceptance_index =
+                    load_shell_hostess_staging_acceptance_index(acceptance_index_path)?;
+                let acceptance_index_entry = select_shell_hostess_staging_acceptance_index_entry(
+                    &acceptance_index,
+                    args.acceptance_id.as_deref(),
+                )
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--acceptance-id was not found in --acceptance-index",
+                    )
+                })?;
+                let acceptance_manifest_path = acceptance_index_entry
+                    .acceptance_manifest_path
+                    .as_ref()
+                    .map(PathBuf::from)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "selected acceptance index entry does not include acceptance_manifest_path",
+                        )
+                    })?;
+                let baseline_manifest =
+                    load_shell_hostess_staging_acceptance_manifest(&acceptance_manifest_path)?;
+                let baseline_path = PathBuf::from(&baseline_manifest.checklist_path);
+                let baseline = load_shell_hostess_staging_acceptance_checklist(&baseline_path)?;
+                compare_shell_hostess_staging_acceptance_against_index_entry(
+                    &acceptance_index,
+                    Some(acceptance_index_path),
+                    acceptance_index_entry,
+                    Some(&acceptance_manifest_path),
+                    &baseline_manifest,
+                    &baseline,
+                    &candidate,
+                )
+            } else {
+                if args.acceptance_id.is_some() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--acceptance-id requires --acceptance-index",
+                    )
+                    .into());
+                }
+                let baseline_manifest = args
+                    .baseline_manifest
+                    .as_ref()
+                    .map(|path| load_shell_hostess_staging_acceptance_manifest(path))
+                    .transpose()?;
+                let baseline_path = baseline_manifest
+                    .as_ref()
+                    .map(|identity| PathBuf::from(&identity.checklist_path))
+                    .or(args.baseline.clone())
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "--baseline, --baseline-manifest, or --acceptance-index is required",
+                        )
+                    })?;
+                let baseline = load_shell_hostess_staging_acceptance_checklist(&baseline_path)?;
+                if let Some(baseline_manifest) = baseline_manifest.as_ref() {
+                    compare_shell_hostess_staging_acceptance_against_manifest(
+                        baseline_manifest,
+                        &baseline,
+                        &candidate,
+                    )
+                } else {
+                    compare_shell_hostess_staging_acceptance_checklists(&baseline, &candidate)
+                }
+            };
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }

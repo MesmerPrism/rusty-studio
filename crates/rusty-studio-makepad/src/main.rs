@@ -8,22 +8,25 @@ use rusty_studio_core::{
     append_shell_hostess_staging_acceptance_index_manifests,
     append_shell_release_candidate_review_index_manifests,
     compare_shell_export_packages_against_baseline_index_entry,
-    compare_shell_handoff_acceptance_against_baseline_index_entry, load_project,
+    compare_shell_handoff_acceptance_against_baseline_index_entry,
+    compare_shell_hostess_staging_acceptance_against_index_entry, load_project,
     load_shell_export_package_baseline_index, load_shell_export_package_baseline_manifest,
     load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
     load_shell_handoff_manifest, load_shell_hostess_handoff_package_report,
-    load_shell_hostess_owner_intake_report, load_shell_hostess_staging_acceptance_index,
-    load_shell_hostess_staging_acceptance_manifest, load_shell_hostess_staging_file_plan,
-    load_shell_hostess_staging_handoff_envelope, load_shell_hostess_staging_preview_manifest,
-    load_shell_release_candidate_review_index, load_shell_release_candidate_review_manifest,
+    load_shell_hostess_owner_intake_report, load_shell_hostess_staging_acceptance_checklist,
+    load_shell_hostess_staging_acceptance_index, load_shell_hostess_staging_acceptance_manifest,
+    load_shell_hostess_staging_file_plan, load_shell_hostess_staging_handoff_envelope,
+    load_shell_hostess_staging_preview_manifest, load_shell_release_candidate_review_index,
+    load_shell_release_candidate_review_manifest,
     promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default,
     promote_shell_hostess_staging_acceptance_index_default,
     promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
     remove_module_from_graph, retarget_graph_host_profile, save_json, save_project,
     save_shell_bundle, select_shell_export_package_baseline_index_entry,
-    select_shell_handoff_acceptance_baseline_index_entry, selected_shell_bundle_for_graph,
+    select_shell_handoff_acceptance_baseline_index_entry,
+    select_shell_hostess_staging_acceptance_index_entry, selected_shell_bundle_for_graph,
     shell_export_package_baseline_index_for_manifests,
     shell_export_package_baseline_manifest_for_report, shell_export_package_for_project,
     shell_handoff_acceptance_baseline_index_for_manifests,
@@ -64,7 +67,10 @@ use rusty_studio_model::{
     StudioShellHostessHandoffPackageActionStatus, StudioShellHostessHandoffPackageReport,
     StudioShellHostessHandoffPackageStatus, StudioShellHostessOwnerIntakeAssignmentStatus,
     StudioShellHostessOwnerIntakeReport, StudioShellHostessOwnerIntakeStatus,
-    StudioShellHostessStagingAcceptanceChecklistReport, StudioShellHostessStagingAcceptanceIndex,
+    StudioShellHostessStagingAcceptanceChecklistReport,
+    StudioShellHostessStagingAcceptanceComparisonChange,
+    StudioShellHostessStagingAcceptanceComparisonReport,
+    StudioShellHostessStagingAcceptanceComparisonStatus, StudioShellHostessStagingAcceptanceIndex,
     StudioShellHostessStagingAcceptanceManifest,
     StudioShellHostessStagingAcceptanceSelectionReport,
     StudioShellHostessStagingAcceptanceSelectionStatus, StudioShellHostessStagingAcceptanceStatus,
@@ -274,6 +280,7 @@ script_mod! {
             shell_hostess_staging_acceptance_summary_button := ActionButton{text: "Inspect Hostess Checks"}
             shell_hostess_staging_acceptance_next_button := ActionButton{text: "Next Hostess Check"}
             shell_hostess_staging_acceptance_promote_button := ActionButton{text: "Promote Hostess Check"}
+            shell_hostess_staging_acceptance_compare_button := ActionButton{text: "Compare Hostess Check"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1951,6 +1958,29 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn compare_shell_hostess_staging_acceptance(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_hostess_staging_acceptance_comparison_for_project_source(&source) {
+            Ok((report, acceptance_path, output_path)) => {
+                self.last_shell_bundle_status = shell_hostess_staging_acceptance_comparison_status(
+                    &report,
+                    &acceptance_path,
+                    &output_path,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -2789,6 +2819,13 @@ impl MatchEvent for App {
             .clicked(actions)
         {
             self.promote_shell_hostess_staging_acceptance_default(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_staging_acceptance_compare_button))
+            .clicked(actions)
+        {
+            self.compare_shell_hostess_staging_acceptance(cx);
         }
         if self
             .ui
@@ -4215,6 +4252,61 @@ fn next_shell_hostess_staging_acceptance_default_id(
     Ok(index.entries[selected_position].acceptance_id.clone())
 }
 
+fn shell_hostess_staging_acceptance_comparison_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellHostessStagingAcceptanceComparisonReport,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let index_path = shell_hostess_staging_acceptance_index_output_path(project_path);
+    let index = load_shell_hostess_staging_acceptance_index(&index_path)
+        .map_err(|error| format!("Shell Hostess staging acceptance index load failed: {error}"))?;
+    let Some(acceptance_index_entry) =
+        select_shell_hostess_staging_acceptance_index_entry(&index, None)
+    else {
+        return Err(
+            "Shell Hostess staging acceptance index does not contain a selected acceptance"
+                .to_string(),
+        );
+    };
+    let acceptance_path = acceptance_index_entry
+        .acceptance_manifest_path
+        .as_ref()
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            "Selected acceptance index entry does not include an acceptance manifest path"
+                .to_string()
+        })?;
+    let baseline_identity = load_shell_hostess_staging_acceptance_manifest(&acceptance_path)
+        .map_err(|error| {
+            format!("Shell Hostess staging acceptance identity load failed: {error}")
+        })?;
+    let checklist_path = PathBuf::from(&baseline_identity.checklist_path);
+    let baseline =
+        load_shell_hostess_staging_acceptance_checklist(&checklist_path).map_err(|error| {
+            format!("Shell Hostess staging acceptance checklist load failed: {error}")
+        })?;
+    let (candidate, _) = shell_hostess_staging_acceptance_for_project_source(project_path)?;
+    let report = compare_shell_hostess_staging_acceptance_against_index_entry(
+        &index,
+        Some(&index_path),
+        acceptance_index_entry,
+        Some(&acceptance_path),
+        &baseline_identity,
+        &baseline,
+        &candidate,
+    );
+    let output_path = shell_hostess_staging_acceptance_comparison_output_path(project_path);
+    save_json(&output_path, &report).map_err(|error| {
+        format!("Shell Hostess staging acceptance comparison save failed: {error}")
+    })?;
+    Ok((report, acceptance_path, output_path))
+}
+
 fn retarget_project_source(
     project_path: &Path,
     model: &StudioViewModel,
@@ -4667,6 +4759,15 @@ fn shell_hostess_staging_acceptance_index_output_path(project_path: &Path) -> Pa
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-hostess-staging-acceptances.json")
+}
+
+fn shell_hostess_staging_acceptance_comparison_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-hostess-staging-acceptance-comparison.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -7585,6 +7686,107 @@ fn shell_hostess_staging_acceptance_selection_status(
     )
 }
 
+fn shell_hostess_staging_acceptance_comparison_status(
+    report: &StudioShellHostessStagingAcceptanceComparisonReport,
+    acceptance_path: &Path,
+    output_path: &Path,
+) -> String {
+    let status = shell_hostess_staging_acceptance_comparison_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let acceptance_id = report
+        .baseline_acceptance_id
+        .as_deref()
+        .unwrap_or("unnamed");
+    let acceptance_label = report.baseline_label.as_deref().unwrap_or("unlabeled");
+    let baseline_checklist = report
+        .baseline_checklist_path
+        .as_deref()
+        .unwrap_or("unknown");
+    let index_path = report.baseline_index_path.as_deref().unwrap_or("not used");
+    let index_default = report
+        .baseline_index_default_acceptance_id
+        .as_deref()
+        .unwrap_or("none");
+    let index_selected = report
+        .baseline_index_selected_acceptance_id
+        .as_deref()
+        .unwrap_or("none");
+    let failed_checks = report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .count();
+    let rows = report
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let baseline = entry
+                .baseline_status
+                .map(shell_hostess_staging_acceptance_status_label)
+                .unwrap_or("missing");
+            let candidate = entry
+                .candidate_status
+                .map(shell_hostess_staging_acceptance_status_label)
+                .unwrap_or("missing");
+            let change = shell_hostess_staging_acceptance_comparison_change_label(entry.change);
+            let issue = entry.issue_code.as_deref().unwrap_or("none");
+            let route = entry
+                .candidate_route_kind
+                .as_deref()
+                .or(entry.baseline_route_kind.as_deref())
+                .unwrap_or("unknown");
+            format!(
+                "{} owner {}; {baseline}->{candidate}; change {change}; delta {}; route {}; issue {}",
+                entry.item_id, entry.owner, entry.score_delta, route, issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "Hostess staging acceptance comparison {status}; ready {}->{}, delta {}; blocked {}->{}, delta {}; rejected {}->{}, delta {}; issue {issue}\n  acceptance: {} ({})\n  baseline source: project {} rev {}; envelope {}; manifest {}\n  candidate source: project {} rev {}; envelope {}; manifest {}\n  baseline identity: {}\n  baseline checklist: {}\n  baseline index: {}; default {}; selected {}\n  comparison: {}\n  checks: {}; failed {}\n  entries:\n  {}",
+        report.baseline_ready_item_count,
+        report.candidate_ready_item_count,
+        report.ready_item_delta,
+        report.baseline_blocked_item_count,
+        report.candidate_blocked_item_count,
+        report.blocked_item_delta,
+        report.baseline_rejected_item_count,
+        report.candidate_rejected_item_count,
+        report.rejected_item_delta,
+        acceptance_id,
+        acceptance_label,
+        report.baseline_project_id.as_deref().unwrap_or("unknown"),
+        report
+            .baseline_project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        report.baseline_envelope_id,
+        report.baseline_manifest_id.as_deref().unwrap_or("unknown"),
+        report.candidate_project_id.as_deref().unwrap_or("unknown"),
+        report
+            .candidate_project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        report.candidate_envelope_id,
+        report.candidate_manifest_id.as_deref().unwrap_or("unknown"),
+        acceptance_path.display(),
+        baseline_checklist,
+        index_path,
+        index_default,
+        index_selected,
+        output_path.display(),
+        report.checks.len(),
+        failed_checks,
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
 fn shell_release_candidate_review_manifest_summary_status(
     candidate: &StudioShellReleaseCandidateReviewManifest,
     index: &StudioShellReleaseCandidateReviewIndex,
@@ -7793,6 +7995,30 @@ fn shell_hostess_staging_acceptance_status_label(
         StudioShellHostessStagingAcceptanceStatus::Ready => "ready",
         StudioShellHostessStagingAcceptanceStatus::Blocked => "blocked",
         StudioShellHostessStagingAcceptanceStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_hostess_staging_acceptance_comparison_status_label(
+    status: StudioShellHostessStagingAcceptanceComparisonStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessStagingAcceptanceComparisonStatus::Improved => "improved",
+        StudioShellHostessStagingAcceptanceComparisonStatus::Unchanged => "unchanged",
+        StudioShellHostessStagingAcceptanceComparisonStatus::Regressed => "regressed",
+        StudioShellHostessStagingAcceptanceComparisonStatus::Incomparable => "incomparable",
+    }
+}
+
+fn shell_hostess_staging_acceptance_comparison_change_label(
+    change: StudioShellHostessStagingAcceptanceComparisonChange,
+) -> &'static str {
+    match change {
+        StudioShellHostessStagingAcceptanceComparisonChange::Added => "added",
+        StudioShellHostessStagingAcceptanceComparisonChange::Removed => "removed",
+        StudioShellHostessStagingAcceptanceComparisonChange::Improved => "improved",
+        StudioShellHostessStagingAcceptanceComparisonChange::Unchanged => "unchanged",
+        StudioShellHostessStagingAcceptanceComparisonChange::Regressed => "regressed",
+        StudioShellHostessStagingAcceptanceComparisonChange::Changed => "changed",
     }
 }
 
@@ -10501,6 +10727,44 @@ mod tests {
             &loaded_index_path,
         );
         assert!(promote_status.contains("Hostess staging acceptance default promoted"));
+
+        let (comparison, comparison_acceptance_path, comparison_output_path) =
+            shell_hostess_staging_acceptance_comparison_for_project_source(&project_path)
+                .expect("compare shell Hostess staging acceptance");
+        assert!(comparison_output_path.is_file());
+        assert_eq!(
+            comparison.schema_id,
+            "rusty.studio.shell_hostess_staging_acceptance_comparison.v1"
+        );
+        assert_eq!(
+            comparison.status,
+            StudioShellHostessStagingAcceptanceComparisonStatus::Unchanged
+        );
+        assert_eq!(comparison.issue_code, None);
+        assert_eq!(
+            comparison.baseline_acceptance_id.as_deref(),
+            Some("studio.hostess_staging_acceptance.studio.project.makepad_edit.rev1.ready")
+        );
+        assert_eq!(
+            comparison.baseline_index_selected_acceptance_id.as_deref(),
+            Some("studio.hostess_staging_acceptance.studio.project.makepad_edit.rev1.ready")
+        );
+        assert_eq!(comparison.ready_item_delta, 0);
+        assert_eq!(comparison.blocked_item_delta, 0);
+        assert_eq!(comparison.rejected_item_delta, 0);
+        assert_eq!(comparison.entries.len(), 6);
+        assert!(comparison
+            .entries
+            .iter()
+            .all(|entry| entry.change
+                == StudioShellHostessStagingAcceptanceComparisonChange::Unchanged));
+        let comparison_status = shell_hostess_staging_acceptance_comparison_status(
+            &comparison,
+            &comparison_acceptance_path,
+            &comparison_output_path,
+        );
+        assert!(comparison_status.contains("Hostess staging acceptance comparison unchanged"));
+        assert!(comparison_status.contains("delta 0"));
     }
 
     #[test]
