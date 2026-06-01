@@ -211,6 +211,8 @@ operations and displays the resulting edit report after an accepted or rejected
 request. When launched without `--project`, the Makepad demo copies the tracked
 synthetic example into ignored `examples-working\` before edits are allowed, so
 normal Studio sessions do not dirty `examples\synthetic-studio-project.json`.
+The same guard applies when that tracked example is passed explicitly with
+`--project`; custom project paths are opened in place.
 The desktop shell is a read-only descriptor, artifact-manifest, or
 template-index consumer; it does not own runtime command/session authority,
 launch, or evidence collection. Shell handoff intake is a schema-only
