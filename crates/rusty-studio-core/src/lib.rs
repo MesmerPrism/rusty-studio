@@ -7,7 +7,8 @@ use rusty_studio_model::{
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
-    StudioShellDescriptorValidationReport, StudioShellHandoffKind, StudioShellHandoffReport,
+    StudioShellDescriptorValidationReport, StudioShellHandoffKind,
+    StudioShellHandoffReadinessEntry, StudioShellHandoffReadinessReport, StudioShellHandoffReport,
     StudioShellHostProfile, StudioShellHostRoutes, StudioShellRuntimeAuthority,
     StudioShellTargetKind, StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
     StudioShellTemplateIndexValidationReport, StudioShellTemplateManifest,
@@ -17,10 +18,10 @@ use rusty_studio_model::{
     SHELL_ARTIFACT_MANIFEST_SCHEMA, SHELL_ARTIFACT_MANIFEST_VALIDATION_REPORT_SCHEMA,
     SHELL_ARTIFACT_REPORT_SCHEMA, SHELL_BUNDLE_REPORT_SCHEMA,
     SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA, SHELL_DESCRIPTOR_REPORT_SCHEMA, SHELL_DESCRIPTOR_SCHEMA,
-    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_REPORT_SCHEMA,
-    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
-    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
-    VIEW_MODEL_SCHEMA,
+    SHELL_DESCRIPTOR_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
+    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
+    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
+    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -2813,6 +2814,39 @@ pub fn desktop_shell_handoff_for_bundle(
     report
 }
 
+pub fn shell_handoff_readiness_for_project(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    bundle_root: &Path,
+) -> StudioShellHandoffReadinessReport {
+    let entries = project
+        .graphs
+        .iter()
+        .map(|graph| {
+            let bundle_dir = bundle_root.join(&graph.graph_id);
+            let handoff = shell_handoff_for_bundle(project, base_dir, &graph.graph_id, &bundle_dir);
+            shell_handoff_readiness_entry(graph, handoff)
+        })
+        .collect::<Vec<_>>();
+    let status = if entries.is_empty()
+        || entries
+            .iter()
+            .any(|entry| entry.status == StudioValidationStatus::Fail)
+    {
+        StudioValidationStatus::Fail
+    } else {
+        StudioValidationStatus::Pass
+    };
+    StudioShellHandoffReadinessReport {
+        schema_id: SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
+        project_id: project.project_id.clone(),
+        revision: project.revision,
+        bundle_root: bundle_root.display().to_string(),
+        status,
+        entries,
+    }
+}
+
 pub fn validate_shell_template_index(
     index: &StudioShellTemplateIndex,
     base_dir: Option<&Path>,
@@ -4379,6 +4413,35 @@ fn shell_handoff_report(
     }
 }
 
+fn shell_handoff_readiness_entry(
+    graph: &StudioGraph,
+    handoff: StudioShellHandoffReport,
+) -> StudioShellHandoffReadinessEntry {
+    let failed_check_count = handoff
+        .validation
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .count();
+    StudioShellHandoffReadinessEntry {
+        graph_id: graph.graph_id.clone(),
+        display_name: graph.display_name.clone(),
+        target_host_profile: graph.target_host_profile.clone(),
+        target_kind: handoff.target_kind,
+        status: handoff.status,
+        issue_code: handoff.issue_code,
+        message: handoff.message,
+        handoff_kind: handoff.handoff_kind,
+        consumer_id: handoff.consumer_id,
+        bundle_dir: handoff.bundle_dir,
+        template_index_path: handoff.template_index_path,
+        consumer_args: handoff.consumer_args,
+        runtime_authority: handoff.runtime_authority,
+        validation_status: handoff.validation.status,
+        failed_check_count,
+    }
+}
+
 fn shell_handoff_kind_for_target(target_kind: StudioShellTargetKind) -> StudioShellHandoffKind {
     match target_kind {
         StudioShellTargetKind::Desktop => StudioShellHandoffKind::DesktopShell,
@@ -5880,7 +5943,8 @@ mod tests {
         StudioEditOperation, StudioEditStatus, StudioGraphLayout, StudioNode, StudioNodeKind,
         StudioNodeLayout, StudioShellArtifactStatus, StudioShellBundleStatus,
         StudioShellDescriptorStatus, StudioShellHandoffKind, StudioShellTargetKind,
-        StudioShellTemplateStatus, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+        StudioShellTemplateStatus, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
+        SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
     };
 
     fn valid_project() -> StudioProject {
@@ -6855,6 +6919,61 @@ mod tests {
         assert_eq!(handoff.target_kind, StudioShellTargetKind::Phone);
         assert!(handoff.consumer_args.is_empty());
         assert_eq!(handoff.validation.status, StudioValidationStatus::Pass);
+    }
+
+    #[test]
+    fn shell_handoff_readiness_reports_all_target_graphs() {
+        let root = temp_root("shell-handoff-readiness");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+
+        let readiness = shell_handoff_readiness_for_project(&project, Some(&root), &bundle_root);
+
+        assert_eq!(readiness.schema_id, SHELL_HANDOFF_READINESS_REPORT_SCHEMA);
+        assert_eq!(readiness.status, StudioValidationStatus::Pass);
+        assert_eq!(readiness.entries.len(), 3);
+        assert!(readiness.entries.iter().all(|entry| {
+            entry.status == StudioValidationStatus::Pass
+                && entry.validation_status == StudioValidationStatus::Pass
+                && entry.failed_check_count == 0
+                && entry.consumer_args.iter().any(|arg| arg == "--templates")
+        }));
+        assert!(readiness.entries.iter().any(|entry| {
+            entry.graph_id == "studio.graph.phone"
+                && entry.handoff_kind == StudioShellHandoffKind::PhoneShell
+                && entry.consumer_id == "rusty-studio-phone-shell"
+                && entry.target_kind == StudioShellTargetKind::Phone
+        }));
+        assert!(readiness.entries.iter().any(|entry| {
+            entry.graph_id == "studio.graph.quest"
+                && entry.handoff_kind == StudioShellHandoffKind::QuestShell
+                && entry.consumer_id == "rusty-studio-quest-shell"
+                && entry.target_kind == StudioShellTargetKind::Quest
+        }));
+    }
+
+    #[test]
+    fn shell_handoff_readiness_reports_missing_bundles() {
+        let root = temp_root("shell-handoff-readiness-missing");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("missing-selected-shells");
+
+        let readiness = shell_handoff_readiness_for_project(&project, Some(&root), &bundle_root);
+
+        assert_eq!(readiness.status, StudioValidationStatus::Fail);
+        assert_eq!(readiness.entries.len(), 3);
+        assert!(readiness.entries.iter().all(|entry| {
+            entry.status == StudioValidationStatus::Fail
+                && entry.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
+                && entry.failed_check_count > 0
+        }));
     }
 
     #[test]

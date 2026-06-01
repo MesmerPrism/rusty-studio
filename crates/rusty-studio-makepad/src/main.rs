@@ -5,14 +5,14 @@ use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
     add_next_catalog_module_to_graph, load_project, remove_binding_from_graph,
     remove_module_from_graph, retarget_graph_host_profile, save_project, save_shell_bundle,
-    selected_shell_bundle_for_graph, shell_handoff_for_bundle, validate_selected_shell_bundle,
-    view_model_for_graph, view_model_for_graph_issue_node_and_edge,
+    selected_shell_bundle_for_graph, shell_handoff_for_bundle, shell_handoff_readiness_for_project,
+    validate_selected_shell_bundle, view_model_for_graph, view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditReport, StudioEditStatus, StudioGraphView,
     StudioShellBundleReport, StudioShellBundleStatus, StudioShellBundleValidationReport,
-    StudioShellDescriptorStatus, StudioShellHandoffReport, StudioShellTargetKind,
-    StudioValidationStatus, StudioViewModel,
+    StudioShellDescriptorStatus, StudioShellHandoffReadinessReport, StudioShellHandoffReport,
+    StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
 };
 use std::path::{Path, PathBuf};
 
@@ -176,6 +176,7 @@ script_mod! {
             export_shell_bundle_button := ActionButton{text: "Export Preview Files"}
             verify_shell_bundle_button := ActionButton{text: "Verify Preview Files"}
             shell_handoff_button := ActionButton{text: "Prepare Operator Shell"}
+            shell_readiness_button := ActionButton{text: "Inspect All Handoffs"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1080,6 +1081,26 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn inspect_shell_handoff_readiness(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_handoff_readiness_for_project_source(&source) {
+            Ok((report, bundle_root)) => {
+                self.last_shell_bundle_status =
+                    shell_handoff_readiness_status(&report, &bundle_root);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -1690,6 +1711,13 @@ impl MatchEvent for App {
         }
         if self
             .ui
+            .button(cx, ids!(shell_readiness_button))
+            .clicked(actions)
+        {
+            self.inspect_shell_handoff_readiness(cx);
+        }
+        if self
+            .ui
             .button(cx, ids!(remove_selected_module_button))
             .clicked(actions)
         {
@@ -1824,6 +1852,16 @@ fn shell_handoff_for_project_source(
     let output_dir = selected_shell_bundle_output_dir(project_path, &graph_id);
     let report = shell_handoff_for_bundle(&project, project_path.parent(), &graph_id, &output_dir);
     Ok((report, output_dir))
+}
+
+fn shell_handoff_readiness_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellHandoffReadinessReport, PathBuf), String> {
+    let project =
+        load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
+    let bundle_root = selected_shell_bundle_root_dir(project_path);
+    let report = shell_handoff_readiness_for_project(&project, project_path.parent(), &bundle_root);
+    Ok((report, bundle_root))
 }
 
 fn retarget_project_source(
@@ -2006,13 +2044,16 @@ fn selected_graph_id_for_model(
         .map(|graph| graph.graph_id.clone())
 }
 
-fn selected_shell_bundle_output_dir(project_path: &Path, graph_id: &str) -> PathBuf {
+fn selected_shell_bundle_root_dir(project_path: &Path) -> PathBuf {
     project_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("target")
         .join("studio-selected-shell")
-        .join(graph_id)
+}
+
+fn selected_shell_bundle_output_dir(project_path: &Path, graph_id: &str) -> PathBuf {
+    selected_shell_bundle_root_dir(project_path).join(graph_id)
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -2619,6 +2660,46 @@ fn shell_handoff_status(report: &StudioShellHandoffReport, output_dir: &Path) ->
         output_dir.display(),
         shell_target_kind_label(report.target_kind),
         report.message
+    )
+}
+
+fn shell_handoff_readiness_status(
+    report: &StudioShellHandoffReadinessReport,
+    bundle_root: &Path,
+) -> String {
+    let status = validation_status_label(report.status);
+    let ready_count = report
+        .entries
+        .iter()
+        .filter(|entry| entry.status == StudioValidationStatus::Pass)
+        .count();
+    let rows = report
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let entry_status = validation_status_label(entry.status);
+            let issue = entry.issue_code.as_deref().unwrap_or("none");
+            format!(
+                "{} [{}] -> {} / {}; issue {}",
+                entry.graph_id,
+                shell_target_kind_label(entry.target_kind),
+                entry.consumer_id,
+                entry_status,
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    format!(
+        "handoff readiness {status}; ready {ready_count}/{}\n  root: {}\n  {}",
+        report.entries.len(),
+        bundle_root.display(),
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
     )
 }
 
@@ -3375,6 +3456,30 @@ mod tests {
         assert!(status.contains("target: desktop"));
         assert!(status.contains("--templates"));
         assert!(status.contains("rusty.manifold / rusty.hostess / authoring.export_planning"));
+    }
+
+    #[test]
+    fn shell_handoff_readiness_reports_exported_graph() {
+        let root = temp_root("shell-handoff-readiness");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+
+        let (report, bundle_root) = shell_handoff_readiness_for_project_source(&project_path)
+            .expect("inspect handoff readiness");
+
+        assert_eq!(report.status, StudioValidationStatus::Pass);
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].consumer_id, "rusty-studio-desktop-shell");
+        assert_eq!(report.entries[0].failed_check_count, 0);
+        let status = shell_handoff_readiness_status(&report, &bundle_root);
+        assert!(status.contains("handoff readiness pass"));
+        assert!(status.contains("ready 1/1"));
+        assert!(status.contains("studio.graph.makepad_edit [desktop]"));
     }
 
     #[test]

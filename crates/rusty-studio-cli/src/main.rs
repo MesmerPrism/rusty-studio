@@ -6,10 +6,10 @@ use rusty_studio_core::{
     remove_binding_from_graph, remove_module_from_graph, resolve_project,
     retarget_graph_host_profile, save_json, save_project, save_shell_bundle,
     selected_shell_bundle_for_graph, shell_artifacts_for_project, shell_descriptor_artifact_path,
-    shell_descriptor_for_graph, shell_handoff_for_bundle, shell_templates_for_artifact_manifest,
-    validate_project_with_base, validate_selected_shell_bundle, validate_shell_artifact_manifest,
-    validate_shell_descriptor, validate_shell_template_index,
-    view_model_for_graph_issue_node_and_edge,
+    shell_descriptor_for_graph, shell_handoff_for_bundle, shell_handoff_readiness_for_project,
+    shell_templates_for_artifact_manifest, validate_project_with_base,
+    validate_selected_shell_bundle, validate_shell_artifact_manifest, validate_shell_descriptor,
+    validate_shell_template_index, view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
     StudioBindingKind, StudioEditStatus, StudioShellArtifactStatus, StudioShellBundleStatus,
@@ -48,6 +48,7 @@ enum Command {
     ValidateShellBundle(ShellBundleValidationArgs),
     ShellHandoff(ShellBundleValidationArgs),
     DesktopShellHandoff(ShellBundleValidationArgs),
+    ShellHandoffReadiness(ShellHandoffReadinessArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -225,6 +226,14 @@ struct ShellBundleValidationArgs {
     graph: String,
     #[arg(long)]
     bundle_dir: PathBuf,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHandoffReadinessArgs {
+    #[arg(long)]
+    project: PathBuf,
+    #[arg(long)]
+    bundle_root: PathBuf,
 }
 
 fn main() -> ExitCode {
@@ -554,6 +563,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 args.project.parent(),
                 &args.graph,
                 &args.bundle_dir,
+            );
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHandoffReadiness(args) => {
+            let project = load_project(&args.project)?;
+            let report = shell_handoff_readiness_for_project(
+                &project,
+                args.project.parent(),
+                &args.bundle_root,
             );
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())

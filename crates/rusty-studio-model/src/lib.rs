@@ -23,6 +23,8 @@ pub const SHELL_BUNDLE_REPORT_SCHEMA: &str = "rusty.studio.shell_bundle_report.v
 pub const SHELL_BUNDLE_VALIDATION_REPORT_SCHEMA: &str =
     "rusty.studio.shell_bundle_validation_report.v1";
 pub const SHELL_HANDOFF_REPORT_SCHEMA: &str = "rusty.studio.shell_handoff_report.v1";
+pub const SHELL_HANDOFF_READINESS_REPORT_SCHEMA: &str =
+    "rusty.studio.shell_handoff_readiness_report.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -489,6 +491,36 @@ pub enum StudioShellHandoffKind {
     PhoneShell,
     QuestShell,
     UnknownShell,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffReadinessReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: &'static str,
+    pub project_id: String,
+    pub revision: u64,
+    pub bundle_root: String,
+    pub status: StudioValidationStatus,
+    pub entries: Vec<StudioShellHandoffReadinessEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffReadinessEntry {
+    pub graph_id: String,
+    pub display_name: String,
+    pub target_host_profile: String,
+    pub target_kind: StudioShellTargetKind,
+    pub status: StudioValidationStatus,
+    pub issue_code: Option<String>,
+    pub message: String,
+    pub handoff_kind: StudioShellHandoffKind,
+    pub consumer_id: String,
+    pub bundle_dir: String,
+    pub template_index_path: String,
+    pub consumer_args: Vec<String>,
+    pub runtime_authority: Option<StudioShellRuntimeAuthority>,
+    pub validation_status: StudioValidationStatus,
+    pub failed_check_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

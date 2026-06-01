@@ -30,9 +30,10 @@ try {
     $ShellOutput = Join-Path $RepoRoot "target\studio-shell-descriptor-desktop.json"
     $ShellArtifactsDir = Join-Path $RepoRoot "target\studio-shells"
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
-    $SelectedShellBundleDir = Join-Path $RepoRoot "target\studio-selected-shell\studio.graph.synthetic_wave_desktop"
-    $SelectedPhoneShellBundleDir = Join-Path $RepoRoot "target\studio-selected-shell\studio.graph.synthetic_wave_phone"
-    $SelectedQuestShellBundleDir = Join-Path $RepoRoot "target\studio-selected-shell\studio.graph.synthetic_wave_headset"
+    $SelectedShellBundleRoot = Join-Path $RepoRoot "target\studio-selected-shell"
+    $SelectedShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_desktop"
+    $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
+    $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
     foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
         if (Test-Path $GeneratedOutput) {
@@ -1215,6 +1216,48 @@ try {
     }
     if ($RejectedDesktopHandoff.issue_code -ne "studio.issue.shell_handoff_target_mismatch") {
         throw "desktop shell handoff target mismatch issue missing"
+    }
+    $HandoffReadinessOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-readiness --project "examples\synthetic-studio-project.json" --bundle-root $SelectedShellBundleRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell handoff readiness failed with exit code $LASTEXITCODE"
+    }
+    $HandoffReadiness = ($HandoffReadinessOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($HandoffReadiness.'$schema' -ne "rusty.studio.shell_handoff_readiness_report.v1") {
+        throw "shell handoff readiness schema mismatch"
+    }
+    if ($HandoffReadiness.status -ne "pass") {
+        throw "shell handoff readiness did not pass"
+    }
+    if (@($HandoffReadiness.entries).Count -ne 3) {
+        throw "shell handoff readiness entry count mismatch"
+    }
+    foreach ($RequiredReadiness in @(
+        @{ Graph = "studio.graph.synthetic_wave_desktop"; HandoffKind = "desktop_shell"; Consumer = "rusty-studio-desktop-shell"; TargetKind = "desktop" },
+        @{ Graph = "studio.graph.synthetic_wave_phone"; HandoffKind = "phone_shell"; Consumer = "rusty-studio-phone-shell"; TargetKind = "phone" },
+        @{ Graph = "studio.graph.synthetic_wave_headset"; HandoffKind = "quest_shell"; Consumer = "rusty-studio-quest-shell"; TargetKind = "quest" }
+    )) {
+        $Entry = @($HandoffReadiness.entries | Where-Object { $_.graph_id -eq $RequiredReadiness.Graph }) | Select-Object -First 1
+        if ($null -eq $Entry) {
+            throw "shell handoff readiness missing graph $($RequiredReadiness.Graph)"
+        }
+        if ($Entry.status -ne "pass") {
+            throw "shell handoff readiness entry did not pass for $($RequiredReadiness.Graph)"
+        }
+        if ($Entry.handoff_kind -ne $RequiredReadiness.HandoffKind) {
+            throw "shell handoff readiness handoff kind mismatch for $($RequiredReadiness.Graph)"
+        }
+        if ($Entry.consumer_id -ne $RequiredReadiness.Consumer) {
+            throw "shell handoff readiness consumer mismatch for $($RequiredReadiness.Graph)"
+        }
+        if ($Entry.target_kind -ne $RequiredReadiness.TargetKind) {
+            throw "shell handoff readiness target mismatch for $($RequiredReadiness.Graph)"
+        }
+        if ($Entry.validation_status -ne "pass") {
+            throw "shell handoff readiness validation mismatch for $($RequiredReadiness.Graph)"
+        }
+        if ($Entry.failed_check_count -ne 0) {
+            throw "shell handoff readiness failed check count mismatch for $($RequiredReadiness.Graph)"
+        }
     }
 } finally {
     Pop-Location
