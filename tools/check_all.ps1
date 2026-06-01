@@ -15,9 +15,48 @@ function Invoke-Checked {
     }
 }
 
+function Invoke-NativeExpectedFailure {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Command,
+        [Parameter(Mandatory=$true)]
+        [string[]]$Arguments
+    )
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $Output = & $Command @Arguments 2>&1
+        $ExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+
+    [pscustomobject]@{
+        ExitCode = $ExitCode
+        Output = @($Output | ForEach-Object { $_.ToString() })
+    }
+}
+
+function Assert-Revision {
+    param(
+        [Parameter(Mandatory=$true)]
+        [object]$Actual,
+        [Parameter(Mandatory=$true)]
+        [long]$Expected,
+        [Parameter(Mandatory=$true)]
+        [string]$Message
+    )
+
+    if ([long]$Actual -ne $Expected) {
+        throw "$Message (expected revision $Expected, got $Actual)"
+    }
+}
+
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Push-Location $RepoRoot
 try {
+    $SourceProjectPath = "examples\synthetic-studio-project.json"
     $EditOutput = Join-Path $RepoRoot "target\studio-edit-retarget-headset.json"
     $DiagnosticProjectOutput = Join-Path $RepoRoot "target\studio-view-model-diagnostic-invalid-project.json"
     $LayoutDiagnosticProjectOutput = Join-Path $RepoRoot "target\studio-layout-diagnostic-project.json"
@@ -63,6 +102,8 @@ try {
             Remove-Item -Recurse -Force -LiteralPath $GeneratedDir
         }
     }
+    $SourceProject = Get-Content -Raw -Path $SourceProjectPath | ConvertFrom-Json
+    $SourceRevision = [long]$SourceProject.revision
 
     Invoke-Checked "cargo fmt" "cargo" @(
         "fmt",
@@ -566,7 +607,7 @@ try {
         "--project",
         $EditOutput
     )
-    $AddModuleReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-module --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --package "package.biosignal_sensor" --module "module.biosignal_sensor.provider" --label "Biosignal Provider" --output $AddModuleOutput
+    $AddModuleReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-module --project $SourceProjectPath --graph "studio.graph.synthetic_wave_desktop" --package "package.biosignal_sensor" --module "module.biosignal_sensor.provider" --label "Biosignal Provider" --output $AddModuleOutput
     if ($LASTEXITCODE -ne 0) {
         throw "studio add module failed with exit code $LASTEXITCODE"
     }
@@ -594,9 +635,7 @@ try {
         $AddModuleOutput
     )
     $AddModuleProject = Get-Content -Raw -Path $AddModuleOutput | ConvertFrom-Json
-    if ($AddModuleProject.revision -ne 2) {
-        throw "add module output should bump project revision"
-    }
+    Assert-Revision $AddModuleProject.revision ($SourceRevision + 1) "add module output should bump project revision"
     $AddedGraph = $AddModuleProject.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $AddedGraph) {
         throw "add module output graph missing"
@@ -613,7 +652,7 @@ try {
     if ($null -eq $AddedEdge) {
         throw "add module output package/module edge missing"
     }
-    $AddPaletteModuleReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-palette-module --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --output $AddPaletteModuleOutput
+    $AddPaletteModuleReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-palette-module --project $SourceProjectPath --graph "studio.graph.synthetic_wave_desktop" --output $AddPaletteModuleOutput
     if ($LASTEXITCODE -ne 0) {
         throw "studio add palette module failed with exit code $LASTEXITCODE"
     }
@@ -641,9 +680,7 @@ try {
         $AddPaletteModuleOutput
     )
     $AddPaletteModuleProject = Get-Content -Raw -Path $AddPaletteModuleOutput | ConvertFrom-Json
-    if ($AddPaletteModuleProject.revision -ne 2) {
-        throw "add palette module output should bump project revision"
-    }
+    Assert-Revision $AddPaletteModuleProject.revision ($SourceRevision + 1) "add palette module output should bump project revision"
     $PaletteGraph = $AddPaletteModuleProject.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $PaletteGraph) {
         throw "add palette module output graph missing"
@@ -660,7 +697,7 @@ try {
     if ($null -eq $PaletteEdge) {
         throw "add palette module output package/module edge missing"
     }
-    $AddSelectedPackageModuleReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-palette-module --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --package "package.hand_animation" --output $AddSelectedPackageModuleOutput
+    $AddSelectedPackageModuleReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-palette-module --project $SourceProjectPath --graph "studio.graph.synthetic_wave_desktop" --package "package.hand_animation" --output $AddSelectedPackageModuleOutput
     if ($LASTEXITCODE -ne 0) {
         throw "studio add selected package module failed with exit code $LASTEXITCODE"
     }
@@ -688,9 +725,7 @@ try {
         $AddSelectedPackageModuleOutput
     )
     $AddSelectedPackageModuleProject = Get-Content -Raw -Path $AddSelectedPackageModuleOutput | ConvertFrom-Json
-    if ($AddSelectedPackageModuleProject.revision -ne 2) {
-        throw "add selected package module output should bump project revision"
-    }
+    Assert-Revision $AddSelectedPackageModuleProject.revision ($SourceRevision + 1) "add selected package module output should bump project revision"
     $SelectedPackageGraph = $AddSelectedPackageModuleProject.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $SelectedPackageGraph) {
         throw "add selected package module output graph missing"
@@ -735,9 +770,7 @@ try {
         $RemoveModuleOutput
     )
     $RemoveModuleProject = Get-Content -Raw -Path $RemoveModuleOutput | ConvertFrom-Json
-    if ($RemoveModuleProject.revision -ne 3) {
-        throw "remove module output should bump project revision from add-module output"
-    }
+    Assert-Revision $RemoveModuleProject.revision ([long]$AddModuleProject.revision + 1) "remove module output should bump project revision from add-module output"
     $RemovedGraph = $RemoveModuleProject.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $RemovedGraph) {
         throw "remove module output graph missing"
@@ -750,7 +783,7 @@ try {
     if ($null -ne $DanglingRemovedEdge) {
         throw "remove module output still contains an edge incident to the removed module"
     }
-    $AddBindingReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-binding --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --kind "command" --source-node "node.shell.operator" --target-node "node.module.synthetic_wave_provider" --output $AddBindingOutput
+    $AddBindingReportOutput = & cargo run --quiet -p rusty-studio-cli -- add-binding --project $SourceProjectPath --graph "studio.graph.synthetic_wave_desktop" --kind "command" --source-node "node.shell.operator" --target-node "node.module.synthetic_wave_provider" --output $AddBindingOutput
     if ($LASTEXITCODE -ne 0) {
         throw "studio add binding failed with exit code $LASTEXITCODE"
     }
@@ -779,9 +812,7 @@ try {
         $AddBindingOutput
     )
     $AddBindingProject = Get-Content -Raw -Path $AddBindingOutput | ConvertFrom-Json
-    if ($AddBindingProject.revision -ne 2) {
-        throw "add binding output should bump project revision"
-    }
+    Assert-Revision $AddBindingProject.revision ($SourceRevision + 1) "add binding output should bump project revision"
     $BindingGraph = $AddBindingProject.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $BindingGraph) {
         throw "add binding output graph missing"
@@ -818,9 +849,7 @@ try {
         $RemoveBindingOutput
     )
     $RemoveBindingProject = Get-Content -Raw -Path $RemoveBindingOutput | ConvertFrom-Json
-    if ($RemoveBindingProject.revision -ne 3) {
-        throw "remove binding output should bump project revision from add-binding output"
-    }
+    Assert-Revision $RemoveBindingProject.revision ([long]$AddBindingProject.revision + 1) "remove binding output should bump project revision from add-binding output"
     $RemovedBindingGraph = $RemoveBindingProject.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
     if ($null -eq $RemovedBindingGraph) {
         throw "remove binding output graph missing"
@@ -2068,11 +2097,22 @@ try {
     if ($PromotedBaselineIndex.baseline_count -ne 2 -or $PromotedBaselineIndex.ready_baseline_count -ne 1 -or $PromotedBaselineIndex.blocked_baseline_count -ne 1) {
         throw "promoted shell handoff acceptance index counts mismatch"
     }
-    $MissingPromoteOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-baseline-index-promote --baseline-index $ShellHandoffAcceptanceMultiBaselineIndexPath --baseline-id "synthetic-missing" 2>&1
-    if ($LASTEXITCODE -eq 0) {
+    $MissingPromoteResult = Invoke-NativeExpectedFailure "cargo" @(
+        "run",
+        "--quiet",
+        "-p",
+        "rusty-studio-cli",
+        "--",
+        "shell-handoff-acceptance-baseline-index-promote",
+        "--baseline-index",
+        $ShellHandoffAcceptanceMultiBaselineIndexPath,
+        "--baseline-id",
+        "synthetic-missing"
+    )
+    if ($MissingPromoteResult.ExitCode -eq 0) {
         throw "missing baseline promote should fail"
     }
-    if ((($MissingPromoteOutput -join [Environment]::NewLine) -notmatch "--baseline-id was not found in --baseline-index")) {
+    if ((($MissingPromoteResult.Output -join [Environment]::NewLine) -notmatch "--baseline-id was not found in --baseline-index")) {
         throw "missing baseline promote error mismatch"
     }
     $RegressedHandoffAcceptanceComparisonOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline-index $ShellHandoffAcceptanceBaselineIndexPath --candidate $MissingShellHandoffAcceptanceChecklistPath
