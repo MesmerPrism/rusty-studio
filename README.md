@@ -71,6 +71,8 @@ Current scope:
 - write a durable schema-only shell handoff manifest that archives readiness
   paths, target summaries, consumer arguments, and authority boundaries for
   future Hostess/Manifold-owned routes;
+- validate shell handoff manifests as downstream intake contracts without
+  granting Studio install, launch, command-session, or evidence authority;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -117,6 +119,7 @@ cargo run -p rusty-studio-cli -- shell-bundle --project examples\synthetic-studi
 cargo run -p rusty-studio-cli -- shell-handoff --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset --bundle-dir target\studio-selected-shell\studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-cli -- shell-handoff-readiness --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell
 cargo run -p rusty-studio-cli -- shell-handoff-manifest --project examples\synthetic-studio-project.json --bundle-root target\studio-selected-shell --output target\studio-shell-handoffs\shell-handoffs.json
+cargo run -p rusty-studio-cli -- validate-shell-handoff-manifest --manifest target\studio-shell-handoffs\shell-handoffs.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json

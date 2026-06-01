@@ -26,6 +26,8 @@ pub const SHELL_HANDOFF_REPORT_SCHEMA: &str = "rusty.studio.shell_handoff_report
 pub const SHELL_HANDOFF_READINESS_REPORT_SCHEMA: &str =
     "rusty.studio.shell_handoff_readiness_report.v1";
 pub const SHELL_HANDOFF_MANIFEST_SCHEMA: &str = "rusty.studio.shell_handoff_manifest.v1";
+pub const SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA: &str =
+    "rusty.studio.shell_handoff_manifest_validation_report.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -616,6 +618,15 @@ pub struct StudioShellHandoffManifestEntry {
     pub operator_shell_ids: Vec<String>,
     pub validation_status: StudioValidationStatus,
     pub failed_check_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioShellHandoffManifestValidationReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: &'static str,
+    pub manifest_id: String,
+    pub status: StudioValidationStatus,
+    pub checks: Vec<StudioValidationCheck>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

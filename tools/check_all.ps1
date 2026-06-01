@@ -32,11 +32,12 @@ try {
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
     $SelectedShellBundleRoot = Join-Path $RepoRoot "target\studio-selected-shell"
     $ShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs.json"
+    $InvalidShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-invalid-authority.json"
     $SelectedShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_desktop"
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $InvalidShellHandoffManifestPath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -1454,6 +1455,34 @@ try {
                 throw "shell handoff manifest operator shell ids mismatch for $($RequiredReadiness.Graph)"
             }
         }
+    }
+    $HandoffManifestValidationOutput = & cargo run --quiet -p rusty-studio-cli -- validate-shell-handoff-manifest --manifest $ShellHandoffManifestPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio shell handoff manifest validation failed with exit code $LASTEXITCODE"
+    }
+    $HandoffManifestValidation = ($HandoffManifestValidationOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($HandoffManifestValidation.'$schema' -ne "rusty.studio.shell_handoff_manifest_validation_report.v1") {
+        throw "shell handoff manifest validation schema mismatch"
+    }
+    if ($HandoffManifestValidation.status -ne "pass") {
+        throw "shell handoff manifest validation did not pass"
+    }
+    if (@($HandoffManifestValidation.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
+        throw "shell handoff manifest validation reported failed checks"
+    }
+    $InvalidHandoffManifest = Get-Content -Raw $ShellHandoffManifestPath | ConvertFrom-Json
+    $InvalidHandoffManifest.runtime_authority.command_session_authority = "rusty.studio"
+    $InvalidHandoffManifest | ConvertTo-Json -Depth 100 | Set-Content -Encoding ascii $InvalidShellHandoffManifestPath
+    $InvalidHandoffManifestValidationOutput = & cargo run --quiet -p rusty-studio-cli -- validate-shell-handoff-manifest --manifest $InvalidShellHandoffManifestPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio invalid shell handoff manifest validation command failed with exit code $LASTEXITCODE"
+    }
+    $InvalidHandoffManifestValidation = ($InvalidHandoffManifestValidationOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($InvalidHandoffManifestValidation.status -ne "fail") {
+        throw "invalid shell handoff manifest validation should fail"
+    }
+    if (@($InvalidHandoffManifestValidation.checks | Where-Object { $_.issue_code -eq "studio.issue.runtime_authority_mismatch" }).Count -lt 1) {
+        throw "invalid shell handoff manifest validation missing runtime authority mismatch"
     }
 } finally {
     Pop-Location
