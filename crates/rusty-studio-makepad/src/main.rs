@@ -164,6 +164,8 @@ script_mod! {
 
     let CanvasPanel = Panel{
         SectionTitle{text: "Read-Only Graph Canvas"}
+        Row{FieldLabel{text: "layout"} graph_layout := SmallValue{text: ""}}
+        Rule{}
         Row{FieldLabel{text: "nodes"} graph_nodes := SmallValue{text: ""}}
         Rule{}
         Row{FieldLabel{text: "edges"} graph_edges := SmallValue{text: ""}}
@@ -367,6 +369,9 @@ impl App {
                 graph.operator_shell_count
             ),
         );
+        self.ui
+            .label(cx, ids!(graph_layout))
+            .set_text(cx, &layout_lines(graph));
         self.ui
             .label(cx, ids!(graph_nodes))
             .set_text(cx, &node_lines(graph));
@@ -646,6 +651,7 @@ impl App {
             .set_text(cx, "no graph loaded");
         self.ui.label(cx, ids!(graph_target)).set_text(cx, "");
         self.ui.label(cx, ids!(graph_counts)).set_text(cx, "");
+        self.ui.label(cx, ids!(graph_layout)).set_text(cx, "");
         self.ui.label(cx, ids!(graph_nodes)).set_text(cx, "");
         self.ui.label(cx, ids!(graph_edges)).set_text(cx, "");
         self.ui.label(cx, ids!(selected_node)).set_text(cx, "");
@@ -1556,6 +1562,36 @@ fn edit_validation_line(report: &StudioEditReport) -> String {
     format!("{status}; {} check(s)", report.validation.checks.len())
 }
 
+fn layout_lines(graph: &StudioGraphView) -> String {
+    let Some(layout) = graph.layout.as_ref() else {
+        return "none".to_string();
+    };
+    let mut lines = vec![format!(
+        "{} / {} / {} node(s) / {} edge(s)",
+        layout.layout_id, layout.coordinate_space, layout.node_count, layout.edge_count
+    )];
+    for node in &layout.nodes {
+        lines.push(format!(
+            "{} @ {},{} {}x{}{}",
+            node.node_id,
+            node.x,
+            node.y,
+            node.width,
+            node.height,
+            issue_count_line(node.validation_issue_count)
+        ));
+    }
+    for edge in &layout.edges {
+        lines.push(format!(
+            "{} route: {}{}",
+            edge.edge_id,
+            edge.route,
+            issue_count_line(edge.validation_issue_count)
+        ));
+    }
+    lines.join("\n")
+}
+
 fn node_lines(graph: &StudioGraphView) -> String {
     graph
         .node_rows
@@ -1603,7 +1639,8 @@ fn issue_count_line(count: usize) -> String {
 mod tests {
     use super::*;
     use rusty_studio_model::{
-        StudioEdge, StudioEdgeKind, StudioEditOperation, StudioGraph, StudioNode, StudioNodeKind,
+        StudioEdge, StudioEdgeKind, StudioEdgeLayout, StudioEdgeRouteKind, StudioEditOperation,
+        StudioGraph, StudioGraphLayout, StudioNode, StudioNodeKind, StudioNodeLayout,
         StudioProject, PROJECT_SCHEMA,
     };
 
@@ -1724,6 +1761,37 @@ mod tests {
                     source_node_id: "node.shell.operator".to_string(),
                     target_node_id: "node.host.profile".to_string(),
                 }],
+                layout: Some(StudioGraphLayout {
+                    layout_id: "studio.layout.makepad_edit".to_string(),
+                    coordinate_space: "studio.canvas.logical_2d".to_string(),
+                    nodes: vec![
+                        StudioNodeLayout {
+                            node_id: "node.package.synthetic".to_string(),
+                            x: 40,
+                            y: 40,
+                            width: 180,
+                            height: 72,
+                        },
+                        StudioNodeLayout {
+                            node_id: "node.shell.operator".to_string(),
+                            x: 320,
+                            y: 40,
+                            width: 180,
+                            height: 72,
+                        },
+                        StudioNodeLayout {
+                            node_id: "node.host.profile".to_string(),
+                            x: 600,
+                            y: 40,
+                            width: 180,
+                            height: 72,
+                        },
+                    ],
+                    edges: vec![StudioEdgeLayout {
+                        edge_id: "edge.shell_host".to_string(),
+                        route: StudioEdgeRouteKind::Direct,
+                    }],
+                }),
             }],
         }
     }
@@ -1782,6 +1850,10 @@ mod tests {
         assert!(detail_lines.contains("node: node.package.synthetic"));
         assert!(detail_lines.contains("ref: package.synthetic [resolved]"));
         assert!(detail_lines.contains("module.synthetic_provider"));
+        let layout = layout_lines(&model.graphs[0]);
+        assert!(layout.contains("studio.layout.makepad_edit / studio.canvas.logical_2d"));
+        assert!(layout.contains("node.shell.operator @ 320,40 180x72"));
+        assert!(layout.contains("edge.shell_host route: direct"));
         assert_eq!(
             selected_edge_line(&model),
             "edge.shell_host [shell_targets_host_profile]"

@@ -23,6 +23,8 @@ Current scope:
   host-profile references through the shared view model;
 - expose read-only selected edge inspector details for graph bindings and
   endpoint references through the shared view model;
+- expose optional schema-only graph layout hints for nodes and edges through
+  the shared view model and Makepad read-only canvas;
 - add the next available catalog module from that palette through a shared
   core/CLI/Makepad mutation path;
 - render the resolved synthetic project in a Makepad desktop authoring surface;

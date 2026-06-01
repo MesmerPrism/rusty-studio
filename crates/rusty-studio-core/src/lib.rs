@@ -1,8 +1,8 @@
 use rusty_studio_model::{
-    StudioBindingKind, StudioEdge, StudioEdgeKind, StudioEditOperation, StudioEditReport,
-    StudioEditStatus, StudioExportBundle, StudioExportPlan, StudioGraph, StudioHostProfileView,
-    StudioIssueFocusView, StudioNode, StudioNodeKind, StudioProject, StudioResolvedGraph,
-    StudioResolvedProject, StudioShellArtifact, StudioShellArtifactManifest,
+    StudioBindingKind, StudioEdge, StudioEdgeKind, StudioEdgeRouteKind, StudioEditOperation,
+    StudioEditReport, StudioEditStatus, StudioExportBundle, StudioExportPlan, StudioGraph,
+    StudioHostProfileView, StudioIssueFocusView, StudioNode, StudioNodeKind, StudioProject,
+    StudioResolvedGraph, StudioResolvedProject, StudioShellArtifact, StudioShellArtifactManifest,
     StudioShellArtifactManifestValidationReport, StudioShellArtifactRejection,
     StudioShellArtifactReport, StudioShellArtifactStatus, StudioShellBinding,
     StudioShellDescriptor, StudioShellDescriptorReport, StudioShellDescriptorStatus,
@@ -20,8 +20,9 @@ use rusty_studio_model::{
     SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
-    StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeView, StudioGraphView,
-    StudioNodeHostProfileView, StudioNodeInspectorView, StudioNodeView,
+    StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
+    StudioGraphLayoutView, StudioGraphView, StudioNodeHostProfileView, StudioNodeInspectorView,
+    StudioNodeLayoutView, StudioNodeView,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -1058,6 +1059,34 @@ pub fn remove_module_from_graph(
         graph
             .edges
             .retain(|edge| !incident_edge_ids.contains(&edge.edge_id));
+
+        if let Some(layout) = graph.layout.as_mut() {
+            let removed_layout_node_ids = layout
+                .nodes
+                .iter()
+                .filter(|node| module_node_ids.contains(&node.node_id))
+                .map(|node| node.node_id.clone())
+                .collect::<Vec<_>>();
+            for node_id in &removed_layout_node_ids {
+                changed_fields.push(format!("graphs.{graph_id}.layout.nodes.{node_id}"));
+            }
+            layout
+                .nodes
+                .retain(|node| !module_node_ids.contains(&node.node_id));
+
+            let removed_layout_edge_ids = layout
+                .edges
+                .iter()
+                .filter(|edge| incident_edge_ids.contains(&edge.edge_id))
+                .map(|edge| edge.edge_id.clone())
+                .collect::<Vec<_>>();
+            for edge_id in &removed_layout_edge_ids {
+                changed_fields.push(format!("graphs.{graph_id}.layout.edges.{edge_id}"));
+            }
+            layout
+                .edges
+                .retain(|edge| !incident_edge_ids.contains(&edge.edge_id));
+        }
     }
 
     if !changed_fields.is_empty() {
@@ -1494,6 +1523,20 @@ pub fn remove_binding_from_graph(
         graph
             .edges
             .retain(|edge| !removed_edge_ids.contains(&edge.edge_id));
+        if let Some(layout) = graph.layout.as_mut() {
+            let removed_layout_edge_ids = layout
+                .edges
+                .iter()
+                .filter(|edge| removed_edge_ids.contains(&edge.edge_id))
+                .map(|edge| edge.edge_id.clone())
+                .collect::<Vec<_>>();
+            for edge_id in &removed_layout_edge_ids {
+                changed_fields.push(format!("graphs.{graph_id}.layout.edges.{edge_id}"));
+            }
+            layout
+                .edges
+                .retain(|edge| !removed_edge_ids.contains(&edge.edge_id));
+        }
     }
 
     if !changed_fields.is_empty() {
@@ -3646,12 +3689,145 @@ fn validate_graph(
         edge_by_id.keys().cloned().collect::<Vec<_>>(),
         Vec::new(),
     );
+    let edge_ids = graph
+        .edges
+        .iter()
+        .map(|edge| edge.edge_id.clone())
+        .collect::<BTreeSet<_>>();
     for edge in &graph.edges {
         validate_edge(graph, edge, &node_ids, checks);
     }
+    validate_graph_layout(graph, &node_ids, &edge_ids, checks);
     if let Some(reference_index) = reference_index {
         validate_graph_references(graph, reference_index, checks);
     }
+}
+
+fn validate_graph_layout(
+    graph: &StudioGraph,
+    node_ids: &BTreeSet<String>,
+    edge_ids: &BTreeSet<String>,
+    checks: &mut Vec<StudioValidationCheck>,
+) {
+    let Some(layout) = graph.layout.as_ref() else {
+        return;
+    };
+    let prefix = &graph.graph_id;
+    push_contextual_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.layout.id"),
+        is_dotted_id(&layout.layout_id),
+        "graph layout id uses dotted-id grammar",
+        "graph layout id is not a dotted id",
+        "studio.issue.invalid_layout_id",
+        Some(prefix),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    push_contextual_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.layout.coordinate_space"),
+        is_dotted_id(&layout.coordinate_space),
+        "graph layout coordinate space uses dotted-id grammar",
+        "graph layout coordinate space is not a dotted id",
+        "studio.issue.invalid_layout_coordinate_space",
+        Some(prefix),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let mut layout_node_ids = BTreeSet::new();
+    let mut duplicate_layout_nodes = Vec::new();
+    for node in &layout.nodes {
+        if !layout_node_ids.insert(node.node_id.clone()) {
+            duplicate_layout_nodes.push(node.node_id.clone());
+        }
+        push_contextual_check(
+            checks,
+            &format!(
+                "studio.check.graph.{prefix}.layout.node.{}.exists",
+                node.node_id
+            ),
+            node_ids.contains(&node.node_id),
+            "layout node references a graph node",
+            "layout node references a missing graph node",
+            "studio.issue.layout_node_missing",
+            Some(prefix),
+            vec![node.node_id.clone()],
+            Vec::new(),
+            Vec::new(),
+        );
+        push_contextual_check(
+            checks,
+            &format!(
+                "studio.check.graph.{prefix}.layout.node.{}.box",
+                node.node_id
+            ),
+            node.width > 0 && node.height > 0,
+            "layout node box has positive dimensions",
+            "layout node box must have positive dimensions",
+            "studio.issue.invalid_layout_node_box",
+            Some(prefix),
+            vec![node.node_id.clone()],
+            Vec::new(),
+            Vec::new(),
+        );
+    }
+    push_contextual_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.layout.unique_nodes"),
+        duplicate_layout_nodes.is_empty(),
+        "layout node ids are unique",
+        &format!(
+            "duplicate layout node ids: {}",
+            duplicate_layout_nodes.join(", ")
+        ),
+        "studio.issue.duplicate_layout_node_id",
+        Some(prefix),
+        duplicate_layout_nodes,
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let mut layout_edge_ids = BTreeSet::new();
+    let mut duplicate_layout_edges = Vec::new();
+    for edge in &layout.edges {
+        if !layout_edge_ids.insert(edge.edge_id.clone()) {
+            duplicate_layout_edges.push(edge.edge_id.clone());
+        }
+        push_contextual_check(
+            checks,
+            &format!(
+                "studio.check.graph.{prefix}.layout.edge.{}.exists",
+                edge.edge_id
+            ),
+            edge_ids.contains(&edge.edge_id),
+            "layout edge references a graph edge",
+            "layout edge references a missing graph edge",
+            "studio.issue.layout_edge_missing",
+            Some(prefix),
+            Vec::new(),
+            vec![edge.edge_id.clone()],
+            Vec::new(),
+        );
+    }
+    push_contextual_check(
+        checks,
+        &format!("studio.check.graph.{prefix}.layout.unique_edges"),
+        duplicate_layout_edges.is_empty(),
+        "layout edge ids are unique",
+        &format!(
+            "duplicate layout edge ids: {}",
+            duplicate_layout_edges.join(", ")
+        ),
+        "studio.issue.duplicate_layout_edge_id",
+        Some(prefix),
+        Vec::new(),
+        duplicate_layout_edges,
+        Vec::new(),
+    );
 }
 
 fn validate_project_references(
@@ -4288,6 +4464,46 @@ fn graph_view(
                     .edge_issue_count(&graph.graph_id, &edge.edge_id),
             })
             .collect(),
+        layout: graph
+            .layout
+            .as_ref()
+            .map(|layout| graph_layout_view(&graph.graph_id, layout, issue_target_index)),
+    }
+}
+
+fn graph_layout_view(
+    graph_id: &str,
+    layout: &rusty_studio_model::StudioGraphLayout,
+    issue_target_index: &ValidationIssueTargetIndex,
+) -> StudioGraphLayoutView {
+    StudioGraphLayoutView {
+        layout_id: layout.layout_id.clone(),
+        coordinate_space: layout.coordinate_space.clone(),
+        node_count: layout.nodes.len(),
+        edge_count: layout.edges.len(),
+        nodes: layout
+            .nodes
+            .iter()
+            .map(|node| StudioNodeLayoutView {
+                node_id: node.node_id.clone(),
+                x: node.x,
+                y: node.y,
+                width: node.width,
+                height: node.height,
+                validation_issue_count: issue_target_index
+                    .node_issue_count(graph_id, &node.node_id),
+            })
+            .collect(),
+        edges: layout
+            .edges
+            .iter()
+            .map(|edge| StudioEdgeLayoutView {
+                edge_id: edge.edge_id.clone(),
+                route: edge_route_label(edge.route).to_string(),
+                validation_issue_count: issue_target_index
+                    .edge_issue_count(graph_id, &edge.edge_id),
+            })
+            .collect(),
     }
 }
 
@@ -4411,6 +4627,13 @@ fn edge_kind_label(kind: rusty_studio_model::StudioEdgeKind) -> &'static str {
             "validation_slot_uses_package"
         }
         rusty_studio_model::StudioEdgeKind::ShellTargetsHostProfile => "shell_targets_host_profile",
+    }
+}
+
+fn edge_route_label(route: StudioEdgeRouteKind) -> &'static str {
+    match route {
+        StudioEdgeRouteKind::Direct => "direct",
+        StudioEdgeRouteKind::Orthogonal => "orthogonal",
     }
 }
 
@@ -4695,8 +4918,9 @@ pub fn is_dotted_id(value: &str) -> bool {
 mod tests {
     use super::*;
     use rusty_studio_model::{
-        StudioBindingKind, StudioEdgeKind, StudioEditOperation, StudioEditStatus, StudioNode,
-        StudioNodeKind, StudioShellArtifactStatus, StudioShellDescriptorStatus,
+        StudioBindingKind, StudioEdgeKind, StudioEdgeLayout, StudioEdgeRouteKind,
+        StudioEditOperation, StudioEditStatus, StudioGraphLayout, StudioNode, StudioNodeKind,
+        StudioNodeLayout, StudioShellArtifactStatus, StudioShellDescriptorStatus,
         StudioShellTargetKind, StudioShellTemplateStatus,
         SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
     };
@@ -4735,6 +4959,30 @@ mod tests {
                     source_node_id: "node.package.synthetic".to_string(),
                     target_node_id: "node.host.desktop".to_string(),
                 }],
+                layout: Some(StudioGraphLayout {
+                    layout_id: "studio.layout.test".to_string(),
+                    coordinate_space: "studio.canvas.logical_2d".to_string(),
+                    nodes: vec![
+                        StudioNodeLayout {
+                            node_id: "node.package.synthetic".to_string(),
+                            x: 40,
+                            y: 40,
+                            width: 180,
+                            height: 72,
+                        },
+                        StudioNodeLayout {
+                            node_id: "node.host.desktop".to_string(),
+                            x: 340,
+                            y: 40,
+                            width: 180,
+                            height: 72,
+                        },
+                    ],
+                    edges: vec![StudioEdgeLayout {
+                        edge_id: "edge.package_host".to_string(),
+                        route: StudioEdgeRouteKind::Direct,
+                    }],
+                }),
             }],
         }
     }
@@ -4896,6 +5144,14 @@ mod tests {
                 edge.target_node_id = "node.host.mobile".to_string();
             }
         }
+        if let Some(layout) = phone_graph.layout.as_mut() {
+            layout.layout_id = "studio.layout.phone".to_string();
+            for node in &mut layout.nodes {
+                if node.node_id == "node.host.desktop" {
+                    node.node_id = "node.host.mobile".to_string();
+                }
+            }
+        }
 
         let mut quest_graph = project.graphs[0].clone();
         quest_graph.graph_id = "studio.graph.quest".to_string();
@@ -4915,6 +5171,14 @@ mod tests {
         for edge in &mut quest_graph.edges {
             if edge.kind == StudioEdgeKind::ShellTargetsHostProfile {
                 edge.target_node_id = "node.host.headset".to_string();
+            }
+        }
+        if let Some(layout) = quest_graph.layout.as_mut() {
+            layout.layout_id = "studio.layout.quest".to_string();
+            for node in &mut layout.nodes {
+                if node.node_id == "node.host.desktop" {
+                    node.node_id = "node.host.headset".to_string();
+                }
             }
         }
 
@@ -4971,6 +5235,31 @@ mod tests {
         assert_eq!(issue.graph_id.as_deref(), Some("studio.graph.test"));
         assert_eq!(issue.node_ids, vec!["node.missing".to_string()]);
         assert_eq!(issue.edge_ids, vec!["edge.package_host".to_string()]);
+    }
+
+    #[test]
+    fn invalid_layout_references_fail() {
+        let mut project = valid_project();
+        let layout = project.graphs[0].layout.as_mut().expect("layout");
+        layout.nodes[0].node_id = "node.missing".to_string();
+        layout.edges[0].edge_id = "edge.missing".to_string();
+        layout.nodes[1].width = 0;
+
+        let report = validate_project(&project);
+
+        assert_eq!(report.status, StudioValidationStatus::Fail);
+        assert!(report.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.layout_node_missing")
+                && check.node_ids == vec!["node.missing".to_string()]
+        }));
+        assert!(report.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.layout_edge_missing")
+                && check.edge_ids == vec!["edge.missing".to_string()]
+        }));
+        assert!(report.checks.iter().any(|check| {
+            check.issue_code.as_deref() == Some("studio.issue.invalid_layout_node_box")
+                && check.node_ids == vec!["node.host.desktop".to_string()]
+        }));
     }
 
     #[test]
@@ -5996,6 +6285,17 @@ mod tests {
             "shell_targets_host_profile"
         );
         assert_eq!(model.graphs[0].edge_rows[0].validation_issue_count, 0);
+        let layout = model.graphs[0].layout.as_ref().expect("graph layout");
+        assert_eq!(layout.layout_id, "studio.layout.test");
+        assert_eq!(layout.coordinate_space, "studio.canvas.logical_2d");
+        assert_eq!(layout.node_count, 2);
+        assert_eq!(layout.edge_count, 1);
+        assert_eq!(layout.nodes[0].node_id, "node.package.synthetic");
+        assert_eq!(layout.nodes[0].x, 40);
+        assert_eq!(layout.nodes[0].width, 180);
+        assert_eq!(layout.nodes[0].validation_issue_count, 0);
+        assert_eq!(layout.edges[0].edge_id, "edge.package_host");
+        assert_eq!(layout.edges[0].route, "direct");
     }
 
     #[test]

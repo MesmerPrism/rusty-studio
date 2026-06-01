@@ -20,6 +20,7 @@ Push-Location $RepoRoot
 try {
     $EditOutput = Join-Path $RepoRoot "target\studio-edit-retarget-headset.json"
     $DiagnosticProjectOutput = Join-Path $RepoRoot "target\studio-view-model-diagnostic-invalid-project.json"
+    $LayoutDiagnosticProjectOutput = Join-Path $RepoRoot "target\studio-layout-diagnostic-project.json"
     $AddModuleOutput = Join-Path $RepoRoot "target\studio-edit-add-module.json"
     $AddPaletteModuleOutput = Join-Path $RepoRoot "target\studio-edit-add-palette-module.json"
     $RemoveModuleOutput = Join-Path $RepoRoot "target\studio-edit-remove-module.json"
@@ -29,7 +30,7 @@ try {
     $ShellArtifactsDir = Join-Path $RepoRoot "target\studio-shells"
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -158,6 +159,35 @@ try {
     }
     if ($ViewModelDesktopGraph.validation_issue_count -ne 0) {
         throw "valid desktop graph row should have no validation issues"
+    }
+    if ($null -eq $ViewModelDesktopGraph.layout) {
+        throw "valid desktop graph row should expose graph layout"
+    }
+    if ($ViewModelDesktopGraph.layout.layout_id -ne "studio.layout.synthetic_wave_desktop") {
+        throw "valid desktop graph layout id mismatch"
+    }
+    if ($ViewModelDesktopGraph.layout.coordinate_space -ne "studio.canvas.logical_2d") {
+        throw "valid desktop graph layout coordinate space mismatch"
+    }
+    if ($ViewModelDesktopGraph.layout.node_count -ne 5) {
+        throw "valid desktop graph layout node count mismatch"
+    }
+    if ($ViewModelDesktopGraph.layout.edge_count -ne 4) {
+        throw "valid desktop graph layout edge count mismatch"
+    }
+    $LayoutProvider = $ViewModelDesktopGraph.layout.nodes | Where-Object { $_.node_id -eq "node.module.synthetic_wave_provider" } | Select-Object -First 1
+    if ($null -eq $LayoutProvider) {
+        throw "valid desktop graph layout missing provider node"
+    }
+    if ($LayoutProvider.x -ne 320 -or $LayoutProvider.y -ne 24 -or $LayoutProvider.width -ne 220 -or $LayoutProvider.height -ne 72) {
+        throw "valid desktop graph layout provider box mismatch"
+    }
+    $LayoutShellEdge = $ViewModelDesktopGraph.layout.edges | Where-Object { $_.edge_id -eq "edge.shell_host" } | Select-Object -First 1
+    if ($null -eq $LayoutShellEdge) {
+        throw "valid desktop graph layout missing shell edge"
+    }
+    if ($LayoutShellEdge.route -ne "orthogonal") {
+        throw "valid desktop graph layout shell edge route mismatch"
     }
     if ($ViewModel.catalog_package_count -lt 4) {
         throw "view model should expose at least four catalog packages"
@@ -340,6 +370,48 @@ try {
     }
     if ($DiagnosticPackageNode.validation_issue_count -lt 1) {
         throw "diagnostic package node row should expose validation issue count"
+    }
+    $LayoutDiagnosticProject = Get-Content -Raw -Path "examples\synthetic-studio-project.json" | ConvertFrom-Json
+    $LayoutDiagnosticProject.graphs[0].layout.nodes[0].node_id = "node.layout_missing"
+    $LayoutDiagnosticProject.graphs[0].layout.nodes[1].width = 0
+    $LayoutDiagnosticProject.graphs[0].layout.edges[0].edge_id = "edge.layout_missing"
+    [System.IO.File]::WriteAllText(
+        $LayoutDiagnosticProjectOutput,
+        ($LayoutDiagnosticProject | ConvertTo-Json -Depth 100),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $LayoutDiagnosticViewOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project $LayoutDiagnosticProjectOutput --graph "studio.graph.synthetic_wave_desktop"
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio layout diagnostic view model failed with exit code $LASTEXITCODE"
+    }
+    $LayoutDiagnosticViewText = $LayoutDiagnosticViewOutput -join [Environment]::NewLine
+    $LayoutDiagnosticView = $LayoutDiagnosticViewText | ConvertFrom-Json
+    if ($LayoutDiagnosticView.validation_status -ne "fail") {
+        throw "layout diagnostic view model should fail validation"
+    }
+    $MissingLayoutNodeIssue = $LayoutDiagnosticView.validation_issues | Where-Object { $_.issue_code -eq "studio.issue.layout_node_missing" } | Select-Object -First 1
+    if ($null -eq $MissingLayoutNodeIssue) {
+        throw "layout diagnostic view model should expose missing layout node issue"
+    }
+    $MissingLayoutEdgeIssue = $LayoutDiagnosticView.validation_issues | Where-Object { $_.issue_code -eq "studio.issue.layout_edge_missing" } | Select-Object -First 1
+    if ($null -eq $MissingLayoutEdgeIssue) {
+        throw "layout diagnostic view model should expose missing layout edge issue"
+    }
+    $InvalidLayoutBoxIssue = $LayoutDiagnosticView.validation_issues | Where-Object { $_.issue_code -eq "studio.issue.invalid_layout_node_box" } | Select-Object -First 1
+    if ($null -eq $InvalidLayoutBoxIssue) {
+        throw "layout diagnostic view model should expose invalid layout box issue"
+    }
+    $LayoutDiagnosticGraph = $LayoutDiagnosticView.graphs | Where-Object { $_.graph_id -eq "studio.graph.synthetic_wave_desktop" } | Select-Object -First 1
+    if ($null -eq $LayoutDiagnosticGraph.layout) {
+        throw "layout diagnostic graph should still expose layout view"
+    }
+    $MissingLayoutNode = $LayoutDiagnosticGraph.layout.nodes | Where-Object { $_.node_id -eq "node.layout_missing" } | Select-Object -First 1
+    if ($null -eq $MissingLayoutNode -or $MissingLayoutNode.validation_issue_count -lt 1) {
+        throw "layout diagnostic missing node should carry issue count"
+    }
+    $MissingLayoutEdge = $LayoutDiagnosticGraph.layout.edges | Where-Object { $_.edge_id -eq "edge.layout_missing" } | Select-Object -First 1
+    if ($null -eq $MissingLayoutEdge -or $MissingLayoutEdge.validation_issue_count -lt 1) {
+        throw "layout diagnostic missing edge should carry issue count"
     }
     $RequestedDiagnosticViewOutput = & cargo run --quiet -p rusty-studio-cli -- view-model --project $DiagnosticProjectOutput --graph "studio.graph.synthetic_wave_desktop" --issue "studio.check.graph.studio.graph.synthetic_wave_desktop.package_refs"
     if ($LASTEXITCODE -ne 0) {

@@ -39,6 +39,8 @@ pub struct StudioGraph {
     pub target_host_profile: String,
     pub nodes: Vec<StudioNode>,
     pub edges: Vec<StudioEdge>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<StudioGraphLayout>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -82,6 +84,36 @@ pub enum StudioEdgeKind {
 pub enum StudioBindingKind {
     Stream,
     Command,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioGraphLayout {
+    pub layout_id: String,
+    pub coordinate_space: String,
+    pub nodes: Vec<StudioNodeLayout>,
+    pub edges: Vec<StudioEdgeLayout>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioNodeLayout {
+    pub node_id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioEdgeLayout {
+    pub edge_id: String,
+    pub route: StudioEdgeRouteKind,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioEdgeRouteKind {
+    Direct,
+    Orthogonal,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -568,6 +600,7 @@ pub struct StudioGraphView {
     pub operator_shell_count: usize,
     pub node_rows: Vec<StudioNodeView>,
     pub edge_rows: Vec<StudioEdgeView>,
+    pub layout: Option<StudioGraphLayoutView>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -585,5 +618,32 @@ pub struct StudioEdgeView {
     pub kind: String,
     pub source_node_id: String,
     pub target_node_id: String,
+    pub validation_issue_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioGraphLayoutView {
+    pub layout_id: String,
+    pub coordinate_space: String,
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub nodes: Vec<StudioNodeLayoutView>,
+    pub edges: Vec<StudioEdgeLayoutView>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioNodeLayoutView {
+    pub node_id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub validation_issue_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StudioEdgeLayoutView {
+    pub edge_id: String,
+    pub route: String,
     pub validation_issue_count: usize,
 }

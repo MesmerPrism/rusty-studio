@@ -71,7 +71,66 @@
           "source_node_id": "node.shell.operator",
           "target_node_id": "node.host_profile.desktop"
         }
-      ]
+      ],
+      "layout": {
+        "layout_id": "studio.layout.synthetic_wave_desktop",
+        "coordinate_space": "studio.canvas.logical_2d",
+        "nodes": [
+          {
+            "node_id": "node.package.synthetic_wave",
+            "x": 40,
+            "y": 40,
+            "width": 200,
+            "height": 72
+          },
+          {
+            "node_id": "node.module.synthetic_wave_provider",
+            "x": 320,
+            "y": 24,
+            "width": 220,
+            "height": 72
+          },
+          {
+            "node_id": "node.module.synthetic_wave_processor",
+            "x": 620,
+            "y": 24,
+            "width": 220,
+            "height": 72
+          },
+          {
+            "node_id": "node.shell.operator",
+            "x": 320,
+            "y": 200,
+            "width": 220,
+            "height": 72
+          },
+          {
+            "node_id": "node.host_profile.desktop",
+            "x": 620,
+            "y": 200,
+            "width": 220,
+            "height": 72
+          }
+        ],
+        "edges": [
+          {
+            "edge_id": "edge.package_provider",
+            "route": "direct"
+          },
+          {
+            "edge_id": "edge.package_processor",
+            "route": "direct"
+          },
+          {
+            "edge_id": "edge.provider_to_processor",
+            "route": "direct"
+          },
+          {
+            "edge_id": "edge.shell_host",
+            "route": "orthogonal"
+          }
+        ]
+      }
     },
     {
       "graph_id": "studio.graph.synthetic_wave_phone",
@@ -134,7 +193,66 @@
           "source_node_id": "node.shell.operator",
           "target_node_id": "node.host_profile.mobile"
         }
-      ]
+      ],
+      "layout": {
+        "layout_id": "studio.layout.synthetic_wave_phone",
+        "coordinate_space": "studio.canvas.logical_2d",
+        "nodes": [
+          {
+            "node_id": "node.package.synthetic_wave",
+            "x": 40,
+            "y": 40,
+            "width": 200,
+            "height": 72
+          },
+          {
+            "node_id": "node.module.synthetic_wave_provider",
+            "x": 320,
+            "y": 24,
+            "width": 220,
+            "height": 72
+          },
+          {
+            "node_id": "node.module.synthetic_wave_processor",
+            "x": 620,
+            "y": 24,
+            "width": 220,
+            "height": 72
+          },
+          {
+            "node_id": "node.shell.operator",
+            "x": 320,
+            "y": 200,
+            "width": 220,
+            "height": 72
+          },
+          {
+            "node_id": "node.host_profile.mobile",
+            "x": 620,
+            "y": 200,
+            "width": 220,
+            "height": 72
+          }
+        ],
+        "edges": [
+          {
+            "edge_id": "edge.package_provider",
+            "route": "direct"
+          },
+          {
+            "edge_id": "edge.package_processor",
+            "route": "direct"
+          },
+          {
+            "edge_id": "edge.provider_to_processor",
+            "route": "direct"
+          },
+          {
+            "edge_id": "edge.shell_host",
+            "route": "orthogonal"
+          }
+        ]
+      }
     },
     {
       "graph_id": "studio.graph.synthetic_wave_headset",
@@ -197,7 +315,66 @@
           "source_node_id": "node.shell.operator",
           "target_node_id": "node.host_profile.headset"
         }
-      ]
+      ],
+      "layout": {
+        "layout_id": "studio.layout.synthetic_wave_headset",
+        "coordinate_space": "studio.canvas.logical_2d",
+        "nodes": [
+          {
+            "node_id": "node.package.synthetic_wave",
+            "x": 40,
+            "y": 40,
+            "width": 200,
+            "height": 72
+          },
+          {
+            "node_id": "node.module.synthetic_wave_provider",
+            "x": 320,
+            "y": 24,
+            "width": 220,
+            "height": 72
+          },
+          {
+            "node_id": "node.module.synthetic_wave_processor",
+            "x": 620,
+            "y": 24,
+            "width": 220,
+            "height": 72
+          },
+          {
+            "node_id": "node.shell.operator",
+            "x": 320,
+            "y": 200,
+            "width": 220,
+            "height": 72
+          },
+          {
+            "node_id": "node.host_profile.headset",
+            "x": 620,
+            "y": 200,
+            "width": 220,
+            "height": 72
+          }
+        ],
+        "edges": [
+          {
+            "edge_id": "edge.package_provider",
+            "route": "direct"
+          },
+          {
+            "edge_id": "edge.package_processor",
+            "route": "direct"
+          },
+          {
+            "edge_id": "edge.provider_to_processor",
+            "route": "direct"
+          },
+          {
+            "edge_id": "edge.shell_host",
+            "route": "orthogonal"
+          }
+        ]
+      }
     }
   ]
 }
