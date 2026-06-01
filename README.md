@@ -128,6 +128,9 @@ Current scope:
   candidate slot, naming downstream owner actions and prohibited Studio
   actions without staging, installing, launching, opening command sessions, or
   collecting evidence;
+- write a schema-only Hostess owner-intake request over that package, assigning
+  Hostess/Manifold downstream owner actions while preserving Studio's
+  request-only, not-executed boundary;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -200,6 +203,7 @@ cargo run -p rusty-studio-cli -- shell-release-candidate-review-selection --revi
 cargo run -p rusty-studio-cli -- shell-release-candidate-review-index-append --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-manifest target\studio-shell-handoffs\shell-release-candidate-review-regressed-manifest.json --default-candidate-id synthetic-regressed-candidate --output target\studio-shell-handoffs\shell-release-candidate-reviews.json
 cargo run -p rusty-studio-cli -- shell-release-candidate-review-index-promote --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-id synthetic-ready-candidate --output target\studio-shell-handoffs\shell-release-candidate-reviews.json
 cargo run -p rusty-studio-cli -- shell-hostess-handoff-package --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-id synthetic-ready-candidate --output target\studio-shell-handoffs\shell-hostess-handoff-package.json
+cargo run -p rusty-studio-cli -- shell-hostess-owner-intake --package target\studio-shell-handoffs\shell-hostess-handoff-package.json --output target\studio-shell-handoffs\shell-hostess-owner-intake.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -287,3 +291,7 @@ review artifacts over the selected candidate slot: they name the selected
 candidate, source handoff manifest, acceptance/export baselines, required
 Hostess/Manifold owner actions, and prohibited Studio actions while preserving
 the same review-only, not-executed boundary.
+Hostess owner-intake reports convert that package into request-only downstream
+assignments: Hostess and Manifold owners can see their next actions and source
+artifacts, while Studio still does not stage, install, launch, open command
+sessions, or collect install/launch/device evidence.

@@ -11,8 +11,8 @@ use rusty_studio_core::{
     load_shell_export_package_baseline_index, load_shell_export_package_baseline_manifest,
     load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
-    load_shell_handoff_manifest, load_shell_release_candidate_review_index,
-    load_shell_release_candidate_review_manifest,
+    load_shell_handoff_manifest, load_shell_hostess_handoff_package_report,
+    load_shell_release_candidate_review_index, load_shell_release_candidate_review_manifest,
     promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default,
     promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
@@ -26,7 +26,7 @@ use rusty_studio_core::{
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
     shell_hostess_handoff_package_for_release_candidate_index,
-    shell_release_candidate_review_for_manifest,
+    shell_hostess_owner_intake_for_handoff_package, shell_release_candidate_review_for_manifest,
     shell_release_candidate_review_index_for_manifests,
     shell_release_candidate_review_manifest_for_report, shell_runbook_for_project,
     summarize_shell_export_package_baseline_index_selection,
@@ -50,9 +50,10 @@ use rusty_studio_model::{
     StudioShellHandoffAcceptanceStatus, StudioShellHandoffManifest,
     StudioShellHandoffReadinessReport, StudioShellHandoffReport,
     StudioShellHostessHandoffPackageActionStatus, StudioShellHostessHandoffPackageReport,
-    StudioShellHostessHandoffPackageStatus, StudioShellReleaseCandidateReviewIndex,
-    StudioShellReleaseCandidateReviewManifest, StudioShellReleaseCandidateReviewReport,
-    StudioShellReleaseCandidateReviewSelectionReport,
+    StudioShellHostessHandoffPackageStatus, StudioShellHostessOwnerIntakeAssignmentStatus,
+    StudioShellHostessOwnerIntakeReport, StudioShellHostessOwnerIntakeStatus,
+    StudioShellReleaseCandidateReviewIndex, StudioShellReleaseCandidateReviewManifest,
+    StudioShellReleaseCandidateReviewReport, StudioShellReleaseCandidateReviewSelectionReport,
     StudioShellReleaseCandidateReviewSelectionStatus, StudioShellReleaseCandidateReviewStatus,
     StudioShellRunbookReport, StudioShellRunbookStatus, StudioShellTargetKind,
     StudioValidationStatus, StudioViewModel,
@@ -243,6 +244,7 @@ script_mod! {
             shell_release_candidate_next_button := ActionButton{text: "Next Candidate"}
             shell_release_candidate_promote_button := ActionButton{text: "Promote Candidate"}
             shell_hostess_handoff_package_button := ActionButton{text: "Review Hostess Package"}
+            shell_hostess_owner_intake_button := ActionButton{text: "Review Hostess Intake"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1724,6 +1726,26 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn review_shell_hostess_owner_intake(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_hostess_owner_intake_for_project_source(&source) {
+            Ok((report, output_path)) => {
+                self.last_shell_bundle_status =
+                    shell_hostess_owner_intake_status(&report, &output_path);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -2499,6 +2521,13 @@ impl MatchEvent for App {
             .clicked(actions)
         {
             self.review_shell_hostess_handoff_package(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_owner_intake_button))
+            .clicked(actions)
+        {
+            self.review_shell_hostess_owner_intake(cx);
         }
         if self
             .ui
@@ -3609,6 +3638,19 @@ fn shell_hostess_handoff_package_for_project_source(
     Ok((report, output_path))
 }
 
+fn shell_hostess_owner_intake_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellHostessOwnerIntakeReport, PathBuf), String> {
+    let package_path = shell_hostess_handoff_package_output_path(project_path);
+    let package = load_shell_hostess_handoff_package_report(&package_path)
+        .map_err(|error| format!("Shell Hostess handoff package load failed: {error}"))?;
+    let report = shell_hostess_owner_intake_for_handoff_package(&package, Some(&package_path));
+    let output_path = shell_hostess_owner_intake_output_path(project_path);
+    save_json(&output_path, &report)
+        .map_err(|error| format!("Shell Hostess owner intake save failed: {error}"))?;
+    Ok((report, output_path))
+}
+
 fn retarget_project_source(
     project_path: &Path,
     model: &StudioViewModel,
@@ -3973,6 +4015,15 @@ fn shell_hostess_handoff_package_output_path(project_path: &Path) -> PathBuf {
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-hostess-handoff-package.json")
+}
+
+fn shell_hostess_owner_intake_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-hostess-owner-intake.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -6211,6 +6262,87 @@ fn shell_hostess_handoff_package_status(
     )
 }
 
+fn shell_hostess_owner_intake_status(
+    report: &StudioShellHostessOwnerIntakeReport,
+    output_path: &Path,
+) -> String {
+    let status = shell_hostess_owner_intake_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let package_path = report.package_path.as_deref().unwrap_or("unknown");
+    let selected = report.selected_candidate_id.as_deref().unwrap_or("none");
+    let handoff_path = report.handoff_manifest_path.as_deref().unwrap_or("unknown");
+    let assignments = report
+        .assignments
+        .iter()
+        .map(|assignment| {
+            let assignment_status =
+                shell_hostess_owner_intake_assignment_status_label(assignment.status);
+            let issue = assignment.issue_code.as_deref().unwrap_or("none");
+            format!(
+                "{} [{}] owner {}; request {}; source {}; next {}; prohibited in Studio {}; issue {}",
+                assignment.action_id,
+                assignment_status,
+                assignment.owner,
+                assignment.request_kind,
+                assignment.source,
+                assignment.next_required_action,
+                if assignment.prohibited_in_studio {
+                    "yes"
+                } else {
+                    "no"
+                },
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    let prohibited = if report.prohibited_actions.is_empty() {
+        "none".to_string()
+    } else {
+        report.prohibited_actions.join(", ")
+    };
+    let failed_checks = report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .count();
+    format!(
+        "shell Hostess owner intake {status}; selected {selected}; issue {issue}\n  intake: {}\n  package: {}\n  handoff manifest: {}\n  project: {} rev {}\n  assignments ready {}; blocked {}; Hostess ready {}; Manifold ready {}\n  authority: command {}; host {}; studio {}; policy {}; intake owner {}; handoff owner {}\n  assignments:\n  {}\n  prohibited: {}\n  checks: {}; failed {}",
+        output_path.display(),
+        package_path,
+        handoff_path,
+        report.project_id.as_deref().unwrap_or("unknown"),
+        report
+            .project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        report.ready_assignment_count,
+        report.blocked_assignment_count,
+        report.hostess_ready_action_count,
+        report.manifold_ready_action_count,
+        report
+            .command_session_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report
+            .install_launch_evidence_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report.studio_role.as_deref().unwrap_or("unknown"),
+        report.execution_policy,
+        report.intake_owner,
+        report.handoff_owner,
+        if assignments.is_empty() {
+            "none".to_string()
+        } else {
+            assignments
+        },
+        prohibited,
+        report.checks.len(),
+        failed_checks
+    )
+}
+
 fn shell_release_candidate_review_manifest_summary_status(
     candidate: &StudioShellReleaseCandidateReviewManifest,
     index: &StudioShellReleaseCandidateReviewIndex,
@@ -6333,6 +6465,25 @@ fn shell_hostess_handoff_package_action_status_label(
     match status {
         StudioShellHostessHandoffPackageActionStatus::Ready => "ready",
         StudioShellHostessHandoffPackageActionStatus::Blocked => "blocked",
+    }
+}
+
+fn shell_hostess_owner_intake_status_label(
+    status: StudioShellHostessOwnerIntakeStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessOwnerIntakeStatus::Ready => "ready",
+        StudioShellHostessOwnerIntakeStatus::Blocked => "blocked",
+        StudioShellHostessOwnerIntakeStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_hostess_owner_intake_assignment_status_label(
+    status: StudioShellHostessOwnerIntakeAssignmentStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessOwnerIntakeAssignmentStatus::Ready => "ready",
+        StudioShellHostessOwnerIntakeAssignmentStatus::Blocked => "blocked",
     }
 }
 
@@ -8632,6 +8783,49 @@ mod tests {
         assert!(status.contains("stage_generated_shells"));
         assert!(status.contains("checks:"));
         assert!(status.contains("failed 0"));
+
+        let (intake, intake_path) = shell_hostess_owner_intake_for_project_source(&project_path)
+            .expect("review shell Hostess owner intake");
+        assert!(intake_path.is_file());
+        assert_eq!(
+            intake.schema_id,
+            "rusty.studio.shell_hostess_owner_intake.v1"
+        );
+        assert_eq!(intake.status, StudioShellHostessOwnerIntakeStatus::Ready);
+        assert_eq!(intake.issue_code, None);
+        assert_eq!(intake.execution_policy, "not_executed.request_only");
+        assert_eq!(intake.intake_owner, "rusty.hostess");
+        assert_eq!(
+            intake.package_path.as_deref(),
+            Some(output_path.display().to_string().as_str())
+        );
+        assert_eq!(intake.ready_assignment_count, 4);
+        assert_eq!(intake.blocked_assignment_count, 0);
+        assert_eq!(intake.hostess_ready_action_count, 3);
+        assert_eq!(intake.manifold_ready_action_count, 1);
+        assert!(intake.assignments.iter().any(|assignment| {
+            assignment.action_id == "hostess.stage_generated_shells"
+                && assignment.status == StudioShellHostessOwnerIntakeAssignmentStatus::Ready
+                && assignment.request_kind == "hostess_owner_action_request"
+                && assignment.prohibited_in_studio
+        }));
+        assert!(intake.assignments.iter().any(|assignment| {
+            assignment.action_id == "manifold.review_command_session_contract"
+                && assignment.status == StudioShellHostessOwnerIntakeAssignmentStatus::Ready
+                && assignment.request_kind == "manifold_owner_review_request"
+        }));
+        assert!(intake
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+
+        let intake_status = shell_hostess_owner_intake_status(&intake, &intake_path);
+        assert!(intake_status.contains("shell Hostess owner intake ready"));
+        assert!(intake_status.contains("assignments ready 4; blocked 0"));
+        assert!(intake_status.contains("Hostess ready 3; Manifold ready 1"));
+        assert!(intake_status.contains("not_executed.request_only"));
+        assert!(intake_status.contains("hostess_owner_action_request"));
+        assert!(intake_status.contains("manifold_owner_review_request"));
     }
 
     #[test]

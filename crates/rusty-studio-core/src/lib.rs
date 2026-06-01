@@ -34,6 +34,8 @@ use rusty_studio_model::{
     StudioShellHandoffReport, StudioShellHostProfile, StudioShellHostRoutes,
     StudioShellHostessHandoffPackageAction, StudioShellHostessHandoffPackageActionStatus,
     StudioShellHostessHandoffPackageReport, StudioShellHostessHandoffPackageStatus,
+    StudioShellHostessOwnerIntakeAssignment, StudioShellHostessOwnerIntakeAssignmentStatus,
+    StudioShellHostessOwnerIntakeReport, StudioShellHostessOwnerIntakeStatus,
     StudioShellReleaseCandidateReviewIndex, StudioShellReleaseCandidateReviewIndexEntry,
     StudioShellReleaseCandidateReviewManifest, StudioShellReleaseCandidateReviewReport,
     StudioShellReleaseCandidateReviewSelectionEntry,
@@ -59,11 +61,12 @@ use rusty_studio_model::{
     SHELL_HANDOFF_INTAKE_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
     SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
     SHELL_HANDOFF_REPORT_SCHEMA, SHELL_HOSTESS_HANDOFF_PACKAGE_SCHEMA,
-    SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA,
-    SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA,
-    SHELL_RUNBOOK_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
-    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
-    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
+    SHELL_HOSTESS_OWNER_INTAKE_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA,
+    SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA,
+    SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA, SHELL_RUNBOOK_REPORT_SCHEMA,
+    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
+    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
+    VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -178,6 +181,12 @@ pub enum StudioCoreError {
     },
     #[error("{path}: {source}")]
     ParseShellReleaseCandidateReviewIndex {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellHostessHandoffPackageReport {
         path: String,
         #[source]
         source: serde_json::Error,
@@ -412,6 +421,21 @@ pub fn load_shell_release_candidate_review_index(
     })?;
     serde_json::from_str(&text).map_err(|source| {
         StudioCoreError::ParseShellReleaseCandidateReviewIndex {
+            path: path.display().to_string(),
+            source,
+        }
+    })
+}
+
+pub fn load_shell_hostess_handoff_package_report(
+    path: &Path,
+) -> Result<StudioShellHostessHandoffPackageReport, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseShellHostessHandoffPackageReport {
             path: path.display().to_string(),
             source,
         }
@@ -8946,6 +8970,327 @@ fn failed_hostess_handoff_package_check(
     }
 }
 
+pub fn shell_hostess_owner_intake_for_handoff_package(
+    package: &StudioShellHostessHandoffPackageReport,
+    package_path: Option<&Path>,
+) -> StudioShellHostessOwnerIntakeReport {
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.source_package_schema",
+        package.schema_id == SHELL_HOSTESS_HANDOFF_PACKAGE_SCHEMA,
+        "source Hostess handoff package schema is supported",
+        "source Hostess handoff package schema is unsupported",
+        "studio.issue.shell_hostess_handoff_package_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.package_path",
+        package_path.is_some(),
+        "source Hostess handoff package has a durable path",
+        "source Hostess handoff package path is missing",
+        "studio.issue.shell_hostess_owner_intake_package_path_missing",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.package_ready",
+        package.status == StudioShellHostessHandoffPackageStatus::Ready,
+        "source Hostess handoff package is ready",
+        "source Hostess handoff package is not ready",
+        package
+            .issue_code
+            .as_deref()
+            .unwrap_or("studio.issue.shell_hostess_handoff_package_blocked"),
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.package_execution_policy",
+        package.execution_policy == "not_executed.review_only",
+        "source package is a review-only Studio artifact",
+        "source package execution policy is not review-only",
+        "studio.issue.shell_hostess_handoff_package_execution_policy",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.candidate_selected",
+        package.selected_candidate_id.is_some() && package.candidate_id.is_some(),
+        "source package names a selected release candidate",
+        "source package does not name a selected release candidate",
+        "studio.issue.shell_hostess_owner_intake_candidate_missing",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.candidate_manifest_path",
+        package.candidate_manifest_path.is_some(),
+        "source package names a candidate identity manifest",
+        "source package does not name a candidate identity manifest",
+        "studio.issue.shell_hostess_owner_intake_candidate_manifest_missing",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.review_path",
+        package.review_path.is_some(),
+        "source package names a release-candidate review artifact",
+        "source package does not name a release-candidate review artifact",
+        "studio.issue.shell_hostess_owner_intake_review_missing",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.handoff_manifest_path",
+        package.handoff_manifest_path.is_some(),
+        "source package names a shell handoff manifest",
+        "source package does not name a shell handoff manifest",
+        "studio.issue.shell_hostess_owner_intake_handoff_manifest_missing",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.handoff_manifest_schema",
+        package.handoff_manifest_schema.as_deref() == Some(SHELL_HANDOFF_MANIFEST_SCHEMA),
+        "source handoff manifest schema is supported",
+        "source handoff manifest schema is unsupported or unavailable",
+        "studio.issue.shell_handoff_manifest_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.runtime_command_authority",
+        package.command_session_authority.as_deref() == Some("rusty.manifold"),
+        "Manifold remains command/session authority",
+        "command/session authority must remain rusty.manifold",
+        "studio.issue.runtime_authority_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.runtime_host_authority",
+        package.install_launch_evidence_authority.as_deref() == Some("rusty.hostess"),
+        "Hostess remains install/launch/evidence authority",
+        "install/launch/evidence authority must remain rusty.hostess",
+        "studio.issue.runtime_authority_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.studio_role",
+        package.studio_role.as_deref() == Some("authoring.export_planning"),
+        "Studio remains authoring/export-planning authority",
+        "Studio role must remain authoring.export_planning",
+        "studio.issue.studio_role_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.source_package_checks_pass",
+        package
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass),
+        "source Hostess handoff package checks all pass",
+        "source Hostess handoff package contains failed checks",
+        "studio.issue.shell_hostess_handoff_package_failed_check",
+    );
+
+    for action_id in [
+        "hostess.review_release_candidate",
+        "hostess.stage_generated_shells",
+        "manifold.review_command_session_contract",
+        "hostess.collect_install_launch_evidence",
+    ] {
+        push_check(
+            &mut checks,
+            &format!("studio.check.shell_hostess_owner_intake.has_{action_id}"),
+            package
+                .required_owner_actions
+                .iter()
+                .any(|action| action.action_id == action_id),
+            "source package includes this required owner action",
+            "source package is missing this required owner action",
+            "studio.issue.shell_hostess_owner_intake_action_missing",
+        );
+    }
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.owner_actions_ready",
+        !package.required_owner_actions.is_empty()
+            && package
+                .required_owner_actions
+                .iter()
+                .all(|action| action.status == StudioShellHostessHandoffPackageActionStatus::Ready),
+        "all source package owner actions are ready",
+        "one or more source package owner actions are blocked",
+        "studio.issue.shell_hostess_owner_intake_action_blocked",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_owner_intake.owner_actions_prohibited_in_studio",
+        !package.required_owner_actions.is_empty()
+            && package
+                .required_owner_actions
+                .iter()
+                .all(|action| action.prohibited_in_studio),
+        "all downstream owner actions are explicitly prohibited in Studio",
+        "one or more downstream owner actions are not prohibited in Studio",
+        "studio.issue.shell_hostess_owner_intake_action_not_prohibited",
+    );
+
+    for action in [
+        "stage_generated_shells",
+        "install",
+        "launch",
+        "open_command_session",
+        "collect_device_evidence",
+        "collect_install_launch_evidence",
+    ] {
+        push_check(
+            &mut checks,
+            &format!("studio.check.shell_hostess_owner_intake.prohibits_{action}"),
+            package
+                .prohibited_actions
+                .iter()
+                .any(|candidate| candidate == action),
+            "owner intake explicitly preserves this Studio prohibition",
+            "owner intake is missing this Studio prohibition",
+            "studio.issue.shell_hostess_owner_intake_prohibited_action_missing",
+        );
+    }
+
+    let has_failed_check = checks
+        .iter()
+        .any(|check| check.status == StudioValidationStatus::Fail);
+    let has_rejected_check = checks.iter().any(|check| {
+        check.status == StudioValidationStatus::Fail
+            && matches!(
+                check.issue_code.as_deref(),
+                Some("studio.issue.shell_hostess_handoff_package_schema")
+                    | Some("studio.issue.shell_handoff_manifest_schema")
+            )
+    });
+    let status = if has_rejected_check {
+        StudioShellHostessOwnerIntakeStatus::Rejected
+    } else if has_failed_check {
+        StudioShellHostessOwnerIntakeStatus::Blocked
+    } else {
+        StudioShellHostessOwnerIntakeStatus::Ready
+    };
+    let issue_code = match status {
+        StudioShellHostessOwnerIntakeStatus::Ready => None,
+        StudioShellHostessOwnerIntakeStatus::Blocked
+        | StudioShellHostessOwnerIntakeStatus::Rejected => {
+            first_failed_validation_check_issue_code(&checks)
+        }
+    };
+    let assignments =
+        shell_hostess_owner_intake_assignments(package, status, issue_code.as_deref());
+    let ready_assignment_count = assignments
+        .iter()
+        .filter(|assignment| {
+            assignment.status == StudioShellHostessOwnerIntakeAssignmentStatus::Ready
+        })
+        .count();
+    let blocked_assignment_count = assignments
+        .iter()
+        .filter(|assignment| {
+            assignment.status == StudioShellHostessOwnerIntakeAssignmentStatus::Blocked
+        })
+        .count();
+    let hostess_ready_action_count = assignments
+        .iter()
+        .filter(|assignment| {
+            assignment.owner == "rusty.hostess"
+                && assignment.status == StudioShellHostessOwnerIntakeAssignmentStatus::Ready
+        })
+        .count();
+    let manifold_ready_action_count = assignments
+        .iter()
+        .filter(|assignment| {
+            assignment.owner == "rusty.manifold"
+                && assignment.status == StudioShellHostessOwnerIntakeAssignmentStatus::Ready
+        })
+        .count();
+
+    StudioShellHostessOwnerIntakeReport {
+        schema_id: SHELL_HOSTESS_OWNER_INTAKE_SCHEMA.to_string(),
+        source_package_schema: package.schema_id.clone(),
+        package_path: package_path.map(|path| path.display().to_string()),
+        selected_candidate_id: package.selected_candidate_id.clone(),
+        candidate_manifest_path: package.candidate_manifest_path.clone(),
+        review_path: package.review_path.clone(),
+        handoff_manifest_path: package.handoff_manifest_path.clone(),
+        manifest_id: package.manifest_id.clone(),
+        project_id: package.project_id.clone(),
+        project_revision: package.project_revision,
+        status,
+        issue_code,
+        execution_policy: "not_executed.request_only".to_string(),
+        intake_owner: "rusty.hostess".to_string(),
+        handoff_owner: package.handoff_owner.clone(),
+        review_owner: package.review_owner.clone(),
+        command_session_authority: package.command_session_authority.clone(),
+        install_launch_evidence_authority: package.install_launch_evidence_authority.clone(),
+        studio_role: package.studio_role.clone(),
+        handoff_ready_count: package.handoff_ready_count,
+        handoff_failed_count: package.handoff_failed_count,
+        handoff_missing_bundle_count: package.handoff_missing_bundle_count,
+        acceptance_baseline_id: package.acceptance_baseline_id.clone(),
+        acceptance_baseline_status: package.acceptance_baseline_status,
+        acceptance_comparison_status: package.acceptance_comparison_status,
+        export_package_baseline_id: package.export_package_baseline_id.clone(),
+        export_package_baseline_status: package.export_package_baseline_status,
+        export_package_comparison_status: package.export_package_comparison_status,
+        source_owner_action_count: package.required_owner_actions.len(),
+        ready_assignment_count,
+        blocked_assignment_count,
+        hostess_ready_action_count,
+        manifold_ready_action_count,
+        assignments,
+        prohibited_actions: package.prohibited_actions.clone(),
+        checks,
+    }
+}
+
+fn shell_hostess_owner_intake_assignments(
+    package: &StudioShellHostessHandoffPackageReport,
+    status: StudioShellHostessOwnerIntakeStatus,
+    issue_code: Option<&str>,
+) -> Vec<StudioShellHostessOwnerIntakeAssignment> {
+    package
+        .required_owner_actions
+        .iter()
+        .map(|action| {
+            let assignment_status = if status == StudioShellHostessOwnerIntakeStatus::Ready
+                && action.status == StudioShellHostessHandoffPackageActionStatus::Ready
+            {
+                StudioShellHostessOwnerIntakeAssignmentStatus::Ready
+            } else {
+                StudioShellHostessOwnerIntakeAssignmentStatus::Blocked
+            };
+            StudioShellHostessOwnerIntakeAssignment {
+                action_id: action.action_id.clone(),
+                owner: action.owner.clone(),
+                status: assignment_status,
+                request_kind: shell_hostess_owner_intake_request_kind(&action.owner).to_string(),
+                source: action.source.clone(),
+                next_required_action: action.next_required_action.clone(),
+                prohibited_in_studio: action.prohibited_in_studio,
+                issue_code: (assignment_status
+                    == StudioShellHostessOwnerIntakeAssignmentStatus::Blocked)
+                    .then(|| {
+                        action
+                            .issue_code
+                            .as_deref()
+                            .or(issue_code)
+                            .unwrap_or("studio.issue.shell_hostess_owner_intake_blocked")
+                            .to_string()
+                    }),
+            }
+        })
+        .collect()
+}
+
+fn shell_hostess_owner_intake_request_kind(owner: &str) -> &'static str {
+    match owner {
+        "rusty.hostess" => "hostess_owner_action_request",
+        "rusty.manifold" => "manifold_owner_review_request",
+        _ => "owner_action_request",
+    }
+}
+
 fn default_shell_release_candidate_review_id(
     review: &StudioShellReleaseCandidateReviewReport,
 ) -> String {
@@ -15076,6 +15421,62 @@ mod tests {
             .iter()
             .all(|check| check.status == StudioValidationStatus::Pass));
 
+        let package_path = root.join("shell-hostess-handoff-package.json");
+        save_json(&package_path, &package).expect("save Hostess handoff package");
+        let intake = shell_hostess_owner_intake_for_handoff_package(&package, Some(&package_path));
+
+        assert_eq!(intake.schema_id, SHELL_HOSTESS_OWNER_INTAKE_SCHEMA);
+        assert_eq!(
+            intake.source_package_schema,
+            SHELL_HOSTESS_HANDOFF_PACKAGE_SCHEMA
+        );
+        assert_eq!(
+            intake.package_path.as_deref(),
+            Some(package_path.display().to_string().as_str())
+        );
+        assert_eq!(intake.status, StudioShellHostessOwnerIntakeStatus::Ready);
+        assert_eq!(intake.issue_code, None);
+        assert_eq!(intake.execution_policy, "not_executed.request_only");
+        assert_eq!(intake.intake_owner, "rusty.hostess");
+        assert_eq!(intake.handoff_owner, "rusty.hostess");
+        assert_eq!(
+            intake.command_session_authority.as_deref(),
+            Some("rusty.manifold")
+        );
+        assert_eq!(
+            intake.install_launch_evidence_authority.as_deref(),
+            Some("rusty.hostess")
+        );
+        assert_eq!(
+            intake.studio_role.as_deref(),
+            Some("authoring.export_planning")
+        );
+        assert_eq!(intake.source_owner_action_count, 4);
+        assert_eq!(intake.ready_assignment_count, 4);
+        assert_eq!(intake.blocked_assignment_count, 0);
+        assert_eq!(intake.hostess_ready_action_count, 3);
+        assert_eq!(intake.manifold_ready_action_count, 1);
+        assert!(intake.assignments.iter().any(|assignment| {
+            assignment.action_id == "hostess.stage_generated_shells"
+                && assignment.owner == "rusty.hostess"
+                && assignment.status == StudioShellHostessOwnerIntakeAssignmentStatus::Ready
+                && assignment.request_kind == "hostess_owner_action_request"
+                && assignment.prohibited_in_studio
+        }));
+        assert!(intake.assignments.iter().any(|assignment| {
+            assignment.action_id == "manifold.review_command_session_contract"
+                && assignment.owner == "rusty.manifold"
+                && assignment.status == StudioShellHostessOwnerIntakeAssignmentStatus::Ready
+                && assignment.request_kind == "manifold_owner_review_request"
+        }));
+        assert!(intake
+            .prohibited_actions
+            .contains(&"collect_install_launch_evidence".to_string()));
+        assert!(intake
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+
         std::fs::remove_file(
             bundle_root
                 .join("studio.graph.phone")
@@ -15125,6 +15526,24 @@ mod tests {
         assert!(blocked_package.required_owner_actions.iter().all(|action| {
             action.status == StudioShellHostessHandoffPackageActionStatus::Blocked
                 && action.issue_code.as_deref()
+                    == Some("studio.issue.shell_export_package_template_load_failed")
+        }));
+
+        let blocked_intake =
+            shell_hostess_owner_intake_for_handoff_package(&blocked_package, Some(&package_path));
+        assert_eq!(
+            blocked_intake.status,
+            StudioShellHostessOwnerIntakeStatus::Blocked
+        );
+        assert_eq!(
+            blocked_intake.issue_code.as_deref(),
+            Some("studio.issue.shell_export_package_template_load_failed")
+        );
+        assert_eq!(blocked_intake.ready_assignment_count, 0);
+        assert_eq!(blocked_intake.blocked_assignment_count, 4);
+        assert!(blocked_intake.assignments.iter().all(|assignment| {
+            assignment.status == StudioShellHostessOwnerIntakeAssignmentStatus::Blocked
+                && assignment.issue_code.as_deref()
                     == Some("studio.issue.shell_export_package_template_load_failed")
         }));
     }
