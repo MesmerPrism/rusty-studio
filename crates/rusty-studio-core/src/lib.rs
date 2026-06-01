@@ -4517,6 +4517,11 @@ fn shell_handoff_readiness_target_summary(
     let mut graph_ids = Vec::new();
     let mut consumer_ids = Vec::new();
     let mut issue_codes = Vec::new();
+    let mut bundle_dirs = Vec::new();
+    let mut ready_bundle_dirs = Vec::new();
+    let mut failed_bundle_dirs = Vec::new();
+    let mut missing_bundle_dirs = Vec::new();
+    let mut template_index_paths = Vec::new();
 
     for entry in entries
         .iter()
@@ -4536,6 +4541,27 @@ fn shell_handoff_readiness_target_summary(
         module_count += entry.module_count;
         operator_shell_count += entry.operator_shell_count;
         graph_ids.push(entry.graph_id.clone());
+        if !bundle_dirs.contains(&entry.bundle_dir) {
+            bundle_dirs.push(entry.bundle_dir.clone());
+        }
+        if !template_index_paths.contains(&entry.template_index_path) {
+            template_index_paths.push(entry.template_index_path.clone());
+        }
+        if entry.status == StudioValidationStatus::Pass
+            && !ready_bundle_dirs.contains(&entry.bundle_dir)
+        {
+            ready_bundle_dirs.push(entry.bundle_dir.clone());
+        }
+        if entry.status == StudioValidationStatus::Fail
+            && !failed_bundle_dirs.contains(&entry.bundle_dir)
+        {
+            failed_bundle_dirs.push(entry.bundle_dir.clone());
+        }
+        if entry.issue_code.as_deref() == Some("studio.issue.shell_bundle_file_missing")
+            && !missing_bundle_dirs.contains(&entry.bundle_dir)
+        {
+            missing_bundle_dirs.push(entry.bundle_dir.clone());
+        }
         if !consumer_ids.contains(&entry.consumer_id) {
             consumer_ids.push(entry.consumer_id.clone());
         }
@@ -4558,6 +4584,11 @@ fn shell_handoff_readiness_target_summary(
         graph_ids,
         consumer_ids,
         issue_codes,
+        bundle_dirs,
+        ready_bundle_dirs,
+        failed_bundle_dirs,
+        missing_bundle_dirs,
+        template_index_paths,
     })
 }
 
@@ -7082,6 +7113,12 @@ mod tests {
             assert!(summary.issue_codes.is_empty());
             assert_eq!(summary.graph_ids.len(), 1);
             assert_eq!(summary.consumer_ids.len(), 1);
+            assert_eq!(summary.bundle_dirs.len(), 1);
+            assert_eq!(summary.ready_bundle_dirs.len(), 1);
+            assert!(summary.failed_bundle_dirs.is_empty());
+            assert!(summary.missing_bundle_dirs.is_empty());
+            assert_eq!(summary.template_index_paths.len(), 1);
+            assert!(summary.template_index_paths[0].ends_with("shell-templates.json"));
         }
         assert!(readiness.entries.iter().all(|entry| {
             entry.status == StudioValidationStatus::Pass
@@ -7138,6 +7175,12 @@ mod tests {
                     .issue_codes
                     .iter()
                     .any(|issue| issue == "studio.issue.shell_bundle_file_missing")
+                && summary.bundle_dirs.len() == 1
+                && summary.ready_bundle_dirs.is_empty()
+                && summary.failed_bundle_dirs.len() == 1
+                && summary.missing_bundle_dirs.len() == 1
+                && summary.template_index_paths.len() == 1
+                && summary.template_index_paths[0].ends_with("shell-templates.json")
         }));
         assert!(readiness.entries.iter().all(|entry| {
             entry.status == StudioValidationStatus::Fail

@@ -1285,6 +1285,30 @@ try {
         if (@($TargetSummary.issue_codes).Count -ne 0) {
             throw "shell handoff readiness target issue codes mismatch for $($RequiredReadiness.TargetKind)"
         }
+        if (@($TargetSummary.bundle_dirs).Count -ne 1) {
+            throw "shell handoff readiness target bundle dirs mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if (@($TargetSummary.ready_bundle_dirs).Count -ne 1) {
+            throw "shell handoff readiness target ready bundle dirs mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if (@($TargetSummary.failed_bundle_dirs).Count -ne 0) {
+            throw "shell handoff readiness target failed bundle dirs mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if (@($TargetSummary.missing_bundle_dirs).Count -ne 0) {
+            throw "shell handoff readiness target missing bundle dirs mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if (@($TargetSummary.template_index_paths).Count -ne 1) {
+            throw "shell handoff readiness target template index paths mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if (-not (@($TargetSummary.bundle_dirs)[0] -like "*$($RequiredReadiness.Graph)")) {
+            throw "shell handoff readiness target bundle dir path mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if (-not (@($TargetSummary.ready_bundle_dirs)[0] -like "*$($RequiredReadiness.Graph)")) {
+            throw "shell handoff readiness target ready bundle dir path mismatch for $($RequiredReadiness.TargetKind)"
+        }
+        if (-not (@($TargetSummary.template_index_paths)[0] -like "*$($RequiredReadiness.Graph)*shell-templates.json")) {
+            throw "shell handoff readiness target template path mismatch for $($RequiredReadiness.TargetKind)"
+        }
         $Entry = @($HandoffReadiness.entries | Where-Object { $_.graph_id -eq $RequiredReadiness.Graph }) | Select-Object -First 1
         if ($null -eq $Entry) {
             throw "shell handoff readiness missing graph $($RequiredReadiness.Graph)"

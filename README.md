@@ -66,6 +66,8 @@ Current scope:
   operator-shell, and target-profile coverage;
 - summarize shell handoff readiness by desktop, phone, and Quest target groups
   with ready, failed, and missing-bundle counts;
+- surface ready, failed, missing bundle, and template-index paths in target
+  readiness summaries so failed target rows are actionable;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 

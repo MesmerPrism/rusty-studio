@@ -522,6 +522,11 @@ pub struct StudioShellHandoffReadinessTargetSummary {
     pub graph_ids: Vec<String>,
     pub consumer_ids: Vec<String>,
     pub issue_codes: Vec<String>,
+    pub bundle_dirs: Vec<String>,
+    pub ready_bundle_dirs: Vec<String>,
+    pub failed_bundle_dirs: Vec<String>,
+    pub missing_bundle_dirs: Vec<String>,
+    pub template_index_paths: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

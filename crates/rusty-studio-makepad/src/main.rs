@@ -2672,15 +2672,27 @@ fn shell_handoff_readiness_status(
         .target_summaries
         .iter()
         .map(|summary| {
+            let ready_path = summary
+                .template_index_paths
+                .first()
+                .map(|path| format!("; templates {path}"))
+                .unwrap_or_default();
+            let missing_path = summary
+                .missing_bundle_dirs
+                .first()
+                .map(|path| format!("; missing bundle {path}"))
+                .unwrap_or_default();
             format!(
-                "{}: ready {}/{}; missing {}; packages {}; modules {}; shells {}",
+                "{}: ready {}/{}; missing {}; packages {}; modules {}; shells {}{}{}",
                 shell_target_kind_label(summary.target_kind),
                 summary.ready_count,
                 summary.graph_count,
                 summary.missing_bundle_count,
                 summary.package_count,
                 summary.module_count,
-                summary.operator_shell_count
+                summary.operator_shell_count,
+                ready_path,
+                missing_path
             )
         })
         .collect::<Vec<_>>()
@@ -3504,6 +3516,11 @@ mod tests {
         assert_eq!(report.target_summaries.len(), 1);
         assert_eq!(report.target_summaries[0].ready_count, 1);
         assert_eq!(report.target_summaries[0].graph_count, 1);
+        assert_eq!(report.target_summaries[0].bundle_dirs.len(), 1);
+        assert_eq!(report.target_summaries[0].ready_bundle_dirs.len(), 1);
+        assert!(report.target_summaries[0].failed_bundle_dirs.is_empty());
+        assert!(report.target_summaries[0].missing_bundle_dirs.is_empty());
+        assert_eq!(report.target_summaries[0].template_index_paths.len(), 1);
         assert_eq!(report.entries.len(), 1);
         assert_eq!(
             report.entries[0].export_bundle_id,
@@ -3519,6 +3536,8 @@ mod tests {
         assert!(status.contains("ready 1/1"));
         assert!(status.contains("failed 0; missing 0"));
         assert!(status.contains("desktop: ready 1/1; missing 0"));
+        assert!(status.contains("templates "));
+        assert!(status.contains("shell-templates.json"));
         assert!(status.contains("studio.graph.makepad_edit [desktop]"));
         assert!(status.contains("profile host_run.profile.desktop"));
         assert!(status.contains("packages 1; modules 0; shell 1"));
