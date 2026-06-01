@@ -1,14 +1,15 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rusty_studio_core::{
     add_binding_to_graph, add_module_to_graph, add_next_catalog_module_from_package_to_graph,
-    add_next_catalog_module_to_graph,
+    add_next_catalog_module_to_graph, append_shell_handoff_acceptance_baseline_index_manifests,
     compare_shell_handoff_acceptance_against_baseline_index_entry,
     compare_shell_handoff_acceptance_against_baseline_manifest,
     compare_shell_handoff_acceptance_checklists, desktop_shell_handoff_for_bundle, export_plan,
     load_project, load_shell_artifact_manifest, load_shell_descriptor,
     load_shell_handoff_acceptance_baseline_index, load_shell_handoff_acceptance_baseline_manifest,
     load_shell_handoff_acceptance_checklist, load_shell_handoff_intake_report,
-    load_shell_handoff_manifest, load_shell_template_index, remove_binding_from_graph,
+    load_shell_handoff_manifest, load_shell_template_index,
+    promote_shell_handoff_acceptance_baseline_index_default, remove_binding_from_graph,
     remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
     save_project, save_shell_bundle, select_shell_handoff_acceptance_baseline_index_entry,
     selected_shell_bundle_for_graph, shell_artifacts_for_project, shell_descriptor_artifact_path,
@@ -70,6 +71,8 @@ enum Command {
     ShellHandoffAcceptanceSummary(ShellHandoffAcceptanceSummaryArgs),
     ShellHandoffAcceptanceBaseline(ShellHandoffAcceptanceBaselineArgs),
     ShellHandoffAcceptanceBaselineIndex(ShellHandoffAcceptanceBaselineIndexArgs),
+    ShellHandoffAcceptanceBaselineIndexAppend(ShellHandoffAcceptanceBaselineIndexAppendArgs),
+    ShellHandoffAcceptanceBaselineIndexPromote(ShellHandoffAcceptanceBaselineIndexPromoteArgs),
     ShellHandoffAcceptanceBaselineSelection(ShellHandoffAcceptanceBaselineSelectionArgs),
     ShellHandoffAcceptanceComparison(ShellHandoffAcceptanceComparisonArgs),
 }
@@ -327,6 +330,28 @@ struct ShellHandoffAcceptanceBaselineIndexArgs {
     baseline_manifests: Vec<PathBuf>,
     #[arg(long)]
     default_baseline_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHandoffAcceptanceBaselineIndexAppendArgs {
+    #[arg(long)]
+    baseline_index: PathBuf,
+    #[arg(long = "baseline-manifest", required = true)]
+    baseline_manifests: Vec<PathBuf>,
+    #[arg(long)]
+    default_baseline_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHandoffAcceptanceBaselineIndexPromoteArgs {
+    #[arg(long)]
+    baseline_index: PathBuf,
+    #[arg(long)]
+    baseline_id: String,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -785,6 +810,43 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 baselines,
                 args.default_baseline_id.as_deref(),
             );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHandoffAcceptanceBaselineIndexAppend(args) => {
+            let index = load_shell_handoff_acceptance_baseline_index(&args.baseline_index)?;
+            let baselines = args
+                .baseline_manifests
+                .iter()
+                .map(|path| {
+                    load_shell_handoff_acceptance_baseline_manifest(path)
+                        .map(|baseline| (baseline, Some(path.clone())))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let report = append_shell_handoff_acceptance_baseline_index_manifests(
+                &index,
+                baselines,
+                args.default_baseline_id.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHandoffAcceptanceBaselineIndexPromote(args) => {
+            let index = load_shell_handoff_acceptance_baseline_index(&args.baseline_index)?;
+            let report =
+                promote_shell_handoff_acceptance_baseline_index_default(&index, &args.baseline_id)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "--baseline-id was not found in --baseline-index",
+                        )
+                    })?;
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }

@@ -3293,45 +3293,105 @@ pub fn shell_handoff_acceptance_baseline_index_for_manifests(
     )>,
     default_baseline_id: Option<&str>,
 ) -> StudioShellHandoffAcceptanceBaselineIndex {
-    let mut by_id = BTreeMap::new();
-    for (baseline, baseline_manifest_path) in baselines {
-        by_id.insert(
-            baseline.baseline_id.clone(),
-            (baseline, baseline_manifest_path),
-        );
-    }
-
-    let entries = by_id
-        .into_values()
+    let entries = baselines
+        .into_iter()
         .map(|(baseline, baseline_manifest_path)| {
-            let StudioShellHandoffAcceptanceBaselineManifest {
-                baseline_id,
-                label,
-                checklist_path,
-                summary,
-                ..
-            } = baseline;
-            StudioShellHandoffAcceptanceBaselineIndexEntry {
-                baseline_id,
-                label,
-                baseline_manifest_path: baseline_manifest_path
-                    .map(|path| path.display().to_string()),
-                checklist_path,
-                summary_schema: summary.schema_id.clone(),
-                checklist_schema: summary.checklist_schema.clone(),
-                manifest_id: summary.manifest_id.clone(),
-                project_id: summary.project_id.clone(),
-                project_revision: summary.project_revision,
-                status: summary.status,
-                issue_code: summary.issue_code.clone(),
-                ready_count: summary.ready_count,
-                blocked_count: summary.blocked_count,
-                rejected_count: summary.rejected_count,
-                entry_count: summary.entry_count,
-                target_count: summary.targets.len(),
-            }
+            shell_handoff_acceptance_baseline_index_entry_for_manifest(
+                baseline,
+                baseline_manifest_path,
+            )
         })
         .collect::<Vec<_>>();
+
+    shell_handoff_acceptance_baseline_index_for_entries(entries, default_baseline_id)
+}
+
+pub fn append_shell_handoff_acceptance_baseline_index_manifests(
+    index: &StudioShellHandoffAcceptanceBaselineIndex,
+    baselines: Vec<(
+        StudioShellHandoffAcceptanceBaselineManifest,
+        Option<PathBuf>,
+    )>,
+    default_baseline_id: Option<&str>,
+) -> StudioShellHandoffAcceptanceBaselineIndex {
+    let entries = index
+        .entries
+        .iter()
+        .cloned()
+        .chain(
+            baselines
+                .into_iter()
+                .map(|(baseline, baseline_manifest_path)| {
+                    shell_handoff_acceptance_baseline_index_entry_for_manifest(
+                        baseline,
+                        baseline_manifest_path,
+                    )
+                }),
+        )
+        .collect::<Vec<_>>();
+    let default_baseline_id = default_baseline_id.or(index.default_baseline_id.as_deref());
+
+    shell_handoff_acceptance_baseline_index_for_entries(entries, default_baseline_id)
+}
+
+pub fn promote_shell_handoff_acceptance_baseline_index_default(
+    index: &StudioShellHandoffAcceptanceBaselineIndex,
+    baseline_id: &str,
+) -> Option<StudioShellHandoffAcceptanceBaselineIndex> {
+    index
+        .entries
+        .iter()
+        .any(|entry| entry.baseline_id == baseline_id)
+        .then(|| {
+            shell_handoff_acceptance_baseline_index_for_entries(
+                index.entries.clone(),
+                Some(baseline_id),
+            )
+        })
+}
+
+fn shell_handoff_acceptance_baseline_index_entry_for_manifest(
+    baseline: StudioShellHandoffAcceptanceBaselineManifest,
+    baseline_manifest_path: Option<PathBuf>,
+) -> StudioShellHandoffAcceptanceBaselineIndexEntry {
+    let StudioShellHandoffAcceptanceBaselineManifest {
+        baseline_id,
+        label,
+        checklist_path,
+        summary,
+        ..
+    } = baseline;
+
+    StudioShellHandoffAcceptanceBaselineIndexEntry {
+        baseline_id,
+        label,
+        baseline_manifest_path: baseline_manifest_path.map(|path| path.display().to_string()),
+        checklist_path,
+        summary_schema: summary.schema_id.clone(),
+        checklist_schema: summary.checklist_schema.clone(),
+        manifest_id: summary.manifest_id.clone(),
+        project_id: summary.project_id.clone(),
+        project_revision: summary.project_revision,
+        status: summary.status,
+        issue_code: summary.issue_code.clone(),
+        ready_count: summary.ready_count,
+        blocked_count: summary.blocked_count,
+        rejected_count: summary.rejected_count,
+        entry_count: summary.entry_count,
+        target_count: summary.targets.len(),
+    }
+}
+
+fn shell_handoff_acceptance_baseline_index_for_entries(
+    entries: Vec<StudioShellHandoffAcceptanceBaselineIndexEntry>,
+    default_baseline_id: Option<&str>,
+) -> StudioShellHandoffAcceptanceBaselineIndex {
+    let mut by_id = BTreeMap::new();
+    for entry in entries {
+        by_id.insert(entry.baseline_id.clone(), entry);
+    }
+
+    let entries = by_id.into_values().collect::<Vec<_>>();
     let default_baseline_id = default_baseline_id
         .filter(|baseline_id| {
             entries
@@ -9975,6 +10035,137 @@ mod tests {
         );
         assert!(
             select_shell_handoff_acceptance_baseline_index_entry(&index, Some("missing")).is_none()
+        );
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_baseline_index_appends_named_baseline() {
+        let root = temp_root("shell-handoff-acceptance-baseline-index-append");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let ready_bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&ready_bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let ready_checklist = shell_handoff_acceptance_checklist_for_project(
+            &project,
+            Some(&root),
+            &ready_bundle_root,
+        );
+        let blocked_checklist = shell_handoff_acceptance_checklist_for_project(
+            &project,
+            Some(&root),
+            &root.join("missing-selected-shells"),
+        );
+        let ready_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &ready_checklist,
+            &root.join("ready-checklist.json"),
+            Some("synthetic-ready"),
+            Some("Synthetic ready acceptance baseline"),
+        );
+        let blocked_manifest_path = root.join("blocked-baseline.json");
+        let blocked_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &blocked_checklist,
+            &root.join("blocked-checklist.json"),
+            Some("synthetic-blocked"),
+            Some("Synthetic blocked acceptance baseline"),
+        );
+        let index = shell_handoff_acceptance_baseline_index_for_manifests(
+            vec![(ready_baseline, Some(root.join("ready-baseline.json")))],
+            Some("synthetic-ready"),
+        );
+
+        let appended = append_shell_handoff_acceptance_baseline_index_manifests(
+            &index,
+            vec![(blocked_baseline, Some(blocked_manifest_path.clone()))],
+            Some("synthetic-blocked"),
+        );
+
+        assert_eq!(
+            appended.default_baseline_id.as_deref(),
+            Some("synthetic-blocked")
+        );
+        assert_eq!(appended.baseline_count, 2);
+        assert_eq!(appended.ready_baseline_count, 1);
+        assert_eq!(appended.blocked_baseline_count, 1);
+        assert_eq!(appended.entries[0].baseline_id, "synthetic-blocked");
+        assert_eq!(
+            appended.entries[0].baseline_manifest_path.as_deref(),
+            Some(blocked_manifest_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            appended.entries[0].status,
+            StudioShellHandoffAcceptanceStatus::Blocked
+        );
+        assert_eq!(appended.entries[1].baseline_id, "synthetic-ready");
+        assert_eq!(
+            select_shell_handoff_acceptance_baseline_index_entry(&appended, None)
+                .map(|entry| entry.baseline_id.as_str()),
+            Some("synthetic-blocked")
+        );
+    }
+
+    #[test]
+    fn shell_handoff_acceptance_baseline_index_promotes_existing_default() {
+        let root = temp_root("shell-handoff-acceptance-baseline-index-promote");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let ready_bundle_root = root.join("selected-shells");
+        for graph in &project.graphs {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), &graph.graph_id);
+            save_shell_bundle(&ready_bundle_root.join(&graph.graph_id), &report)
+                .expect("save selected shell bundle");
+        }
+        let ready_checklist = shell_handoff_acceptance_checklist_for_project(
+            &project,
+            Some(&root),
+            &ready_bundle_root,
+        );
+        let blocked_checklist = shell_handoff_acceptance_checklist_for_project(
+            &project,
+            Some(&root),
+            &root.join("missing-selected-shells"),
+        );
+        let ready_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &ready_checklist,
+            &root.join("ready-checklist.json"),
+            Some("synthetic-ready"),
+            Some("Synthetic ready acceptance baseline"),
+        );
+        let blocked_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &blocked_checklist,
+            &root.join("blocked-checklist.json"),
+            Some("synthetic-blocked"),
+            Some("Synthetic blocked acceptance baseline"),
+        );
+        let index = shell_handoff_acceptance_baseline_index_for_manifests(
+            vec![
+                (ready_baseline, Some(root.join("ready-baseline.json"))),
+                (blocked_baseline, Some(root.join("blocked-baseline.json"))),
+            ],
+            Some("synthetic-blocked"),
+        );
+
+        let promoted =
+            promote_shell_handoff_acceptance_baseline_index_default(&index, "synthetic-ready")
+                .expect("promote ready baseline");
+
+        assert_eq!(
+            promoted.default_baseline_id.as_deref(),
+            Some("synthetic-ready")
+        );
+        assert_eq!(promoted.baseline_count, 2);
+        assert_eq!(promoted.ready_baseline_count, 1);
+        assert_eq!(promoted.blocked_baseline_count, 1);
+        assert_eq!(
+            select_shell_handoff_acceptance_baseline_index_entry(&promoted, None)
+                .map(|entry| entry.baseline_id.as_str()),
+            Some("synthetic-ready")
+        );
+        assert!(
+            promote_shell_handoff_acceptance_baseline_index_default(&index, "missing").is_none()
         );
     }
 
