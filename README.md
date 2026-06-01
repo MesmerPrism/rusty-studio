@@ -203,7 +203,10 @@ cargo run -p rusty-studio-desktop-shell -- --templates target\studio-shell-templ
 
 All CLI commands print JSON. The Makepad surface uses the same core edit
 operations and displays the resulting edit report after an accepted or rejected
-request. The desktop shell is a read-only descriptor, artifact-manifest, or
+request. When launched without `--project`, the Makepad demo copies the tracked
+synthetic example into ignored `examples-working\` before edits are allowed, so
+normal Studio sessions do not dirty `examples\synthetic-studio-project.json`.
+The desktop shell is a read-only descriptor, artifact-manifest, or
 template-index consumer; it does not own runtime command/session authority,
 launch, or evidence collection. Shell handoff intake is a schema-only
 classification report for Hostess/Manifold-owned next steps; it does not install,

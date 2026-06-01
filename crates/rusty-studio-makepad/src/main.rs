@@ -2511,9 +2511,14 @@ fn load_studio_view_model(
     requested_node_id: Option<&str>,
     requested_edge_id: Option<&str>,
 ) -> Result<(PathBuf, StudioViewModel), String> {
-    let project_path = project_path_from_args()
-        .or_else(find_default_project_path)
-        .ok_or_else(|| "no project path supplied and default example was not found".to_string())?;
+    let project_path = if let Some(project_path) = project_path_from_args() {
+        project_path
+    } else {
+        let default_path = find_default_project_path().ok_or_else(|| {
+            "no project path supplied and default example was not found".to_string()
+        })?;
+        default_project_working_copy_path(&default_path)?
+    };
     let model = load_studio_view_model_for_path(
         &project_path,
         requested_graph_id,
@@ -3974,6 +3979,43 @@ fn find_default_project_path() -> Option<PathBuf> {
         current_dir.join("../../../examples/synthetic-studio-project.json"),
     ];
     candidates.into_iter().find(|path| path.is_file())
+}
+
+fn default_project_working_copy_path(default_path: &Path) -> Result<PathBuf, String> {
+    let default_path = normalize_verbatim_path(
+        std::fs::canonicalize(default_path)
+            .map_err(|error| format!("Default example resolve failed: {error}"))?,
+    );
+    let examples_dir = default_path
+        .parent()
+        .ok_or_else(|| "default example has no parent directory".to_string())?;
+    let repo_root = examples_dir
+        .parent()
+        .ok_or_else(|| "default example is not inside the repo examples directory".to_string())?;
+    let file_name = default_path
+        .file_name()
+        .ok_or_else(|| "default example has no file name".to_string())?;
+    let working_dir = repo_root.join("examples-working");
+    let working_path = working_dir.join(file_name);
+    std::fs::create_dir_all(&working_dir)
+        .map_err(|error| format!("Default example working directory create failed: {error}"))?;
+    std::fs::copy(&default_path, &working_path)
+        .map_err(|error| format!("Default example working copy failed: {error}"))?;
+    Ok(working_path)
+}
+
+fn normalize_verbatim_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let path_text = path.to_string_lossy();
+        if let Some(rest) = path_text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = path_text.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path
 }
 
 fn validation_line(model: &StudioViewModel) -> String {
@@ -6503,6 +6545,28 @@ mod tests {
             std::fs::create_dir_all(parent).expect("create fixture parent");
         }
         std::fs::write(path, text).expect("write fixture");
+    }
+
+    #[test]
+    fn default_project_working_copy_uses_ignored_sibling_dir() {
+        let root = temp_root("default-project-working-copy");
+        let source_path = root.join("examples/synthetic-studio-project.json");
+        write_fixture(
+            &source_path,
+            r#"{"$schema":"rusty.studio.project.v1","project_id":"demo","revision":1,"display_name":"Demo","package_catalog_path":"../../rusty-manifold-packages/packages/catalog.manifold.json","host_run_profile_paths":[],"graphs":[]}"#,
+        );
+
+        let working_path =
+            default_project_working_copy_path(&source_path).expect("copy default project");
+
+        assert_eq!(
+            working_path,
+            root.join("examples-working/synthetic-studio-project.json")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&working_path).expect("read working copy"),
+            std::fs::read_to_string(&source_path).expect("read source")
+        );
     }
 
     fn write_reference_fixture_tree(root: &Path) {
