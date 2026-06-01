@@ -486,6 +486,9 @@ pub struct StudioShellHandoffReport {
 #[serde(rename_all = "snake_case")]
 pub enum StudioShellHandoffKind {
     DesktopShell,
+    PhoneShell,
+    QuestShell,
+    UnknownShell,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

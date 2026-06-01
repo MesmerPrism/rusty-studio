@@ -57,8 +57,9 @@ Current scope:
   CLI, and Makepad preview action;
 - validate a selected-graph shell bundle against the current graph preview
   through shared core logic, CLI, and Makepad preview action;
-- prepare a validation-gated desktop shell handoff report from a selected
-  bundle without spawning, installing, launching, or collecting evidence;
+- prepare validation-gated desktop, phone, and Quest shell handoff reports
+  from selected bundles without spawning, installing, launching, or collecting
+  evidence;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -97,7 +98,12 @@ cargo run -p rusty-studio-cli -- shell-templates --manifest target\studio-shells
 cargo run -p rusty-studio-cli -- validate-shell-templates --index target\studio-shell-templates\shell-templates.json
 cargo run -p rusty-studio-cli -- shell-bundle --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --output-dir target\studio-selected-shell\studio.graph.synthetic_wave_desktop
 cargo run -p rusty-studio-cli -- validate-shell-bundle --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --bundle-dir target\studio-selected-shell\studio.graph.synthetic_wave_desktop
+cargo run -p rusty-studio-cli -- shell-handoff --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --bundle-dir target\studio-selected-shell\studio.graph.synthetic_wave_desktop
 cargo run -p rusty-studio-cli -- desktop-shell-handoff --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_desktop --bundle-dir target\studio-selected-shell\studio.graph.synthetic_wave_desktop
+cargo run -p rusty-studio-cli -- shell-bundle --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_phone --output-dir target\studio-selected-shell\studio.graph.synthetic_wave_phone
+cargo run -p rusty-studio-cli -- shell-handoff --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_phone --bundle-dir target\studio-selected-shell\studio.graph.synthetic_wave_phone
+cargo run -p rusty-studio-cli -- shell-bundle --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset --output-dir target\studio-selected-shell\studio.graph.synthetic_wave_headset
+cargo run -p rusty-studio-cli -- shell-handoff --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset --bundle-dir target\studio-selected-shell\studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json

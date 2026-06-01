@@ -31,13 +31,15 @@ try {
     $ShellArtifactsDir = Join-Path $RepoRoot "target\studio-shells"
     $ShellTemplatesDir = Join-Path $RepoRoot "target\studio-shell-templates"
     $SelectedShellBundleDir = Join-Path $RepoRoot "target\studio-selected-shell\studio.graph.synthetic_wave_desktop"
+    $SelectedPhoneShellBundleDir = Join-Path $RepoRoot "target\studio-selected-shell\studio.graph.synthetic_wave_phone"
+    $SelectedQuestShellBundleDir = Join-Path $RepoRoot "target\studio-selected-shell\studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
     foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
     }
-    foreach ($GeneratedDir in @($ShellArtifactsDir, $ShellTemplatesDir, $SelectedShellBundleDir)) {
+    foreach ($GeneratedDir in @($ShellArtifactsDir, $ShellTemplatesDir, $SelectedShellBundleDir, $SelectedPhoneShellBundleDir, $SelectedQuestShellBundleDir)) {
         if (Test-Path $GeneratedDir) {
             Remove-Item -Recurse -Force -LiteralPath $GeneratedDir
         }
@@ -1082,6 +1084,26 @@ try {
             throw "selected shell bundle current validation missing check $RequiredSelectedBundleCheck"
         }
     }
+    $GenericDesktopHandoffOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --bundle-dir $SelectedShellBundleDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio generic desktop shell handoff failed with exit code $LASTEXITCODE"
+    }
+    $GenericDesktopHandoff = ($GenericDesktopHandoffOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($GenericDesktopHandoff.'$schema' -ne "rusty.studio.shell_handoff_report.v1") {
+        throw "generic desktop shell handoff schema mismatch"
+    }
+    if ($GenericDesktopHandoff.status -ne "pass") {
+        throw "generic desktop shell handoff did not pass"
+    }
+    if ($GenericDesktopHandoff.handoff_kind -ne "desktop_shell") {
+        throw "generic desktop shell handoff kind mismatch"
+    }
+    if ($GenericDesktopHandoff.consumer_id -ne "rusty-studio-desktop-shell") {
+        throw "generic desktop shell handoff consumer mismatch"
+    }
+    if ($GenericDesktopHandoff.target_kind -ne "desktop") {
+        throw "generic desktop shell handoff target mismatch"
+    }
     $DesktopHandoffOutput = & cargo run --quiet -p rusty-studio-cli -- desktop-shell-handoff --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_desktop" --bundle-dir $SelectedShellBundleDir
     if ($LASTEXITCODE -ne 0) {
         throw "studio desktop shell handoff failed with exit code $LASTEXITCODE"
@@ -1119,6 +1141,80 @@ try {
     }
     if ($DesktopHandoff.runtime_authority.studio_role -ne "authoring.export_planning") {
         throw "desktop shell handoff Studio role mismatch"
+    }
+    foreach ($TargetHandoff in @(
+        @{
+            Graph = "studio.graph.synthetic_wave_phone"
+            BundleDir = $SelectedPhoneShellBundleDir
+            HandoffKind = "phone_shell"
+            Consumer = "rusty-studio-phone-shell"
+            TargetKind = "phone"
+        },
+        @{
+            Graph = "studio.graph.synthetic_wave_headset"
+            BundleDir = $SelectedQuestShellBundleDir
+            HandoffKind = "quest_shell"
+            Consumer = "rusty-studio-quest-shell"
+            TargetKind = "quest"
+        }
+    )) {
+        $TargetBundleOutput = & cargo run --quiet -p rusty-studio-cli -- shell-bundle --project "examples\synthetic-studio-project.json" --graph $TargetHandoff.Graph --output-dir $TargetHandoff.BundleDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "studio selected target shell bundle failed for $($TargetHandoff.Graph) with exit code $LASTEXITCODE"
+        }
+        $TargetBundle = ($TargetBundleOutput -join [Environment]::NewLine) | ConvertFrom-Json
+        if ($TargetBundle.status -ne "exported") {
+            throw "selected target shell bundle did not export for $($TargetHandoff.Graph)"
+        }
+        $TargetHandoffOutput = & cargo run --quiet -p rusty-studio-cli -- shell-handoff --project "examples\synthetic-studio-project.json" --graph $TargetHandoff.Graph --bundle-dir $TargetHandoff.BundleDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "studio target shell handoff failed for $($TargetHandoff.Graph) with exit code $LASTEXITCODE"
+        }
+        $TargetReport = ($TargetHandoffOutput -join [Environment]::NewLine) | ConvertFrom-Json
+        if ($TargetReport.'$schema' -ne "rusty.studio.shell_handoff_report.v1") {
+            throw "target shell handoff schema mismatch for $($TargetHandoff.Graph)"
+        }
+        if ($TargetReport.status -ne "pass") {
+            throw "target shell handoff did not pass for $($TargetHandoff.Graph)"
+        }
+        if ($TargetReport.handoff_kind -ne $TargetHandoff.HandoffKind) {
+            throw "target shell handoff kind mismatch for $($TargetHandoff.Graph)"
+        }
+        if ($TargetReport.consumer_id -ne $TargetHandoff.Consumer) {
+            throw "target shell handoff consumer mismatch for $($TargetHandoff.Graph)"
+        }
+        if ($TargetReport.target_kind -ne $TargetHandoff.TargetKind) {
+            throw "target shell handoff target mismatch for $($TargetHandoff.Graph)"
+        }
+        if (@($TargetReport.consumer_args) -notcontains "--templates") {
+            throw "target shell handoff missing --templates arg for $($TargetHandoff.Graph)"
+        }
+        if (@($TargetReport.consumer_args) -notcontains (Join-Path $TargetHandoff.BundleDir "shell-templates.json")) {
+            throw "target shell handoff missing template index arg for $($TargetHandoff.Graph)"
+        }
+        if ($TargetReport.validation.status -ne "pass") {
+            throw "target shell handoff validation did not pass for $($TargetHandoff.Graph)"
+        }
+        if ($TargetReport.runtime_authority.command_session_authority -ne "rusty.manifold") {
+            throw "target shell handoff command/session authority mismatch for $($TargetHandoff.Graph)"
+        }
+        if ($TargetReport.runtime_authority.install_launch_evidence_authority -ne "rusty.hostess") {
+            throw "target shell handoff install/launch/evidence authority mismatch for $($TargetHandoff.Graph)"
+        }
+        if ($TargetReport.runtime_authority.studio_role -ne "authoring.export_planning") {
+            throw "target shell handoff Studio role mismatch for $($TargetHandoff.Graph)"
+        }
+    }
+    $RejectedDesktopHandoffOutput = & cargo run --quiet -p rusty-studio-cli -- desktop-shell-handoff --project "examples\synthetic-studio-project.json" --graph "studio.graph.synthetic_wave_phone" --bundle-dir $SelectedPhoneShellBundleDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio rejected desktop shell handoff command failed with exit code $LASTEXITCODE"
+    }
+    $RejectedDesktopHandoff = ($RejectedDesktopHandoffOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($RejectedDesktopHandoff.status -ne "fail") {
+        throw "desktop shell handoff should reject phone bundle"
+    }
+    if ($RejectedDesktopHandoff.issue_code -ne "studio.issue.shell_handoff_target_mismatch") {
+        throw "desktop shell handoff target mismatch issue missing"
     }
 } finally {
     Pop-Location

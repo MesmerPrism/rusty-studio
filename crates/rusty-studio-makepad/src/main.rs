@@ -3,9 +3,9 @@ pub use makepad_widgets;
 use makepad_widgets::*;
 use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
-    add_next_catalog_module_to_graph, desktop_shell_handoff_for_bundle, load_project,
-    remove_binding_from_graph, remove_module_from_graph, retarget_graph_host_profile, save_project,
-    save_shell_bundle, selected_shell_bundle_for_graph, validate_selected_shell_bundle,
+    add_next_catalog_module_to_graph, load_project, remove_binding_from_graph,
+    remove_module_from_graph, retarget_graph_host_profile, save_project, save_shell_bundle,
+    selected_shell_bundle_for_graph, shell_handoff_for_bundle, validate_selected_shell_bundle,
     view_model_for_graph, view_model_for_graph_issue_node_and_edge,
 };
 use rusty_studio_model::{
@@ -175,7 +175,7 @@ script_mod! {
         ButtonRow{
             export_shell_bundle_button := ActionButton{text: "Export Preview Files"}
             verify_shell_bundle_button := ActionButton{text: "Verify Preview Files"}
-            desktop_shell_handoff_button := ActionButton{text: "Prepare Desktop Shell"}
+            shell_handoff_button := ActionButton{text: "Prepare Operator Shell"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1055,7 +1055,7 @@ impl App {
         self.ui.redraw(cx);
     }
 
-    fn prepare_desktop_shell_handoff_for_selected_graph(&mut self, cx: &mut Cx) {
+    fn prepare_shell_handoff_for_selected_graph(&mut self, cx: &mut Cx) {
         let Some(source) = self.project_source.clone() else {
             self.last_shell_bundle_status = "No project source is loaded".to_string();
             self.sync_loaded_model(cx);
@@ -1068,7 +1068,7 @@ impl App {
             self.ui.redraw(cx);
             return;
         };
-        match desktop_shell_handoff_for_project_source(&source, &model, self.selected_graph_index) {
+        match shell_handoff_for_project_source(&source, &model, self.selected_graph_index) {
             Ok((report, output_dir)) => {
                 self.last_shell_bundle_status = shell_handoff_status(&report, &output_dir);
             }
@@ -1683,10 +1683,10 @@ impl MatchEvent for App {
         }
         if self
             .ui
-            .button(cx, ids!(desktop_shell_handoff_button))
+            .button(cx, ids!(shell_handoff_button))
             .clicked(actions)
         {
-            self.prepare_desktop_shell_handoff_for_selected_graph(cx);
+            self.prepare_shell_handoff_for_selected_graph(cx);
         }
         if self
             .ui
@@ -1812,7 +1812,7 @@ fn validate_shell_bundle_for_project_source(
     Ok((report, output_dir))
 }
 
-fn desktop_shell_handoff_for_project_source(
+fn shell_handoff_for_project_source(
     project_path: &Path,
     model: &StudioViewModel,
     selected_graph_index: usize,
@@ -1822,8 +1822,7 @@ fn desktop_shell_handoff_for_project_source(
     let project =
         load_project(project_path).map_err(|error| format!("Project reload failed: {error}"))?;
     let output_dir = selected_shell_bundle_output_dir(project_path, &graph_id);
-    let report =
-        desktop_shell_handoff_for_bundle(&project, project_path.parent(), &graph_id, &output_dir);
+    let report = shell_handoff_for_bundle(&project, project_path.parent(), &graph_id, &output_dir);
     Ok((report, output_dir))
 }
 
@@ -2605,18 +2604,20 @@ fn shell_handoff_status(report: &StudioShellHandoffReport, output_dir: &Path) ->
             })
             .unwrap_or_else(|| "none".to_string());
         return format!(
-            "desktop handoff {status}; issue {issue}\n  graph: {}\n  output: {}\n  consumer: {}\n  args: {}\n  authority: {}",
+            "shell handoff {status}; issue {issue}\n  graph: {}\n  output: {}\n  consumer: {}\n  target: {}\n  args: {}\n  authority: {}",
             report.graph_id,
             output_dir.display(),
             report.consumer_id,
+            shell_target_kind_label(report.target_kind),
             args,
             authority
         );
     }
     format!(
-        "desktop handoff {status}; issue {issue}\n  graph: {}\n  output: {}\n  message: {}",
+        "shell handoff {status}; issue {issue}\n  graph: {}\n  output: {}\n  target: {}\n  message: {}",
         report.graph_id,
         output_dir.display(),
+        shell_target_kind_label(report.target_kind),
         report.message
     )
 }
@@ -3349,7 +3350,7 @@ mod tests {
     }
 
     #[test]
-    fn desktop_shell_handoff_reports_ready_command_args() {
+    fn shell_handoff_reports_ready_command_args() {
         let root = temp_root("desktop-shell-handoff");
         write_reference_fixture_tree(&root);
         let project_path = root.join("project.json");
@@ -3359,9 +3360,8 @@ mod tests {
         export_shell_bundle_for_project_source(&project_path, &model, 0)
             .expect("export selected shell bundle");
 
-        let (report, output_dir) =
-            desktop_shell_handoff_for_project_source(&project_path, &model, 0)
-                .expect("prepare desktop shell handoff");
+        let (report, output_dir) = shell_handoff_for_project_source(&project_path, &model, 0)
+            .expect("prepare shell handoff");
 
         assert_eq!(report.status, StudioValidationStatus::Pass);
         assert_eq!(report.consumer_id, "rusty-studio-desktop-shell");
@@ -3370,8 +3370,9 @@ mod tests {
             .iter()
             .any(|arg| arg.ends_with("shell-templates.json")));
         let status = shell_handoff_status(&report, &output_dir);
-        assert!(status.contains("desktop handoff pass"));
+        assert!(status.contains("shell handoff pass"));
         assert!(status.contains("rusty-studio-desktop-shell"));
+        assert!(status.contains("target: desktop"));
         assert!(status.contains("--templates"));
         assert!(status.contains("rusty.manifold / rusty.hostess / authoring.export_planning"));
     }

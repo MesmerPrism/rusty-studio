@@ -2657,7 +2657,7 @@ pub fn validate_selected_shell_bundle(
     shell_bundle_validation_report(project, graph_id, expected_bundle_files, checks)
 }
 
-pub fn desktop_shell_handoff_for_bundle(
+pub fn shell_handoff_for_bundle(
     project: &StudioProject,
     base_dir: Option<&Path>,
     graph_id: &str,
@@ -2711,7 +2711,7 @@ pub fn desktop_shell_handoff_for_bundle(
     let Some(entry) = index
         .templates
         .iter()
-        .find(|entry| entry.target_kind == StudioShellTargetKind::Desktop)
+        .find(|entry| entry.graph_id == graph_id)
         .or_else(|| index.templates.first())
     else {
         return shell_handoff_report(
@@ -2761,7 +2761,10 @@ pub fn desktop_shell_handoff_for_bundle(
         graph_id,
         StudioValidationStatus::Pass,
         None,
-        "Desktop shell handoff ready".to_string(),
+        format!(
+            "{} shell handoff ready",
+            shell_target_kind_label(entry.target_kind)
+        ),
         bundle_dir,
         descriptor_path.display().to_string(),
         artifact_manifest_path.display().to_string(),
@@ -2775,6 +2778,39 @@ pub fn desktop_shell_handoff_for_bundle(
         Some(template_manifest.runtime_authority),
         validation,
     )
+}
+
+pub fn desktop_shell_handoff_for_bundle(
+    project: &StudioProject,
+    base_dir: Option<&Path>,
+    graph_id: &str,
+    bundle_dir: &Path,
+) -> StudioShellHandoffReport {
+    let report = shell_handoff_for_bundle(project, base_dir, graph_id, bundle_dir);
+    if report.status == StudioValidationStatus::Pass
+        && report.target_kind != StudioShellTargetKind::Desktop
+    {
+        return shell_handoff_report(
+            project,
+            graph_id,
+            StudioValidationStatus::Fail,
+            Some("studio.issue.shell_handoff_target_mismatch".to_string()),
+            format!(
+                "Selected shell bundle targets {}; desktop shell handoff requires desktop",
+                shell_target_kind_label(report.target_kind)
+            ),
+            bundle_dir,
+            report.descriptor_path,
+            report.artifact_manifest_path,
+            report.template_index_path,
+            report.template_manifest_path,
+            Vec::new(),
+            report.target_kind,
+            report.runtime_authority,
+            report.validation,
+        );
+    }
+    report
 }
 
 pub fn validate_shell_template_index(
@@ -4329,8 +4365,8 @@ fn shell_handoff_report(
         status,
         issue_code,
         message,
-        handoff_kind: StudioShellHandoffKind::DesktopShell,
-        consumer_id: "rusty-studio-desktop-shell".to_string(),
+        handoff_kind: shell_handoff_kind_for_target(target_kind),
+        consumer_id: shell_handoff_consumer_id(target_kind).to_string(),
         target_kind,
         bundle_dir: bundle_dir.display().to_string(),
         descriptor_path,
@@ -4340,6 +4376,33 @@ fn shell_handoff_report(
         consumer_args,
         runtime_authority,
         validation,
+    }
+}
+
+fn shell_handoff_kind_for_target(target_kind: StudioShellTargetKind) -> StudioShellHandoffKind {
+    match target_kind {
+        StudioShellTargetKind::Desktop => StudioShellHandoffKind::DesktopShell,
+        StudioShellTargetKind::Phone => StudioShellHandoffKind::PhoneShell,
+        StudioShellTargetKind::Quest => StudioShellHandoffKind::QuestShell,
+        StudioShellTargetKind::Unknown => StudioShellHandoffKind::UnknownShell,
+    }
+}
+
+fn shell_handoff_consumer_id(target_kind: StudioShellTargetKind) -> &'static str {
+    match target_kind {
+        StudioShellTargetKind::Desktop => "rusty-studio-desktop-shell",
+        StudioShellTargetKind::Phone => "rusty-studio-phone-shell",
+        StudioShellTargetKind::Quest => "rusty-studio-quest-shell",
+        StudioShellTargetKind::Unknown => "rusty-studio-operator-shell",
+    }
+}
+
+fn shell_target_kind_label(target_kind: StudioShellTargetKind) -> &'static str {
+    match target_kind {
+        StudioShellTargetKind::Desktop => "desktop",
+        StudioShellTargetKind::Phone => "phone",
+        StudioShellTargetKind::Quest => "quest",
+        StudioShellTargetKind::Unknown => "unknown",
     }
 }
 
@@ -6714,6 +6777,84 @@ mod tests {
         assert_eq!(authority.command_session_authority, "rusty.manifold");
         assert_eq!(authority.install_launch_evidence_authority, "rusty.hostess");
         assert_eq!(authority.studio_role, "authoring.export_planning");
+    }
+
+    #[test]
+    fn shell_handoff_reports_phone_and_quest_targets() {
+        let root = temp_root("multi-target-shell-handoff");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        for (graph_id, expected_kind, expected_handoff, expected_consumer) in [
+            (
+                "studio.graph.phone",
+                StudioShellTargetKind::Phone,
+                StudioShellHandoffKind::PhoneShell,
+                "rusty-studio-phone-shell",
+            ),
+            (
+                "studio.graph.quest",
+                StudioShellTargetKind::Quest,
+                StudioShellHandoffKind::QuestShell,
+                "rusty-studio-quest-shell",
+            ),
+        ] {
+            let report = selected_shell_bundle_for_graph(&project, Some(&root), graph_id);
+            let output_dir = root.join(graph_id);
+            save_shell_bundle(&output_dir, &report).expect("save shell bundle");
+
+            let handoff = shell_handoff_for_bundle(&project, Some(&root), graph_id, &output_dir);
+
+            assert_eq!(handoff.status, StudioValidationStatus::Pass);
+            assert_eq!(handoff.handoff_kind, expected_handoff);
+            assert_eq!(handoff.consumer_id, expected_consumer);
+            assert_eq!(handoff.target_kind, expected_kind);
+            assert_eq!(handoff.validation.status, StudioValidationStatus::Pass);
+            assert_eq!(
+                handoff.consumer_args,
+                vec![
+                    "--templates".to_string(),
+                    output_dir
+                        .join("shell-templates.json")
+                        .display()
+                        .to_string(),
+                ]
+            );
+            assert_eq!(
+                handoff
+                    .runtime_authority
+                    .as_ref()
+                    .expect("runtime authority")
+                    .install_launch_evidence_authority,
+                "rusty.hostess"
+            );
+        }
+    }
+
+    #[test]
+    fn desktop_shell_handoff_rejects_non_desktop_bundle() {
+        let root = temp_root("desktop-shell-handoff-target-mismatch");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let report = selected_shell_bundle_for_graph(&project, Some(&root), "studio.graph.phone");
+        let output_dir = root.join("phone-selected-shell");
+        save_shell_bundle(&output_dir, &report).expect("save phone shell bundle");
+
+        let handoff = desktop_shell_handoff_for_bundle(
+            &project,
+            Some(&root),
+            "studio.graph.phone",
+            &output_dir,
+        );
+
+        assert_eq!(handoff.status, StudioValidationStatus::Fail);
+        assert_eq!(
+            handoff.issue_code.as_deref(),
+            Some("studio.issue.shell_handoff_target_mismatch")
+        );
+        assert_eq!(handoff.handoff_kind, StudioShellHandoffKind::PhoneShell);
+        assert_eq!(handoff.target_kind, StudioShellTargetKind::Phone);
+        assert!(handoff.consumer_args.is_empty());
+        assert_eq!(handoff.validation.status, StudioValidationStatus::Pass);
     }
 
     #[test]
