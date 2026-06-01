@@ -3,6 +3,7 @@ use rusty_studio_core::{
     add_binding_to_graph, add_module_to_graph, add_next_catalog_module_from_package_to_graph,
     add_next_catalog_module_to_graph, append_shell_export_package_baseline_index_manifests,
     append_shell_handoff_acceptance_baseline_index_manifests,
+    append_shell_hostess_staging_acceptance_index_manifests,
     append_shell_release_candidate_review_index_manifests, compare_shell_export_packages,
     compare_shell_export_packages_against_baseline_index_entry,
     compare_shell_export_packages_against_baseline_manifest,
@@ -15,11 +16,14 @@ use rusty_studio_core::{
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
     load_shell_handoff_intake_report, load_shell_handoff_manifest,
     load_shell_hostess_handoff_package_report, load_shell_hostess_owner_intake_report,
-    load_shell_hostess_staging_file_plan, load_shell_hostess_staging_handoff_envelope,
-    load_shell_hostess_staging_preview_manifest, load_shell_release_candidate_review_index,
-    load_shell_release_candidate_review_manifest, load_shell_release_candidate_review_report,
-    load_shell_template_index, promote_shell_export_package_baseline_index_default,
+    load_shell_hostess_staging_acceptance_checklist, load_shell_hostess_staging_acceptance_index,
+    load_shell_hostess_staging_acceptance_manifest, load_shell_hostess_staging_file_plan,
+    load_shell_hostess_staging_handoff_envelope, load_shell_hostess_staging_preview_manifest,
+    load_shell_release_candidate_review_index, load_shell_release_candidate_review_manifest,
+    load_shell_release_candidate_review_report, load_shell_template_index,
+    promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default,
+    promote_shell_hostess_staging_acceptance_index_default,
     promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
     remove_module_from_graph, resolve_project, retarget_graph_host_profile, save_json,
     save_project, save_shell_bundle, select_shell_export_package_baseline_index_entry,
@@ -35,6 +39,8 @@ use rusty_studio_core::{
     shell_hostess_handoff_package_for_release_candidate_index,
     shell_hostess_owner_intake_for_handoff_package,
     shell_hostess_staging_acceptance_checklist_for_handoff,
+    shell_hostess_staging_acceptance_index_for_manifests,
+    shell_hostess_staging_acceptance_manifest_for_checklist,
     shell_hostess_staging_file_plan_for_preview,
     shell_hostess_staging_handoff_envelope_for_file_plan,
     shell_hostess_staging_preview_for_owner_intake, shell_release_candidate_review_for_manifest,
@@ -43,6 +49,7 @@ use rusty_studio_core::{
     shell_templates_for_artifact_manifest, summarize_shell_export_package_baseline_index_selection,
     summarize_shell_handoff_acceptance_baseline_index_selection,
     summarize_shell_handoff_acceptance_checklist,
+    summarize_shell_hostess_staging_acceptance_index_selection,
     summarize_shell_release_candidate_review_index_selection, validate_project_with_base,
     validate_selected_shell_bundle, validate_shell_artifact_manifest, validate_shell_descriptor,
     validate_shell_handoff_manifest, validate_shell_template_index,
@@ -118,6 +125,11 @@ enum Command {
     ShellHostessStagingFilePlan(ShellHostessStagingFilePlanArgs),
     ShellHostessStagingHandoff(ShellHostessStagingHandoffArgs),
     ShellHostessStagingAcceptanceChecklist(ShellHostessStagingAcceptanceChecklistArgs),
+    ShellHostessStagingAcceptanceManifest(ShellHostessStagingAcceptanceManifestArgs),
+    ShellHostessStagingAcceptanceIndex(ShellHostessStagingAcceptanceIndexArgs),
+    ShellHostessStagingAcceptanceIndexAppend(ShellHostessStagingAcceptanceIndexAppendArgs),
+    ShellHostessStagingAcceptanceIndexPromote(ShellHostessStagingAcceptanceIndexPromoteArgs),
+    ShellHostessStagingAcceptanceSelection(ShellHostessStagingAcceptanceSelectionArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -633,6 +645,60 @@ struct ShellHostessStagingHandoffArgs {
 struct ShellHostessStagingAcceptanceChecklistArgs {
     #[arg(long)]
     handoff: PathBuf,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHostessStagingAcceptanceManifestArgs {
+    #[arg(long)]
+    checklist: PathBuf,
+    #[arg(long)]
+    acceptance_id: Option<String>,
+    #[arg(long)]
+    label: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHostessStagingAcceptanceIndexArgs {
+    #[arg(long = "acceptance-manifest", required = true)]
+    acceptance_manifests: Vec<PathBuf>,
+    #[arg(long)]
+    default_acceptance_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHostessStagingAcceptanceIndexAppendArgs {
+    #[arg(long)]
+    acceptance_index: PathBuf,
+    #[arg(long = "acceptance-manifest", required = true)]
+    acceptance_manifests: Vec<PathBuf>,
+    #[arg(long)]
+    default_acceptance_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHostessStagingAcceptanceIndexPromoteArgs {
+    #[arg(long)]
+    acceptance_index: PathBuf,
+    #[arg(long)]
+    acceptance_id: String,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHostessStagingAcceptanceSelectionArgs {
+    #[arg(long)]
+    acceptance_index: PathBuf,
+    #[arg(long)]
+    acceptance_id: Option<String>,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -1573,6 +1639,89 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let report = shell_hostess_staging_acceptance_checklist_for_handoff(
                 &handoff,
                 Some(&args.handoff),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHostessStagingAcceptanceManifest(args) => {
+            let checklist = load_shell_hostess_staging_acceptance_checklist(&args.checklist)?;
+            let report = shell_hostess_staging_acceptance_manifest_for_checklist(
+                &checklist,
+                &args.checklist,
+                args.acceptance_id.as_deref(),
+                args.label.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHostessStagingAcceptanceIndex(args) => {
+            let acceptances = args
+                .acceptance_manifests
+                .iter()
+                .map(|path| {
+                    load_shell_hostess_staging_acceptance_manifest(path)
+                        .map(|acceptance| (acceptance, Some(path.clone())))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let report = shell_hostess_staging_acceptance_index_for_manifests(
+                acceptances,
+                args.default_acceptance_id.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHostessStagingAcceptanceIndexAppend(args) => {
+            let index = load_shell_hostess_staging_acceptance_index(&args.acceptance_index)?;
+            let acceptances = args
+                .acceptance_manifests
+                .iter()
+                .map(|path| {
+                    load_shell_hostess_staging_acceptance_manifest(path)
+                        .map(|acceptance| (acceptance, Some(path.clone())))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let report = append_shell_hostess_staging_acceptance_index_manifests(
+                &index,
+                acceptances,
+                args.default_acceptance_id.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHostessStagingAcceptanceIndexPromote(args) => {
+            let index = load_shell_hostess_staging_acceptance_index(&args.acceptance_index)?;
+            let report =
+                promote_shell_hostess_staging_acceptance_index_default(&index, &args.acceptance_id)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "--acceptance-id was not found in --acceptance-index",
+                        )
+                    })?;
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHostessStagingAcceptanceSelection(args) => {
+            let index = load_shell_hostess_staging_acceptance_index(&args.acceptance_index)?;
+            let report = summarize_shell_hostess_staging_acceptance_index_selection(
+                &index,
+                Some(&args.acceptance_index),
+                args.acceptance_id.as_deref(),
             );
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;

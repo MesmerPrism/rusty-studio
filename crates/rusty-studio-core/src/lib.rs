@@ -37,7 +37,11 @@ use rusty_studio_model::{
     StudioShellHostessOwnerIntakeAssignment, StudioShellHostessOwnerIntakeAssignmentStatus,
     StudioShellHostessOwnerIntakeReport, StudioShellHostessOwnerIntakeStatus,
     StudioShellHostessStagingAcceptanceChecklistEntry,
-    StudioShellHostessStagingAcceptanceChecklistReport, StudioShellHostessStagingAcceptanceStatus,
+    StudioShellHostessStagingAcceptanceChecklistReport, StudioShellHostessStagingAcceptanceIndex,
+    StudioShellHostessStagingAcceptanceIndexEntry, StudioShellHostessStagingAcceptanceManifest,
+    StudioShellHostessStagingAcceptanceSelectionEntry,
+    StudioShellHostessStagingAcceptanceSelectionReport,
+    StudioShellHostessStagingAcceptanceSelectionStatus, StudioShellHostessStagingAcceptanceStatus,
     StudioShellHostessStagingFilePlan, StudioShellHostessStagingFilePlanStatus,
     StudioShellHostessStagingFileRequest, StudioShellHostessStagingFileRequestStatus,
     StudioShellHostessStagingHandoffEnvelope, StudioShellHostessStagingHandoffEnvelopeStatus,
@@ -72,13 +76,15 @@ use rusty_studio_model::{
     SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
     SHELL_HANDOFF_REPORT_SCHEMA, SHELL_HOSTESS_HANDOFF_PACKAGE_SCHEMA,
     SHELL_HOSTESS_OWNER_INTAKE_SCHEMA, SHELL_HOSTESS_STAGING_ACCEPTANCE_CHECKLIST_SCHEMA,
-    SHELL_HOSTESS_STAGING_FILE_PLAN_SCHEMA, SHELL_HOSTESS_STAGING_HANDOFF_ENVELOPE_SCHEMA,
-    SHELL_HOSTESS_STAGING_PREVIEW_MANIFEST_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA,
-    SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA,
-    SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA, SHELL_RUNBOOK_REPORT_SCHEMA,
-    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
-    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
-    VIEW_MODEL_SCHEMA,
+    SHELL_HOSTESS_STAGING_ACCEPTANCE_INDEX_SCHEMA,
+    SHELL_HOSTESS_STAGING_ACCEPTANCE_MANIFEST_SCHEMA,
+    SHELL_HOSTESS_STAGING_ACCEPTANCE_SELECTION_SCHEMA, SHELL_HOSTESS_STAGING_FILE_PLAN_SCHEMA,
+    SHELL_HOSTESS_STAGING_HANDOFF_ENVELOPE_SCHEMA, SHELL_HOSTESS_STAGING_PREVIEW_MANIFEST_SCHEMA,
+    SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA,
+    SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA,
+    SHELL_RUNBOOK_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
+    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
+    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -223,6 +229,24 @@ pub enum StudioCoreError {
     },
     #[error("{path}: {source}")]
     ParseShellHostessStagingHandoffEnvelope {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellHostessStagingAcceptanceChecklist {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellHostessStagingAcceptanceManifest {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseShellHostessStagingAcceptanceIndex {
         path: String,
         #[source]
         source: serde_json::Error,
@@ -532,6 +556,51 @@ pub fn load_shell_hostess_staging_handoff_envelope(
     })?;
     serde_json::from_str(&text).map_err(|source| {
         StudioCoreError::ParseShellHostessStagingHandoffEnvelope {
+            path: path.display().to_string(),
+            source,
+        }
+    })
+}
+
+pub fn load_shell_hostess_staging_acceptance_checklist(
+    path: &Path,
+) -> Result<StudioShellHostessStagingAcceptanceChecklistReport, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseShellHostessStagingAcceptanceChecklist {
+            path: path.display().to_string(),
+            source,
+        }
+    })
+}
+
+pub fn load_shell_hostess_staging_acceptance_manifest(
+    path: &Path,
+) -> Result<StudioShellHostessStagingAcceptanceManifest, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseShellHostessStagingAcceptanceManifest {
+            path: path.display().to_string(),
+            source,
+        }
+    })
+}
+
+pub fn load_shell_hostess_staging_acceptance_index(
+    path: &Path,
+) -> Result<StudioShellHostessStagingAcceptanceIndex, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseShellHostessStagingAcceptanceIndex {
             path: path.display().to_string(),
             source,
         }
@@ -11494,6 +11563,315 @@ fn shell_hostess_staging_acceptance_entries(
         .collect()
 }
 
+pub fn shell_hostess_staging_acceptance_manifest_for_checklist(
+    checklist: &StudioShellHostessStagingAcceptanceChecklistReport,
+    checklist_path: &Path,
+    acceptance_id: Option<&str>,
+    label: Option<&str>,
+) -> StudioShellHostessStagingAcceptanceManifest {
+    let acceptance_id = acceptance_id
+        .map(str::to_string)
+        .unwrap_or_else(|| default_shell_hostess_staging_acceptance_id(checklist));
+    let label = label
+        .map(str::to_string)
+        .unwrap_or_else(|| default_shell_hostess_staging_acceptance_label(checklist));
+
+    StudioShellHostessStagingAcceptanceManifest {
+        schema_id: SHELL_HOSTESS_STAGING_ACCEPTANCE_MANIFEST_SCHEMA.to_string(),
+        acceptance_id,
+        label,
+        checklist_path: checklist_path.display().to_string(),
+        checklist_schema: checklist.schema_id.clone(),
+        envelope_id: checklist.envelope_id.clone(),
+        manifest_id: checklist.manifest_id.clone(),
+        project_id: checklist.project_id.clone(),
+        project_revision: checklist.project_revision,
+        status: checklist.status,
+        issue_code: checklist.issue_code.clone(),
+        execution_policy: checklist.execution_policy.clone(),
+        checklist_owner: checklist.checklist_owner.clone(),
+        handoff_owner: checklist.handoff_owner.clone(),
+        staging_owner: checklist.staging_owner.clone(),
+        command_session_authority: checklist.command_session_authority.clone(),
+        install_launch_evidence_authority: checklist.install_launch_evidence_authority.clone(),
+        studio_role: checklist.studio_role.clone(),
+        request_count: checklist.request_count,
+        ready_request_count: checklist.ready_request_count,
+        blocked_request_count: checklist.blocked_request_count,
+        instruction_count: checklist.instruction_count,
+        ready_instruction_count: checklist.ready_instruction_count,
+        blocked_instruction_count: checklist.blocked_instruction_count,
+        checksum_algorithm: checklist.checksum_algorithm.clone(),
+        plan_checksum: checklist.plan_checksum.clone(),
+        ready_item_count: checklist.ready_item_count,
+        blocked_item_count: checklist.blocked_item_count,
+        rejected_item_count: checklist.rejected_item_count,
+        prohibited_actions: checklist.prohibited_actions.clone(),
+    }
+}
+
+pub fn shell_hostess_staging_acceptance_index_for_manifests(
+    acceptances: Vec<(StudioShellHostessStagingAcceptanceManifest, Option<PathBuf>)>,
+    default_acceptance_id: Option<&str>,
+) -> StudioShellHostessStagingAcceptanceIndex {
+    let entries = acceptances
+        .into_iter()
+        .map(|(acceptance, acceptance_manifest_path)| {
+            shell_hostess_staging_acceptance_index_entry_for_manifest(
+                acceptance,
+                acceptance_manifest_path,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    shell_hostess_staging_acceptance_index_for_entries(entries, default_acceptance_id)
+}
+
+pub fn append_shell_hostess_staging_acceptance_index_manifests(
+    index: &StudioShellHostessStagingAcceptanceIndex,
+    acceptances: Vec<(StudioShellHostessStagingAcceptanceManifest, Option<PathBuf>)>,
+    default_acceptance_id: Option<&str>,
+) -> StudioShellHostessStagingAcceptanceIndex {
+    let entries = index
+        .entries
+        .iter()
+        .cloned()
+        .chain(
+            acceptances
+                .into_iter()
+                .map(|(acceptance, acceptance_manifest_path)| {
+                    shell_hostess_staging_acceptance_index_entry_for_manifest(
+                        acceptance,
+                        acceptance_manifest_path,
+                    )
+                }),
+        )
+        .collect::<Vec<_>>();
+    let default_acceptance_id = default_acceptance_id.or(index.default_acceptance_id.as_deref());
+
+    shell_hostess_staging_acceptance_index_for_entries(entries, default_acceptance_id)
+}
+
+pub fn promote_shell_hostess_staging_acceptance_index_default(
+    index: &StudioShellHostessStagingAcceptanceIndex,
+    acceptance_id: &str,
+) -> Option<StudioShellHostessStagingAcceptanceIndex> {
+    index
+        .entries
+        .iter()
+        .any(|entry| entry.acceptance_id == acceptance_id)
+        .then(|| {
+            shell_hostess_staging_acceptance_index_for_entries(
+                index.entries.clone(),
+                Some(acceptance_id),
+            )
+        })
+}
+
+fn shell_hostess_staging_acceptance_index_entry_for_manifest(
+    acceptance: StudioShellHostessStagingAcceptanceManifest,
+    acceptance_manifest_path: Option<PathBuf>,
+) -> StudioShellHostessStagingAcceptanceIndexEntry {
+    StudioShellHostessStagingAcceptanceIndexEntry {
+        acceptance_id: acceptance.acceptance_id,
+        label: acceptance.label,
+        acceptance_manifest_path: acceptance_manifest_path.map(|path| path.display().to_string()),
+        checklist_path: acceptance.checklist_path,
+        checklist_schema: acceptance.checklist_schema,
+        envelope_id: acceptance.envelope_id,
+        manifest_id: acceptance.manifest_id,
+        project_id: acceptance.project_id,
+        project_revision: acceptance.project_revision,
+        status: acceptance.status,
+        issue_code: acceptance.issue_code,
+        execution_policy: acceptance.execution_policy,
+        checklist_owner: acceptance.checklist_owner,
+        handoff_owner: acceptance.handoff_owner,
+        staging_owner: acceptance.staging_owner,
+        command_session_authority: acceptance.command_session_authority,
+        install_launch_evidence_authority: acceptance.install_launch_evidence_authority,
+        studio_role: acceptance.studio_role,
+        request_count: acceptance.request_count,
+        ready_request_count: acceptance.ready_request_count,
+        blocked_request_count: acceptance.blocked_request_count,
+        instruction_count: acceptance.instruction_count,
+        ready_instruction_count: acceptance.ready_instruction_count,
+        blocked_instruction_count: acceptance.blocked_instruction_count,
+        checksum_algorithm: acceptance.checksum_algorithm,
+        plan_checksum: acceptance.plan_checksum,
+        ready_item_count: acceptance.ready_item_count,
+        blocked_item_count: acceptance.blocked_item_count,
+        rejected_item_count: acceptance.rejected_item_count,
+    }
+}
+
+fn shell_hostess_staging_acceptance_index_for_entries(
+    entries: Vec<StudioShellHostessStagingAcceptanceIndexEntry>,
+    default_acceptance_id: Option<&str>,
+) -> StudioShellHostessStagingAcceptanceIndex {
+    let mut by_id = BTreeMap::new();
+    for entry in entries {
+        by_id.insert(entry.acceptance_id.clone(), entry);
+    }
+
+    let entries = by_id.into_values().collect::<Vec<_>>();
+    let default_acceptance_id = default_acceptance_id
+        .filter(|acceptance_id| {
+            entries
+                .iter()
+                .any(|entry| entry.acceptance_id == *acceptance_id)
+        })
+        .map(str::to_string)
+        .or_else(|| entries.first().map(|entry| entry.acceptance_id.clone()));
+
+    StudioShellHostessStagingAcceptanceIndex {
+        schema_id: SHELL_HOSTESS_STAGING_ACCEPTANCE_INDEX_SCHEMA.to_string(),
+        project_ids: unique_strings(entries.iter().filter_map(|entry| entry.project_id.clone())),
+        envelope_ids: unique_strings(entries.iter().map(|entry| entry.envelope_id.clone())),
+        manifest_ids: unique_strings(entries.iter().filter_map(|entry| entry.manifest_id.clone())),
+        default_acceptance_id,
+        acceptance_count: entries.len(),
+        ready_acceptance_count: entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellHostessStagingAcceptanceStatus::Ready)
+            .count(),
+        blocked_acceptance_count: entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellHostessStagingAcceptanceStatus::Blocked)
+            .count(),
+        rejected_acceptance_count: entries
+            .iter()
+            .filter(|entry| entry.status == StudioShellHostessStagingAcceptanceStatus::Rejected)
+            .count(),
+        entries,
+    }
+}
+
+pub fn select_shell_hostess_staging_acceptance_index_entry<'a>(
+    index: &'a StudioShellHostessStagingAcceptanceIndex,
+    acceptance_id: Option<&str>,
+) -> Option<&'a StudioShellHostessStagingAcceptanceIndexEntry> {
+    let selected_id = acceptance_id.or(index.default_acceptance_id.as_deref());
+    selected_id
+        .and_then(|selected_id| {
+            index
+                .entries
+                .iter()
+                .find(|entry| entry.acceptance_id == selected_id)
+        })
+        .or_else(|| {
+            acceptance_id
+                .is_none()
+                .then(|| index.entries.first())
+                .flatten()
+        })
+}
+
+pub fn summarize_shell_hostess_staging_acceptance_index_selection(
+    index: &StudioShellHostessStagingAcceptanceIndex,
+    index_path: Option<&Path>,
+    requested_acceptance_id: Option<&str>,
+) -> StudioShellHostessStagingAcceptanceSelectionReport {
+    let selected_entry =
+        select_shell_hostess_staging_acceptance_index_entry(index, requested_acceptance_id);
+    let selected_acceptance_id = selected_entry.map(|entry| entry.acceptance_id.clone());
+    let status = if index.entries.is_empty() {
+        StudioShellHostessStagingAcceptanceSelectionStatus::Empty
+    } else if selected_entry.is_some() {
+        StudioShellHostessStagingAcceptanceSelectionStatus::Selected
+    } else {
+        StudioShellHostessStagingAcceptanceSelectionStatus::Missing
+    };
+    let issue_code = match status {
+        StudioShellHostessStagingAcceptanceSelectionStatus::Selected => None,
+        StudioShellHostessStagingAcceptanceSelectionStatus::Missing => {
+            Some("studio.issue.shell_hostess_staging_acceptance_not_found".to_string())
+        }
+        StudioShellHostessStagingAcceptanceSelectionStatus::Empty => {
+            Some("studio.issue.shell_hostess_staging_acceptance_index_empty".to_string())
+        }
+    };
+
+    StudioShellHostessStagingAcceptanceSelectionReport {
+        schema_id: SHELL_HOSTESS_STAGING_ACCEPTANCE_SELECTION_SCHEMA.to_string(),
+        source_index_schema: index.schema_id.clone(),
+        index_path: index_path.map(|path| path.display().to_string()),
+        requested_acceptance_id: requested_acceptance_id.map(str::to_string),
+        default_acceptance_id: index.default_acceptance_id.clone(),
+        selected_acceptance_id: selected_acceptance_id.clone(),
+        status,
+        issue_code,
+        acceptance_count: index.acceptance_count,
+        ready_acceptance_count: index.ready_acceptance_count,
+        blocked_acceptance_count: index.blocked_acceptance_count,
+        rejected_acceptance_count: index.rejected_acceptance_count,
+        project_ids: index.project_ids.clone(),
+        envelope_ids: index.envelope_ids.clone(),
+        manifest_ids: index.manifest_ids.clone(),
+        entries: index
+            .entries
+            .iter()
+            .map(|entry| StudioShellHostessStagingAcceptanceSelectionEntry {
+                acceptance_id: entry.acceptance_id.clone(),
+                label: entry.label.clone(),
+                selected: selected_acceptance_id.as_deref() == Some(entry.acceptance_id.as_str()),
+                default: index.default_acceptance_id.as_deref()
+                    == Some(entry.acceptance_id.as_str()),
+                acceptance_manifest_path: entry.acceptance_manifest_path.clone(),
+                checklist_path: entry.checklist_path.clone(),
+                envelope_id: entry.envelope_id.clone(),
+                project_id: entry.project_id.clone(),
+                project_revision: entry.project_revision,
+                status: entry.status,
+                issue_code: entry.issue_code.clone(),
+                ready_item_count: entry.ready_item_count,
+                blocked_item_count: entry.blocked_item_count,
+                rejected_item_count: entry.rejected_item_count,
+                request_count: entry.request_count,
+                instruction_count: entry.instruction_count,
+            })
+            .collect(),
+    }
+}
+
+fn default_shell_hostess_staging_acceptance_id(
+    checklist: &StudioShellHostessStagingAcceptanceChecklistReport,
+) -> String {
+    format!(
+        "studio.hostess_staging_acceptance.{}.rev{}.{}",
+        checklist.project_id.as_deref().unwrap_or("unknown_project"),
+        checklist
+            .project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        shell_hostess_staging_acceptance_status_key(checklist.status)
+    )
+}
+
+fn default_shell_hostess_staging_acceptance_label(
+    checklist: &StudioShellHostessStagingAcceptanceChecklistReport,
+) -> String {
+    format!(
+        "{} revision {} {} Hostess staging acceptance",
+        checklist.project_id.as_deref().unwrap_or("unknown project"),
+        checklist
+            .project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        shell_hostess_staging_acceptance_status_key(checklist.status)
+    )
+}
+
+fn shell_hostess_staging_acceptance_status_key(
+    status: StudioShellHostessStagingAcceptanceStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessStagingAcceptanceStatus::Ready => "ready",
+        StudioShellHostessStagingAcceptanceStatus::Blocked => "blocked",
+        StudioShellHostessStagingAcceptanceStatus::Rejected => "rejected",
+    }
+}
+
 fn default_shell_release_candidate_review_id(
     review: &StudioShellReleaseCandidateReviewReport,
 ) -> String {
@@ -18150,6 +18528,223 @@ mod tests {
                 && entry.issue_code.as_deref()
                     == Some("studio.issue.shell_export_package_template_load_failed")
         }));
+
+        let ready_acceptance_path = root.join("shell-hostess-staging-acceptance-ready.json");
+        let blocked_acceptance_path = root.join("shell-hostess-staging-acceptance-blocked.json");
+        let ready_manifest_path = root.join("shell-hostess-staging-acceptance-ready-manifest.json");
+        let blocked_manifest_path =
+            root.join("shell-hostess-staging-acceptance-blocked-manifest.json");
+        let ready_acceptance = shell_hostess_staging_acceptance_manifest_for_checklist(
+            &staging_acceptance,
+            &ready_acceptance_path,
+            None,
+            None,
+        );
+        let blocked_acceptance_manifest = shell_hostess_staging_acceptance_manifest_for_checklist(
+            &blocked_acceptance,
+            &blocked_acceptance_path,
+            Some("synthetic-blocked-hostess-acceptance"),
+            Some("Synthetic blocked Hostess staging acceptance"),
+        );
+
+        assert_eq!(
+            ready_acceptance.schema_id,
+            SHELL_HOSTESS_STAGING_ACCEPTANCE_MANIFEST_SCHEMA
+        );
+        assert_eq!(
+            ready_acceptance.acceptance_id,
+            "studio.hostess_staging_acceptance.studio.project.test.rev1.ready"
+        );
+        assert_eq!(
+            ready_acceptance.label,
+            "studio.project.test revision 1 ready Hostess staging acceptance"
+        );
+        assert_eq!(
+            ready_acceptance.checklist_path,
+            ready_acceptance_path.display().to_string()
+        );
+        assert_eq!(
+            ready_acceptance.checklist_schema,
+            SHELL_HOSTESS_STAGING_ACCEPTANCE_CHECKLIST_SCHEMA
+        );
+        assert_eq!(
+            ready_acceptance.envelope_id,
+            "studio.hostess_staging_handoff.studio.project.test.rev1"
+        );
+        assert_eq!(
+            ready_acceptance.status,
+            StudioShellHostessStagingAcceptanceStatus::Ready
+        );
+        assert_eq!(ready_acceptance.ready_item_count, 6);
+        assert_eq!(ready_acceptance.blocked_item_count, 0);
+        assert_eq!(
+            ready_acceptance.request_count,
+            staging_acceptance.request_count
+        );
+        assert_eq!(
+            ready_acceptance.execution_policy,
+            "not_executed.acceptance_check_only"
+        );
+        assert_eq!(
+            ready_acceptance.command_session_authority.as_deref(),
+            Some("rusty.manifold")
+        );
+        assert_eq!(
+            ready_acceptance
+                .install_launch_evidence_authority
+                .as_deref(),
+            Some("rusty.hostess")
+        );
+        assert_eq!(
+            ready_acceptance.plan_checksum,
+            staging_acceptance.plan_checksum
+        );
+        assert_eq!(
+            blocked_acceptance_manifest.acceptance_id,
+            "synthetic-blocked-hostess-acceptance"
+        );
+        assert_eq!(
+            blocked_acceptance_manifest.status,
+            StudioShellHostessStagingAcceptanceStatus::Blocked
+        );
+        assert_eq!(blocked_acceptance_manifest.ready_item_count, 0);
+        assert_eq!(blocked_acceptance_manifest.blocked_item_count, 6);
+
+        let index = shell_hostess_staging_acceptance_index_for_manifests(
+            vec![
+                (ready_acceptance.clone(), Some(ready_manifest_path.clone())),
+                (
+                    blocked_acceptance_manifest.clone(),
+                    Some(blocked_manifest_path.clone()),
+                ),
+            ],
+            Some("studio.hostess_staging_acceptance.studio.project.test.rev1.ready"),
+        );
+
+        assert_eq!(
+            index.schema_id,
+            SHELL_HOSTESS_STAGING_ACCEPTANCE_INDEX_SCHEMA
+        );
+        assert_eq!(index.project_ids, vec!["studio.project.test"]);
+        assert_eq!(
+            index.envelope_ids,
+            vec!["studio.hostess_staging_handoff.studio.project.test.rev1"]
+        );
+        assert_eq!(
+            index.default_acceptance_id.as_deref(),
+            Some("studio.hostess_staging_acceptance.studio.project.test.rev1.ready")
+        );
+        assert_eq!(index.acceptance_count, 2);
+        assert_eq!(index.ready_acceptance_count, 1);
+        assert_eq!(index.blocked_acceptance_count, 1);
+        assert_eq!(index.rejected_acceptance_count, 0);
+        assert_eq!(index.entries.len(), 2);
+        assert_eq!(
+            index.entries[0].acceptance_id,
+            "studio.hostess_staging_acceptance.studio.project.test.rev1.ready"
+        );
+        assert_eq!(index.entries[0].ready_item_count, 6);
+        assert_eq!(
+            index.entries[0].acceptance_manifest_path.as_deref(),
+            Some(ready_manifest_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            index.entries[1].acceptance_id,
+            "synthetic-blocked-hostess-acceptance"
+        );
+        assert_eq!(index.entries[1].blocked_item_count, 6);
+        assert_eq!(
+            select_shell_hostess_staging_acceptance_index_entry(&index, None)
+                .map(|entry| entry.acceptance_id.as_str()),
+            Some("studio.hostess_staging_acceptance.studio.project.test.rev1.ready")
+        );
+        assert_eq!(
+            select_shell_hostess_staging_acceptance_index_entry(
+                &index,
+                Some("synthetic-blocked-hostess-acceptance")
+            )
+            .map(|entry| entry.status),
+            Some(StudioShellHostessStagingAcceptanceStatus::Blocked)
+        );
+        assert!(
+            select_shell_hostess_staging_acceptance_index_entry(&index, Some("missing")).is_none()
+        );
+
+        let selection = summarize_shell_hostess_staging_acceptance_index_selection(
+            &index,
+            Some(&root.join("shell-hostess-staging-acceptances.json")),
+            None,
+        );
+        assert_eq!(
+            selection.schema_id,
+            SHELL_HOSTESS_STAGING_ACCEPTANCE_SELECTION_SCHEMA
+        );
+        assert_eq!(
+            selection.source_index_schema,
+            SHELL_HOSTESS_STAGING_ACCEPTANCE_INDEX_SCHEMA
+        );
+        assert_eq!(
+            selection.status,
+            StudioShellHostessStagingAcceptanceSelectionStatus::Selected
+        );
+        assert_eq!(
+            selection.selected_acceptance_id.as_deref(),
+            Some("studio.hostess_staging_acceptance.studio.project.test.rev1.ready")
+        );
+        assert_eq!(selection.acceptance_count, 2);
+        assert!(selection.entries.iter().any(|entry| entry.acceptance_id
+            == "studio.hostess_staging_acceptance.studio.project.test.rev1.ready"
+            && entry.selected
+            && entry.default
+            && entry.ready_item_count == 6));
+        let missing_selection = summarize_shell_hostess_staging_acceptance_index_selection(
+            &index,
+            None,
+            Some("missing"),
+        );
+        assert_eq!(
+            missing_selection.status,
+            StudioShellHostessStagingAcceptanceSelectionStatus::Missing
+        );
+        assert_eq!(
+            missing_selection.issue_code.as_deref(),
+            Some("studio.issue.shell_hostess_staging_acceptance_not_found")
+        );
+        let empty_index = shell_hostess_staging_acceptance_index_for_manifests(Vec::new(), None);
+        let empty_selection =
+            summarize_shell_hostess_staging_acceptance_index_selection(&empty_index, None, None);
+        assert_eq!(
+            empty_selection.status,
+            StudioShellHostessStagingAcceptanceSelectionStatus::Empty
+        );
+
+        let appended = append_shell_hostess_staging_acceptance_index_manifests(
+            &shell_hostess_staging_acceptance_index_for_manifests(
+                vec![(ready_acceptance, Some(ready_manifest_path.clone()))],
+                None,
+            ),
+            vec![(
+                blocked_acceptance_manifest,
+                Some(blocked_manifest_path.clone()),
+            )],
+            Some("synthetic-blocked-hostess-acceptance"),
+        );
+        assert_eq!(
+            appended.default_acceptance_id.as_deref(),
+            Some("synthetic-blocked-hostess-acceptance")
+        );
+        let promoted = promote_shell_hostess_staging_acceptance_index_default(
+            &appended,
+            "studio.hostess_staging_acceptance.studio.project.test.rev1.ready",
+        )
+        .expect("promote ready Hostess staging acceptance");
+        assert_eq!(
+            promoted.default_acceptance_id.as_deref(),
+            Some("studio.hostess_staging_acceptance.studio.project.test.rev1.ready")
+        );
+        assert!(
+            promote_shell_hostess_staging_acceptance_index_default(&appended, "missing").is_none()
+        );
     }
 
     #[test]

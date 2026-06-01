@@ -70,6 +70,12 @@ pub const SHELL_HOSTESS_STAGING_HANDOFF_ENVELOPE_SCHEMA: &str =
     "rusty.studio.shell_hostess_staging_handoff_envelope.v1";
 pub const SHELL_HOSTESS_STAGING_ACCEPTANCE_CHECKLIST_SCHEMA: &str =
     "rusty.studio.shell_hostess_staging_acceptance_checklist.v1";
+pub const SHELL_HOSTESS_STAGING_ACCEPTANCE_MANIFEST_SCHEMA: &str =
+    "rusty.studio.shell_hostess_staging_acceptance_manifest.v1";
+pub const SHELL_HOSTESS_STAGING_ACCEPTANCE_INDEX_SCHEMA: &str =
+    "rusty.studio.shell_hostess_staging_acceptance_index.v1";
+pub const SHELL_HOSTESS_STAGING_ACCEPTANCE_SELECTION_SCHEMA: &str =
+    "rusty.studio.shell_hostess_staging_acceptance_selection.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -1985,6 +1991,138 @@ pub struct StudioShellHostessStagingAcceptanceChecklistEntry {
     pub next_required_action: String,
     pub prohibited_in_studio: bool,
     pub expected_input_path: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingAcceptanceManifest {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub acceptance_id: String,
+    pub label: String,
+    pub checklist_path: String,
+    pub checklist_schema: String,
+    pub envelope_id: String,
+    pub manifest_id: Option<String>,
+    pub project_id: Option<String>,
+    pub project_revision: Option<u64>,
+    pub status: StudioShellHostessStagingAcceptanceStatus,
+    pub issue_code: Option<String>,
+    pub execution_policy: String,
+    pub checklist_owner: String,
+    pub handoff_owner: String,
+    pub staging_owner: String,
+    pub command_session_authority: Option<String>,
+    pub install_launch_evidence_authority: Option<String>,
+    pub studio_role: Option<String>,
+    pub request_count: usize,
+    pub ready_request_count: usize,
+    pub blocked_request_count: usize,
+    pub instruction_count: usize,
+    pub ready_instruction_count: usize,
+    pub blocked_instruction_count: usize,
+    pub checksum_algorithm: String,
+    pub plan_checksum: String,
+    pub ready_item_count: usize,
+    pub blocked_item_count: usize,
+    pub rejected_item_count: usize,
+    pub prohibited_actions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingAcceptanceIndex {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub project_ids: Vec<String>,
+    pub envelope_ids: Vec<String>,
+    pub manifest_ids: Vec<String>,
+    pub default_acceptance_id: Option<String>,
+    pub acceptance_count: usize,
+    pub ready_acceptance_count: usize,
+    pub blocked_acceptance_count: usize,
+    pub rejected_acceptance_count: usize,
+    pub entries: Vec<StudioShellHostessStagingAcceptanceIndexEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingAcceptanceIndexEntry {
+    pub acceptance_id: String,
+    pub label: String,
+    pub acceptance_manifest_path: Option<String>,
+    pub checklist_path: String,
+    pub checklist_schema: String,
+    pub envelope_id: String,
+    pub manifest_id: Option<String>,
+    pub project_id: Option<String>,
+    pub project_revision: Option<u64>,
+    pub status: StudioShellHostessStagingAcceptanceStatus,
+    pub issue_code: Option<String>,
+    pub execution_policy: String,
+    pub checklist_owner: String,
+    pub handoff_owner: String,
+    pub staging_owner: String,
+    pub command_session_authority: Option<String>,
+    pub install_launch_evidence_authority: Option<String>,
+    pub studio_role: Option<String>,
+    pub request_count: usize,
+    pub ready_request_count: usize,
+    pub blocked_request_count: usize,
+    pub instruction_count: usize,
+    pub ready_instruction_count: usize,
+    pub blocked_instruction_count: usize,
+    pub checksum_algorithm: String,
+    pub plan_checksum: String,
+    pub ready_item_count: usize,
+    pub blocked_item_count: usize,
+    pub rejected_item_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingAcceptanceSelectionReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub source_index_schema: String,
+    pub index_path: Option<String>,
+    pub requested_acceptance_id: Option<String>,
+    pub default_acceptance_id: Option<String>,
+    pub selected_acceptance_id: Option<String>,
+    pub status: StudioShellHostessStagingAcceptanceSelectionStatus,
+    pub issue_code: Option<String>,
+    pub acceptance_count: usize,
+    pub ready_acceptance_count: usize,
+    pub blocked_acceptance_count: usize,
+    pub rejected_acceptance_count: usize,
+    pub project_ids: Vec<String>,
+    pub envelope_ids: Vec<String>,
+    pub manifest_ids: Vec<String>,
+    pub entries: Vec<StudioShellHostessStagingAcceptanceSelectionEntry>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessStagingAcceptanceSelectionStatus {
+    Selected,
+    Missing,
+    Empty,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessStagingAcceptanceSelectionEntry {
+    pub acceptance_id: String,
+    pub label: String,
+    pub selected: bool,
+    pub default: bool,
+    pub acceptance_manifest_path: Option<String>,
+    pub checklist_path: String,
+    pub envelope_id: String,
+    pub project_id: Option<String>,
+    pub project_revision: Option<u64>,
+    pub status: StudioShellHostessStagingAcceptanceStatus,
+    pub issue_code: Option<String>,
+    pub ready_item_count: usize,
+    pub blocked_item_count: usize,
+    pub rejected_item_count: usize,
+    pub request_count: usize,
+    pub instruction_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

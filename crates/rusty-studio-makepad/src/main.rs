@@ -5,6 +5,7 @@ use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
     add_next_catalog_module_to_graph, append_shell_export_package_baseline_index_manifests,
     append_shell_handoff_acceptance_baseline_index_manifests,
+    append_shell_hostess_staging_acceptance_index_manifests,
     append_shell_release_candidate_review_index_manifests,
     compare_shell_export_packages_against_baseline_index_entry,
     compare_shell_handoff_acceptance_against_baseline_index_entry, load_project,
@@ -12,11 +13,13 @@ use rusty_studio_core::{
     load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
     load_shell_handoff_manifest, load_shell_hostess_handoff_package_report,
-    load_shell_hostess_owner_intake_report, load_shell_hostess_staging_file_plan,
+    load_shell_hostess_owner_intake_report, load_shell_hostess_staging_acceptance_index,
+    load_shell_hostess_staging_acceptance_manifest, load_shell_hostess_staging_file_plan,
     load_shell_hostess_staging_handoff_envelope, load_shell_hostess_staging_preview_manifest,
     load_shell_release_candidate_review_index, load_shell_release_candidate_review_manifest,
     promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default,
+    promote_shell_hostess_staging_acceptance_index_default,
     promote_shell_release_candidate_review_index_default, remove_binding_from_graph,
     remove_module_from_graph, retarget_graph_host_profile, save_json, save_project,
     save_shell_bundle, select_shell_export_package_baseline_index_entry,
@@ -30,6 +33,8 @@ use rusty_studio_core::{
     shell_hostess_handoff_package_for_release_candidate_index,
     shell_hostess_owner_intake_for_handoff_package,
     shell_hostess_staging_acceptance_checklist_for_handoff,
+    shell_hostess_staging_acceptance_index_for_manifests,
+    shell_hostess_staging_acceptance_manifest_for_checklist,
     shell_hostess_staging_file_plan_for_preview,
     shell_hostess_staging_handoff_envelope_for_file_plan,
     shell_hostess_staging_preview_for_owner_intake, shell_release_candidate_review_for_manifest,
@@ -37,6 +42,7 @@ use rusty_studio_core::{
     shell_release_candidate_review_manifest_for_report, shell_runbook_for_project,
     summarize_shell_export_package_baseline_index_selection,
     summarize_shell_handoff_acceptance_baseline_index_selection,
+    summarize_shell_hostess_staging_acceptance_index_selection,
     summarize_shell_release_candidate_review_index_selection, validate_selected_shell_bundle,
     view_model_for_graph, view_model_for_graph_issue_node_and_edge,
 };
@@ -58,7 +64,10 @@ use rusty_studio_model::{
     StudioShellHostessHandoffPackageActionStatus, StudioShellHostessHandoffPackageReport,
     StudioShellHostessHandoffPackageStatus, StudioShellHostessOwnerIntakeAssignmentStatus,
     StudioShellHostessOwnerIntakeReport, StudioShellHostessOwnerIntakeStatus,
-    StudioShellHostessStagingAcceptanceChecklistReport, StudioShellHostessStagingAcceptanceStatus,
+    StudioShellHostessStagingAcceptanceChecklistReport, StudioShellHostessStagingAcceptanceIndex,
+    StudioShellHostessStagingAcceptanceManifest,
+    StudioShellHostessStagingAcceptanceSelectionReport,
+    StudioShellHostessStagingAcceptanceSelectionStatus, StudioShellHostessStagingAcceptanceStatus,
     StudioShellHostessStagingFilePlan, StudioShellHostessStagingFilePlanStatus,
     StudioShellHostessStagingFileRequestStatus, StudioShellHostessStagingHandoffEnvelope,
     StudioShellHostessStagingHandoffEnvelopeStatus,
@@ -261,6 +270,10 @@ script_mod! {
             shell_hostess_staging_file_plan_button := ActionButton{text: "Plan Staging Files"}
             shell_hostess_staging_handoff_button := ActionButton{text: "Prepare Hostess Handoff"}
             shell_hostess_staging_acceptance_button := ActionButton{text: "Check Hostess Handoff"}
+            shell_hostess_staging_acceptance_append_button := ActionButton{text: "Archive Hostess Check"}
+            shell_hostess_staging_acceptance_summary_button := ActionButton{text: "Inspect Hostess Checks"}
+            shell_hostess_staging_acceptance_next_button := ActionButton{text: "Next Hostess Check"}
+            shell_hostess_staging_acceptance_promote_button := ActionButton{text: "Promote Hostess Check"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1842,6 +1855,102 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn append_shell_hostess_staging_acceptance(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match append_shell_hostess_staging_acceptance_for_project_source(&source) {
+            Ok((acceptance, index, acceptance_path, index_path)) => {
+                self.last_shell_bundle_status = shell_hostess_staging_acceptance_append_status(
+                    &acceptance,
+                    &index,
+                    &acceptance_path,
+                    &index_path,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn inspect_shell_hostess_staging_acceptance(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_hostess_staging_acceptance_summary_for_project_source(&source) {
+            Ok((acceptance, index, acceptance_path, index_path)) => {
+                self.last_shell_bundle_status = shell_hostess_staging_acceptance_summary_status(
+                    &acceptance,
+                    &index,
+                    &acceptance_path,
+                    &index_path,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn select_next_shell_hostess_staging_acceptance_default(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match select_next_shell_hostess_staging_acceptance_default_for_project_source(&source) {
+            Ok((acceptance, index, acceptance_path, index_path)) => {
+                self.last_shell_bundle_status = shell_hostess_staging_acceptance_select_status(
+                    &acceptance,
+                    &index,
+                    &acceptance_path,
+                    &index_path,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
+    fn promote_shell_hostess_staging_acceptance_default(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match promote_shell_hostess_staging_acceptance_default_for_project_source(&source) {
+            Ok((acceptance, index, acceptance_path, index_path)) => {
+                self.last_shell_bundle_status = shell_hostess_staging_acceptance_promote_status(
+                    &acceptance,
+                    &index,
+                    &acceptance_path,
+                    &index_path,
+                );
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -2652,6 +2761,34 @@ impl MatchEvent for App {
             .clicked(actions)
         {
             self.review_shell_hostess_staging_acceptance(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_staging_acceptance_append_button))
+            .clicked(actions)
+        {
+            self.append_shell_hostess_staging_acceptance(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_staging_acceptance_summary_button))
+            .clicked(actions)
+        {
+            self.inspect_shell_hostess_staging_acceptance(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_staging_acceptance_next_button))
+            .clicked(actions)
+        {
+            self.select_next_shell_hostess_staging_acceptance_default(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_staging_acceptance_promote_button))
+            .clicked(actions)
+        {
+            self.promote_shell_hostess_staging_acceptance_default(cx);
         }
         if self
             .ui
@@ -3830,6 +3967,254 @@ fn shell_hostess_staging_acceptance_for_project_source(
     Ok((report, output_path))
 }
 
+fn append_shell_hostess_staging_acceptance_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellHostessStagingAcceptanceManifest,
+        StudioShellHostessStagingAcceptanceIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let (checklist, _) = shell_hostess_staging_acceptance_for_project_source(project_path)?;
+    let index_path = shell_hostess_staging_acceptance_index_output_path(project_path);
+    let existing_index = if index_path.is_file() {
+        Some(
+            load_shell_hostess_staging_acceptance_index(&index_path).map_err(|error| {
+                format!("Shell Hostess staging acceptance index load failed: {error}")
+            })?,
+        )
+    } else {
+        None
+    };
+    let (acceptance_id, label) =
+        next_shell_hostess_staging_acceptance_archive_identity(&checklist, existing_index.as_ref());
+    let checklist_path = shell_hostess_staging_acceptance_archive_checklist_output_path(
+        project_path,
+        &acceptance_id,
+    );
+    save_json(&checklist_path, &checklist).map_err(|error| {
+        format!("Shell Hostess staging acceptance checklist archive save failed: {error}")
+    })?;
+    let acceptance = shell_hostess_staging_acceptance_manifest_for_checklist(
+        &checklist,
+        &checklist_path,
+        Some(&acceptance_id),
+        Some(&label),
+    );
+    let acceptance_path =
+        shell_hostess_staging_acceptance_archive_manifest_output_path(project_path, &acceptance_id);
+    save_json(&acceptance_path, &acceptance).map_err(|error| {
+        format!("Shell Hostess staging acceptance identity save failed: {error}")
+    })?;
+    save_json(
+        &shell_hostess_staging_acceptance_manifest_output_path(project_path),
+        &acceptance,
+    )
+    .map_err(|error| {
+        format!("Shell Hostess staging acceptance current identity save failed: {error}")
+    })?;
+    let index = if let Some(index) = existing_index.as_ref() {
+        append_shell_hostess_staging_acceptance_index_manifests(
+            index,
+            vec![(acceptance.clone(), Some(acceptance_path.clone()))],
+            Some(&acceptance.acceptance_id),
+        )
+    } else {
+        shell_hostess_staging_acceptance_index_for_manifests(
+            vec![(acceptance.clone(), Some(acceptance_path.clone()))],
+            Some(&acceptance.acceptance_id),
+        )
+    };
+    save_json(&index_path, &index)
+        .map_err(|error| format!("Shell Hostess staging acceptance index save failed: {error}"))?;
+    Ok((acceptance, index, acceptance_path, index_path))
+}
+
+fn next_shell_hostess_staging_acceptance_archive_identity(
+    checklist: &StudioShellHostessStagingAcceptanceChecklistReport,
+    index: Option<&StudioShellHostessStagingAcceptanceIndex>,
+) -> (String, String) {
+    let status = shell_hostess_staging_acceptance_status_label(checklist.status);
+    let project_id = checklist.project_id.as_deref().unwrap_or("unknown_project");
+    let revision = checklist
+        .project_revision
+        .map(|revision| revision.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let base_id = format!("studio.hostess_staging_acceptance.{project_id}.rev{revision}.{status}");
+    let next_slot = index
+        .map(|index| {
+            index
+                .entries
+                .iter()
+                .filter(|entry| {
+                    entry.acceptance_id == base_id
+                        || entry
+                            .acceptance_id
+                            .strip_prefix(base_id.as_str())
+                            .is_some_and(|suffix| suffix.starts_with(".archive"))
+                })
+                .count()
+                + 1
+        })
+        .unwrap_or(1);
+    let acceptance_id = if next_slot == 1 {
+        base_id
+    } else {
+        format!("{base_id}.archive{next_slot}")
+    };
+    let label = if next_slot == 1 {
+        format!("{project_id} revision {revision} {status} Hostess staging acceptance")
+    } else {
+        format!(
+            "{project_id} revision {revision} {status} Hostess staging acceptance archive {next_slot}"
+        )
+    };
+    (acceptance_id, label)
+}
+
+fn shell_hostess_staging_acceptance_summary_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellHostessStagingAcceptanceManifest,
+        StudioShellHostessStagingAcceptanceIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let index_path = shell_hostess_staging_acceptance_index_output_path(project_path);
+    let index = load_shell_hostess_staging_acceptance_index(&index_path)
+        .map_err(|error| format!("Shell Hostess staging acceptance index load failed: {error}"))?;
+    let acceptance_id = index
+        .default_acceptance_id
+        .as_deref()
+        .ok_or_else(|| "Shell Hostess staging acceptance index has no default entry".to_string())?;
+    let acceptance_path = index
+        .entries
+        .iter()
+        .find(|entry| entry.acceptance_id == acceptance_id)
+        .and_then(|entry| entry.acceptance_manifest_path.as_ref())
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            format!(
+                "Shell Hostess staging acceptance index entry {acceptance_id} does not include a manifest path"
+            )
+        })?;
+    let acceptance =
+        load_shell_hostess_staging_acceptance_manifest(&acceptance_path).map_err(|error| {
+            format!("Shell Hostess staging acceptance identity load failed: {error}")
+        })?;
+    Ok((acceptance, index, acceptance_path, index_path))
+}
+
+fn promote_shell_hostess_staging_acceptance_default_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellHostessStagingAcceptanceManifest,
+        StudioShellHostessStagingAcceptanceIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let acceptance_path = shell_hostess_staging_acceptance_manifest_output_path(project_path);
+    let acceptance =
+        load_shell_hostess_staging_acceptance_manifest(&acceptance_path).map_err(|error| {
+            format!("Shell Hostess staging acceptance identity load failed: {error}")
+        })?;
+    let index_path = shell_hostess_staging_acceptance_index_output_path(project_path);
+    let index = load_shell_hostess_staging_acceptance_index(&index_path)
+        .map_err(|error| format!("Shell Hostess staging acceptance index load failed: {error}"))?;
+    let promoted =
+        promote_shell_hostess_staging_acceptance_index_default(&index, &acceptance.acceptance_id)
+            .ok_or_else(|| {
+            format!(
+                "Shell Hostess staging acceptance index does not contain acceptance {}",
+                acceptance.acceptance_id
+            )
+        })?;
+    save_json(&index_path, &promoted)
+        .map_err(|error| format!("Shell Hostess staging acceptance index save failed: {error}"))?;
+    Ok((acceptance, promoted, acceptance_path, index_path))
+}
+
+fn select_next_shell_hostess_staging_acceptance_default_for_project_source(
+    project_path: &Path,
+) -> Result<
+    (
+        StudioShellHostessStagingAcceptanceManifest,
+        StudioShellHostessStagingAcceptanceIndex,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
+    let index_path = shell_hostess_staging_acceptance_index_output_path(project_path);
+    let index = load_shell_hostess_staging_acceptance_index(&index_path)
+        .map_err(|error| format!("Shell Hostess staging acceptance index load failed: {error}"))?;
+    let acceptance_id = next_shell_hostess_staging_acceptance_default_id(&index)?;
+    let archive_path = index
+        .entries
+        .iter()
+        .find(|entry| entry.acceptance_id == acceptance_id)
+        .and_then(|entry| entry.acceptance_manifest_path.as_ref())
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            format!(
+                "Shell Hostess staging acceptance index entry {acceptance_id} does not include a manifest path"
+            )
+        })?;
+    let acceptance =
+        load_shell_hostess_staging_acceptance_manifest(&archive_path).map_err(|error| {
+            format!("Shell Hostess staging acceptance identity load failed: {error}")
+        })?;
+    let promoted =
+        promote_shell_hostess_staging_acceptance_index_default(&index, &acceptance.acceptance_id)
+            .ok_or_else(|| {
+            format!(
+                "Shell Hostess staging acceptance index does not contain acceptance {}",
+                acceptance.acceptance_id
+            )
+        })?;
+    save_json(&index_path, &promoted)
+        .map_err(|error| format!("Shell Hostess staging acceptance index save failed: {error}"))?;
+    let current_path = shell_hostess_staging_acceptance_manifest_output_path(project_path);
+    save_json(&current_path, &acceptance).map_err(|error| {
+        format!("Shell Hostess staging acceptance current identity save failed: {error}")
+    })?;
+    Ok((acceptance, promoted, current_path, index_path))
+}
+
+fn next_shell_hostess_staging_acceptance_default_id(
+    index: &StudioShellHostessStagingAcceptanceIndex,
+) -> Result<String, String> {
+    if index.entries.is_empty() {
+        return Err("Shell Hostess staging acceptance index has no selectable entries".to_string());
+    }
+    let default_position = index
+        .default_acceptance_id
+        .as_deref()
+        .and_then(|default_id| {
+            index
+                .entries
+                .iter()
+                .position(|entry| entry.acceptance_id == default_id)
+        });
+    let selected_position = default_position.map_or(0, |position| {
+        if position + 1 >= index.entries.len() {
+            0
+        } else {
+            position + 1
+        }
+    });
+    Ok(index.entries[selected_position].acceptance_id.clone())
+}
+
 fn retarget_project_source(
     project_path: &Path,
     model: &StudioViewModel,
@@ -4239,6 +4624,49 @@ fn shell_hostess_staging_acceptance_output_path(project_path: &Path) -> PathBuf 
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-hostess-staging-acceptance-checklist.json")
+}
+
+fn shell_hostess_staging_acceptance_manifest_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-hostess-staging-acceptance-manifest.json")
+}
+
+fn shell_hostess_staging_acceptance_archive_dir(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("hostess-staging-acceptances")
+}
+
+fn shell_hostess_staging_acceptance_archive_checklist_output_path(
+    project_path: &Path,
+    acceptance_id: &str,
+) -> PathBuf {
+    shell_hostess_staging_acceptance_archive_dir(project_path)
+        .join(format!("{acceptance_id}.checklist.json"))
+}
+
+fn shell_hostess_staging_acceptance_archive_manifest_output_path(
+    project_path: &Path,
+    acceptance_id: &str,
+) -> PathBuf {
+    shell_hostess_staging_acceptance_archive_dir(project_path)
+        .join(format!("{acceptance_id}.acceptance.json"))
+}
+
+fn shell_hostess_staging_acceptance_index_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-hostess-staging-acceptances.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -6931,6 +7359,232 @@ fn shell_hostess_staging_acceptance_status(
     )
 }
 
+fn shell_hostess_staging_acceptance_append_status(
+    acceptance: &StudioShellHostessStagingAcceptanceManifest,
+    index: &StudioShellHostessStagingAcceptanceIndex,
+    acceptance_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection = summarize_shell_hostess_staging_acceptance_index_selection(
+        index,
+        Some(index_path),
+        Some(&acceptance.acceptance_id),
+    );
+    format!(
+        "Hostess staging acceptance archived\n  acceptance: {} ({})\n  identity: {}\n  checklist: {}\n{}\n{}",
+        acceptance.acceptance_id,
+        acceptance.label,
+        acceptance_path.display(),
+        acceptance.checklist_path,
+        shell_hostess_staging_acceptance_selection_status(&selection),
+        shell_hostess_staging_acceptance_index_status(index, index_path)
+    )
+}
+
+fn shell_hostess_staging_acceptance_summary_status(
+    acceptance: &StudioShellHostessStagingAcceptanceManifest,
+    index: &StudioShellHostessStagingAcceptanceIndex,
+    acceptance_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection =
+        summarize_shell_hostess_staging_acceptance_index_selection(index, Some(index_path), None);
+    let status = shell_hostess_staging_acceptance_status_label(acceptance.status);
+    let issue = acceptance.issue_code.as_deref().unwrap_or("none");
+    format!(
+        "Hostess staging acceptance summary {status}; acceptance {} ({}); project {} rev {}; envelope {}; issue {issue}\n  identity: {}\n  checklist: {}\n  items ready {}; blocked {}; rejected {}; requests {}; instructions {}\n  authority: command {}; host {}; studio {}; policy {}; checklist owner {}; handoff owner {}; staging owner {}\n{}\n{}",
+        acceptance.acceptance_id,
+        acceptance.label,
+        acceptance.project_id.as_deref().unwrap_or("unknown"),
+        acceptance
+            .project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        acceptance.envelope_id,
+        acceptance_path.display(),
+        acceptance.checklist_path,
+        acceptance.ready_item_count,
+        acceptance.blocked_item_count,
+        acceptance.rejected_item_count,
+        acceptance.request_count,
+        acceptance.instruction_count,
+        acceptance
+            .command_session_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        acceptance
+            .install_launch_evidence_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        acceptance.studio_role.as_deref().unwrap_or("unknown"),
+        acceptance.execution_policy,
+        acceptance.checklist_owner,
+        acceptance.handoff_owner,
+        acceptance.staging_owner,
+        shell_hostess_staging_acceptance_selection_status(&selection),
+        shell_hostess_staging_acceptance_index_status(index, index_path)
+    )
+}
+
+fn shell_hostess_staging_acceptance_promote_status(
+    acceptance: &StudioShellHostessStagingAcceptanceManifest,
+    index: &StudioShellHostessStagingAcceptanceIndex,
+    acceptance_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection = summarize_shell_hostess_staging_acceptance_index_selection(
+        index,
+        Some(index_path),
+        Some(&acceptance.acceptance_id),
+    );
+    format!(
+        "Hostess staging acceptance default promoted\n  acceptance: {} ({})\n  identity: {}\n{}\n{}",
+        acceptance.acceptance_id,
+        acceptance.label,
+        acceptance_path.display(),
+        shell_hostess_staging_acceptance_selection_status(&selection),
+        shell_hostess_staging_acceptance_index_status(index, index_path)
+    )
+}
+
+fn shell_hostess_staging_acceptance_select_status(
+    acceptance: &StudioShellHostessStagingAcceptanceManifest,
+    index: &StudioShellHostessStagingAcceptanceIndex,
+    acceptance_path: &Path,
+    index_path: &Path,
+) -> String {
+    let selection = summarize_shell_hostess_staging_acceptance_index_selection(
+        index,
+        Some(index_path),
+        Some(&acceptance.acceptance_id),
+    );
+    format!(
+        "Hostess staging acceptance default selected\n  acceptance: {} ({})\n  identity: {}\n{}\n{}",
+        acceptance.acceptance_id,
+        acceptance.label,
+        acceptance_path.display(),
+        shell_hostess_staging_acceptance_selection_status(&selection),
+        shell_hostess_staging_acceptance_index_status(index, index_path)
+    )
+}
+
+fn shell_hostess_staging_acceptance_index_status(
+    index: &StudioShellHostessStagingAcceptanceIndex,
+    index_path: &Path,
+) -> String {
+    let default = index.default_acceptance_id.as_deref().unwrap_or("none");
+    let projects = if index.project_ids.is_empty() {
+        "none".to_string()
+    } else {
+        index.project_ids.join(", ")
+    };
+    let envelopes = if index.envelope_ids.is_empty() {
+        "none".to_string()
+    } else {
+        index.envelope_ids.join(", ")
+    };
+    let rows = index
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let status = shell_hostess_staging_acceptance_status_label(entry.status);
+            let issue = entry.issue_code.as_deref().unwrap_or("none");
+            let manifest_path = entry
+                .acceptance_manifest_path
+                .as_deref()
+                .unwrap_or("unknown");
+            format!(
+                "{} [{}] project {} rev {}; envelope {}; items ready {}; blocked {}; rejected {}; manifest {}; issue {}",
+                entry.acceptance_id,
+                status,
+                entry.project_id.as_deref().unwrap_or("unknown"),
+                entry
+                    .project_revision
+                    .map(|revision| revision.to_string())
+                    .unwrap_or_else(|| "unknown".to_string()),
+                entry.envelope_id,
+                entry.ready_item_count,
+                entry.blocked_item_count,
+                entry.rejected_item_count,
+                manifest_path,
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "Hostess staging acceptance index slots {}; default {}; ready {}; blocked {}; rejected {}\n  index: {}\n  projects: {}\n  envelopes: {}\n  entries:\n  {}",
+        index.acceptance_count,
+        default,
+        index.ready_acceptance_count,
+        index.blocked_acceptance_count,
+        index.rejected_acceptance_count,
+        index_path.display(),
+        projects,
+        envelopes,
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
+fn shell_hostess_staging_acceptance_selection_status(
+    report: &StudioShellHostessStagingAcceptanceSelectionReport,
+) -> String {
+    let status = shell_hostess_staging_acceptance_selection_status_label(report.status);
+    let requested = report.requested_acceptance_id.as_deref().unwrap_or("none");
+    let default = report.default_acceptance_id.as_deref().unwrap_or("none");
+    let selected = report.selected_acceptance_id.as_deref().unwrap_or("none");
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let index_path = report.index_path.as_deref().unwrap_or("not saved");
+    let rows = report
+        .entries
+        .iter()
+        .take(6)
+        .map(|entry| {
+            let entry_status = shell_hostess_staging_acceptance_status_label(entry.status);
+            let entry_issue = entry.issue_code.as_deref().unwrap_or("none");
+            let manifest_path = entry
+                .acceptance_manifest_path
+                .as_deref()
+                .unwrap_or("unknown");
+            let selected_flag = if entry.selected { "yes" } else { "no" };
+            let default_flag = if entry.default { "yes" } else { "no" };
+            format!(
+                "{} [{}] selected {}; default {}; items ready {}; blocked {}; rejected {}; manifest {}; issue {}",
+                entry.acceptance_id,
+                entry_status,
+                selected_flag,
+                default_flag,
+                entry.ready_item_count,
+                entry.blocked_item_count,
+                entry.rejected_item_count,
+                manifest_path,
+                entry_issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        "Hostess staging acceptance selection {status}; requested {requested}; default {default}; selected {selected}; slots {}; ready {}; blocked {}; rejected {}; issue {issue}\n  index: {}\n  entries:\n  {}",
+        report.acceptance_count,
+        report.ready_acceptance_count,
+        report.blocked_acceptance_count,
+        report.rejected_acceptance_count,
+        index_path,
+        if rows.is_empty() {
+            "none".to_string()
+        } else {
+            rows
+        }
+    )
+}
+
 fn shell_release_candidate_review_manifest_summary_status(
     candidate: &StudioShellReleaseCandidateReviewManifest,
     index: &StudioShellReleaseCandidateReviewIndex,
@@ -7139,6 +7793,16 @@ fn shell_hostess_staging_acceptance_status_label(
         StudioShellHostessStagingAcceptanceStatus::Ready => "ready",
         StudioShellHostessStagingAcceptanceStatus::Blocked => "blocked",
         StudioShellHostessStagingAcceptanceStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_hostess_staging_acceptance_selection_status_label(
+    status: StudioShellHostessStagingAcceptanceSelectionStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessStagingAcceptanceSelectionStatus::Selected => "selected",
+        StudioShellHostessStagingAcceptanceSelectionStatus::Missing => "missing",
+        StudioShellHostessStagingAcceptanceSelectionStatus::Empty => "empty",
     }
 }
 
@@ -9707,6 +10371,136 @@ mod tests {
         assert!(acceptance_status.contains("not_executed.acceptance_check_only"));
         assert!(acceptance_status.contains("items ready 6; blocked 0; rejected 0"));
         assert!(acceptance_status.contains("hostess.stage.files_from_plan"));
+
+        let (archived_acceptance, archived_index, archived_acceptance_path, index_path) =
+            append_shell_hostess_staging_acceptance_for_project_source(&project_path)
+                .expect("archive shell Hostess staging acceptance");
+        assert!(archived_acceptance_path.is_file());
+        assert!(index_path.is_file());
+        assert_eq!(
+            archived_acceptance.schema_id,
+            "rusty.studio.shell_hostess_staging_acceptance_manifest.v1"
+        );
+        assert_eq!(
+            archived_acceptance.acceptance_id,
+            "studio.hostess_staging_acceptance.studio.project.makepad_edit.rev1.ready"
+        );
+        assert_eq!(
+            archived_acceptance.label,
+            "studio.project.makepad_edit revision 1 ready Hostess staging acceptance"
+        );
+        assert_eq!(
+            archived_acceptance.checklist_schema,
+            "rusty.studio.shell_hostess_staging_acceptance_checklist.v1"
+        );
+        assert_eq!(
+            archived_acceptance.status,
+            StudioShellHostessStagingAcceptanceStatus::Ready
+        );
+        assert_eq!(archived_acceptance.ready_item_count, 6);
+        assert_eq!(archived_acceptance.blocked_item_count, 0);
+        assert_eq!(
+            archived_acceptance.command_session_authority.as_deref(),
+            Some("rusty.manifold")
+        );
+        assert_eq!(
+            archived_acceptance
+                .install_launch_evidence_authority
+                .as_deref(),
+            Some("rusty.hostess")
+        );
+        assert_eq!(
+            archived_index.schema_id,
+            "rusty.studio.shell_hostess_staging_acceptance_index.v1"
+        );
+        assert_eq!(
+            archived_index.default_acceptance_id.as_deref(),
+            Some("studio.hostess_staging_acceptance.studio.project.makepad_edit.rev1.ready")
+        );
+        assert_eq!(archived_index.acceptance_count, 1);
+        assert_eq!(archived_index.ready_acceptance_count, 1);
+        assert_eq!(archived_index.blocked_acceptance_count, 0);
+        assert_eq!(archived_index.entries.len(), 1);
+        assert_eq!(
+            archived_index.entries[0]
+                .acceptance_manifest_path
+                .as_deref(),
+            Some(archived_acceptance_path.display().to_string().as_str())
+        );
+        let loaded_index = load_shell_hostess_staging_acceptance_index(&index_path)
+            .expect("load acceptance index");
+        assert_eq!(loaded_index, archived_index);
+
+        let append_status = shell_hostess_staging_acceptance_append_status(
+            &archived_acceptance,
+            &archived_index,
+            &archived_acceptance_path,
+            &index_path,
+        );
+        assert!(append_status.contains("Hostess staging acceptance archived"));
+        assert!(append_status.contains("Hostess staging acceptance selection selected"));
+        assert!(append_status.contains("Hostess staging acceptance index slots 1"));
+
+        let (second_acceptance, second_index, second_acceptance_path, loaded_index_path) =
+            append_shell_hostess_staging_acceptance_for_project_source(&project_path)
+                .expect("archive second shell Hostess staging acceptance");
+        assert_eq!(loaded_index_path, index_path);
+        assert_eq!(
+            second_acceptance.acceptance_id,
+            "studio.hostess_staging_acceptance.studio.project.makepad_edit.rev1.ready.archive2"
+        );
+        assert!(second_acceptance_path.is_file());
+        assert_eq!(
+            second_index.default_acceptance_id.as_deref(),
+            Some(
+                "studio.hostess_staging_acceptance.studio.project.makepad_edit.rev1.ready.archive2"
+            )
+        );
+        assert_eq!(second_index.acceptance_count, 2);
+        assert_eq!(second_index.ready_acceptance_count, 2);
+
+        let (selected_acceptance, selected_index, selected_acceptance_path, loaded_index_path) =
+            select_next_shell_hostess_staging_acceptance_default_for_project_source(&project_path)
+                .expect("select next shell Hostess staging acceptance");
+        assert_eq!(selected_acceptance, archived_acceptance);
+        assert_eq!(
+            selected_index.default_acceptance_id.as_deref(),
+            Some("studio.hostess_staging_acceptance.studio.project.makepad_edit.rev1.ready")
+        );
+        assert_eq!(
+            selected_acceptance_path,
+            shell_hostess_staging_acceptance_manifest_output_path(&project_path)
+        );
+        let select_status = shell_hostess_staging_acceptance_select_status(
+            &selected_acceptance,
+            &selected_index,
+            &selected_acceptance_path,
+            &loaded_index_path,
+        );
+        assert!(select_status.contains("Hostess staging acceptance default selected"));
+
+        let (summary_acceptance, summary_index, _, _) =
+            shell_hostess_staging_acceptance_summary_for_project_source(&project_path)
+                .expect("summarize shell Hostess staging acceptance index");
+        assert_eq!(summary_acceptance, archived_acceptance);
+        assert_eq!(summary_index, selected_index);
+
+        let (promoted_acceptance, promoted_index, promoted_acceptance_path, loaded_index_path) =
+            promote_shell_hostess_staging_acceptance_default_for_project_source(&project_path)
+                .expect("promote shell Hostess staging acceptance");
+        assert_eq!(promoted_acceptance, archived_acceptance);
+        assert_eq!(promoted_acceptance_path, selected_acceptance_path);
+        assert_eq!(
+            promoted_index.default_acceptance_id.as_deref(),
+            Some("studio.hostess_staging_acceptance.studio.project.makepad_edit.rev1.ready")
+        );
+        let promote_status = shell_hostess_staging_acceptance_promote_status(
+            &promoted_acceptance,
+            &promoted_index,
+            &promoted_acceptance_path,
+            &loaded_index_path,
+        );
+        assert!(promote_status.contains("Hostess staging acceptance default promoted"));
     }
 
     #[test]

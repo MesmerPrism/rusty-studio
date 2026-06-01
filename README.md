@@ -218,6 +218,9 @@ cargo run -p rusty-studio-cli -- shell-hostess-staging-preview --intake target\s
 cargo run -p rusty-studio-cli -- shell-hostess-staging-file-plan --preview target\studio-shell-handoffs\shell-hostess-staging-preview.json --output target\studio-shell-handoffs\shell-hostess-staging-file-plan.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-handoff --file-plan target\studio-shell-handoffs\shell-hostess-staging-file-plan.json --output target\studio-shell-handoffs\shell-hostess-staging-handoff.json
 cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-checklist --handoff target\studio-shell-handoffs\shell-hostess-staging-handoff.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-checklist.json
+cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-manifest --checklist target\studio-shell-handoffs\shell-hostess-staging-acceptance-checklist.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-manifest.json
+cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-index --acceptance-manifest target\studio-shell-handoffs\shell-hostess-staging-acceptance-manifest.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptances.json
+cargo run -p rusty-studio-cli -- shell-hostess-staging-acceptance-selection --acceptance-index target\studio-shell-handoffs\shell-hostess-staging-acceptances.json --output target\studio-shell-handoffs\shell-hostess-staging-acceptance-selection.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -329,3 +332,7 @@ preserving the same handoff-only, not-executed boundary.
 Hostess staging acceptance checklists verify the saved handoff envelope and
 turn it into explicit Hostess/Manifold acceptance rows, but still do not copy
 files, install, launch, open command sessions, or collect evidence.
+Hostess staging acceptance manifests and indexes add named history slots for
+those saved checklists. The CLI and Makepad routes can archive, inspect, select,
+and promote a specific acceptance gate while preserving the same
+acceptance-check-only boundary before any external Hostess staging path runs.
