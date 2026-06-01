@@ -26,8 +26,8 @@ use rusty_studio_core::{
     shell_handoff_acceptance_checklist_for_intake, shell_handoff_acceptance_checklist_for_project,
     shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
-    shell_runbook_for_project, shell_templates_for_artifact_manifest,
-    summarize_shell_export_package_baseline_index_selection,
+    shell_release_candidate_review_for_manifest, shell_runbook_for_project,
+    shell_templates_for_artifact_manifest, summarize_shell_export_package_baseline_index_selection,
     summarize_shell_handoff_acceptance_baseline_index_selection,
     summarize_shell_handoff_acceptance_checklist, validate_project_with_base,
     validate_selected_shell_bundle, validate_shell_artifact_manifest, validate_shell_descriptor,
@@ -92,6 +92,7 @@ enum Command {
     ShellHandoffAcceptanceBaselineIndexPromote(ShellHandoffAcceptanceBaselineIndexPromoteArgs),
     ShellHandoffAcceptanceBaselineSelection(ShellHandoffAcceptanceBaselineSelectionArgs),
     ShellHandoffAcceptanceComparison(ShellHandoffAcceptanceComparisonArgs),
+    ShellReleaseCandidateReview(ShellReleaseCandidateReviewArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -487,6 +488,22 @@ struct ShellHandoffAcceptanceComparisonArgs {
     baseline_id: Option<String>,
     #[arg(long)]
     candidate: PathBuf,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellReleaseCandidateReviewArgs {
+    #[arg(long)]
+    manifest: PathBuf,
+    #[arg(long)]
+    acceptance_baseline_index: PathBuf,
+    #[arg(long)]
+    acceptance_baseline_id: Option<String>,
+    #[arg(long)]
+    export_package_baseline_index: PathBuf,
+    #[arg(long)]
+    export_package_baseline_id: Option<String>,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -1257,6 +1274,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     compare_shell_handoff_acceptance_checklists(&baseline, &candidate)
                 }
             };
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellReleaseCandidateReview(args) => {
+            let manifest = load_shell_handoff_manifest(&args.manifest)?;
+            let acceptance_baseline_index =
+                load_shell_handoff_acceptance_baseline_index(&args.acceptance_baseline_index)?;
+            let export_package_baseline_index =
+                load_shell_export_package_baseline_index(&args.export_package_baseline_index)?;
+            let report = shell_release_candidate_review_for_manifest(
+                &manifest,
+                Some(&args.manifest),
+                &acceptance_baseline_index,
+                Some(&args.acceptance_baseline_index),
+                args.acceptance_baseline_id.as_deref(),
+                &export_package_baseline_index,
+                Some(&args.export_package_baseline_index),
+                args.export_package_baseline_id.as_deref(),
+            );
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }

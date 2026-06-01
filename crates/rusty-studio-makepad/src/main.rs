@@ -10,7 +10,7 @@ use rusty_studio_core::{
     load_shell_export_package_baseline_index, load_shell_export_package_baseline_manifest,
     load_shell_export_package_report, load_shell_handoff_acceptance_baseline_index,
     load_shell_handoff_acceptance_baseline_manifest, load_shell_handoff_acceptance_checklist,
-    promote_shell_export_package_baseline_index_default,
+    load_shell_handoff_manifest, promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default, remove_binding_from_graph,
     remove_module_from_graph, retarget_graph_host_profile, save_json, save_project,
     save_shell_bundle, select_shell_export_package_baseline_index_entry,
@@ -21,7 +21,8 @@ use rusty_studio_core::{
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
-    shell_runbook_for_project, summarize_shell_export_package_baseline_index_selection,
+    shell_release_candidate_review_for_manifest, shell_runbook_for_project,
+    summarize_shell_export_package_baseline_index_selection,
     summarize_shell_handoff_acceptance_baseline_index_selection, validate_selected_shell_bundle,
     view_model_for_graph, view_model_for_graph_issue_node_and_edge,
 };
@@ -39,8 +40,10 @@ use rusty_studio_model::{
     StudioShellHandoffAcceptanceChecklistReport, StudioShellHandoffAcceptanceComparisonChange,
     StudioShellHandoffAcceptanceComparisonReport, StudioShellHandoffAcceptanceComparisonStatus,
     StudioShellHandoffAcceptanceStatus, StudioShellHandoffManifest,
-    StudioShellHandoffReadinessReport, StudioShellHandoffReport, StudioShellRunbookReport,
-    StudioShellRunbookStatus, StudioShellTargetKind, StudioValidationStatus, StudioViewModel,
+    StudioShellHandoffReadinessReport, StudioShellHandoffReport,
+    StudioShellReleaseCandidateReviewReport, StudioShellReleaseCandidateReviewStatus,
+    StudioShellRunbookReport, StudioShellRunbookStatus, StudioShellTargetKind,
+    StudioValidationStatus, StudioViewModel,
 };
 use std::path::{Path, PathBuf};
 
@@ -221,6 +224,7 @@ script_mod! {
             shell_acceptance_baseline_next_button := ActionButton{text: "Next Baseline"}
             shell_acceptance_baseline_promote_button := ActionButton{text: "Promote Baseline"}
             shell_acceptance_compare_button := ActionButton{text: "Compare Acceptance"}
+            shell_release_candidate_button := ActionButton{text: "Review Release Candidate"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1534,6 +1538,26 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn review_shell_release_candidate(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_release_candidate_review_for_project_source(&source) {
+            Ok((report, output_path)) => {
+                self.last_shell_bundle_status =
+                    shell_release_candidate_review_status(&report, &output_path);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -2260,6 +2284,13 @@ impl MatchEvent for App {
             .clicked(actions)
         {
             self.compare_shell_handoff_acceptance(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_release_candidate_button))
+            .clicked(actions)
+        {
+            self.review_shell_release_candidate(cx);
         }
         if self
             .ui
@@ -3064,6 +3095,34 @@ fn shell_handoff_acceptance_comparison_for_project_source(
     Ok((report, baseline_path, bundle_root))
 }
 
+fn shell_release_candidate_review_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellReleaseCandidateReviewReport, PathBuf), String> {
+    let manifest_path = shell_handoff_manifest_output_path(project_path);
+    let manifest = load_shell_handoff_manifest(&manifest_path)
+        .map_err(|error| format!("Shell handoff manifest load failed: {error}"))?;
+    let acceptance_index_path = shell_handoff_acceptance_baseline_index_output_path(project_path);
+    let acceptance_index = load_shell_handoff_acceptance_baseline_index(&acceptance_index_path)
+        .map_err(|error| format!("Baseline acceptance index load failed: {error}"))?;
+    let export_package_index_path = shell_export_package_baseline_index_output_path(project_path);
+    let export_package_index = load_shell_export_package_baseline_index(&export_package_index_path)
+        .map_err(|error| format!("Export package baseline index load failed: {error}"))?;
+    let report = shell_release_candidate_review_for_manifest(
+        &manifest,
+        Some(&manifest_path),
+        &acceptance_index,
+        Some(&acceptance_index_path),
+        None,
+        &export_package_index,
+        Some(&export_package_index_path),
+        None,
+    );
+    let output_path = shell_release_candidate_review_output_path(project_path);
+    save_json(&output_path, &report)
+        .map_err(|error| format!("Shell release candidate review save failed: {error}"))?;
+    Ok((report, output_path))
+}
+
 fn retarget_project_source(
     project_path: &Path,
     model: &StudioViewModel,
@@ -3367,6 +3426,15 @@ fn shell_handoff_acceptance_baseline_index_output_path(project_path: &Path) -> P
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-handoff-acceptance-baselines.json")
+}
+
+fn shell_release_candidate_review_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-release-candidate-review.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -5197,6 +5265,84 @@ fn shell_handoff_acceptance_comparison_status(
             rows
         }
     )
+}
+
+fn shell_release_candidate_review_status(
+    report: &StudioShellReleaseCandidateReviewReport,
+    output_path: &Path,
+) -> String {
+    let status = shell_release_candidate_review_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let handoff_status = validation_status_label(report.handoff_status);
+    let acceptance_selection = shell_handoff_acceptance_baseline_selection_status_label(
+        report.acceptance_baseline_selection.status,
+    );
+    let acceptance_selected = report
+        .acceptance_baseline_selection
+        .selected_baseline_id
+        .as_deref()
+        .unwrap_or("none");
+    let acceptance_comparison = report
+        .acceptance_comparison
+        .as_ref()
+        .map(|comparison| shell_handoff_acceptance_comparison_status_label(comparison.status))
+        .unwrap_or("missing");
+    let export_package_selection = shell_export_package_baseline_selection_status_label(
+        report.export_package_baseline_selection.status,
+    );
+    let export_package_selected = report
+        .export_package_baseline_selection
+        .selected_baseline_id
+        .as_deref()
+        .unwrap_or("none");
+    let export_package_comparison = report
+        .export_package_comparison
+        .as_ref()
+        .map(|comparison| shell_export_package_comparison_status_label(comparison.status))
+        .unwrap_or("missing");
+    let failed_checks = report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .count();
+    let first_issue = report
+        .checks
+        .iter()
+        .find(|check| check.status == StudioValidationStatus::Fail)
+        .and_then(|check| check.issue_code.as_deref())
+        .unwrap_or("none");
+    format!(
+        "shell release candidate review {status}; issue {issue}\n  review: {}\n  manifest: {} rev {}; handoff {handoff_status}; ready {}; failed {}; missing bundles {}\n  acceptance baseline: {acceptance_selection}; selected {acceptance_selected}; comparison {acceptance_comparison}\n  export package baseline: {export_package_selection}; selected {export_package_selected}; comparison {export_package_comparison}\n  authority: command {}; host {}; studio {}; policy {}; owner {}\n  checks: {}; failed {}; first issue {}\n  prohibited: {}",
+        output_path.display(),
+        report.project_id,
+        report.project_revision,
+        report.handoff_ready_count,
+        report.handoff_failed_count,
+        report.handoff_missing_bundle_count,
+        report.command_session_authority,
+        report.install_launch_evidence_authority,
+        report.studio_role,
+        report.execution_policy,
+        report.review_owner,
+        report.checks.len(),
+        failed_checks,
+        first_issue,
+        if report.prohibited_actions.is_empty() {
+            "none".to_string()
+        } else {
+            report.prohibited_actions.join(", ")
+        }
+    )
+}
+
+fn shell_release_candidate_review_status_label(
+    status: StudioShellReleaseCandidateReviewStatus,
+) -> &'static str {
+    match status {
+        StudioShellReleaseCandidateReviewStatus::Ready => "ready",
+        StudioShellReleaseCandidateReviewStatus::Blocked => "blocked",
+        StudioShellReleaseCandidateReviewStatus::Rejected => "rejected",
+    }
 }
 
 fn shell_bundle_status_label(status: StudioShellBundleStatus) -> &'static str {
@@ -7142,6 +7288,83 @@ mod tests {
         assert!(status.contains("blocked 0->1, delta 1"));
         assert!(status.contains("issue studio.issue.shell_bundle_file_missing"));
         assert!(status.contains("change regressed"));
+    }
+
+    #[test]
+    fn shell_release_candidate_review_reports_ready_from_makepad_route() {
+        let root = temp_root("shell-release-candidate-review");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+        write_shell_handoff_manifest_for_project_source(&project_path)
+            .expect("write shell handoff manifest");
+        write_shell_handoff_acceptance_baseline_for_project_source(&project_path)
+            .expect("write acceptance baseline");
+        write_shell_export_package_baseline_for_project_source(&project_path)
+            .expect("write export package baseline");
+
+        let (review, output_path) =
+            shell_release_candidate_review_for_project_source(&project_path)
+                .expect("review shell release candidate");
+
+        assert!(output_path.is_file());
+        assert_eq!(
+            review.schema_id,
+            "rusty.studio.shell_release_candidate_review.v1"
+        );
+        assert_eq!(
+            review.status,
+            StudioShellReleaseCandidateReviewStatus::Ready
+        );
+        assert_eq!(review.issue_code, None);
+        assert_eq!(review.execution_policy, "not_executed.review_only");
+        assert_eq!(review.review_owner, "rusty.hostess");
+        assert_eq!(review.command_session_authority, "rusty.manifold");
+        assert_eq!(review.install_launch_evidence_authority, "rusty.hostess");
+        assert_eq!(review.studio_role, "authoring.export_planning");
+        assert_eq!(review.handoff_status, StudioValidationStatus::Pass);
+        assert_eq!(review.handoff_ready_count, 1);
+        assert_eq!(review.handoff_failed_count, 0);
+        assert_eq!(review.handoff_missing_bundle_count, 0);
+        assert_eq!(
+            review.acceptance_baseline_selection.status,
+            StudioShellHandoffAcceptanceBaselineSelectionStatus::Selected
+        );
+        assert_eq!(
+            review
+                .acceptance_comparison
+                .as_ref()
+                .map(|comparison| comparison.status),
+            Some(StudioShellHandoffAcceptanceComparisonStatus::Unchanged)
+        );
+        assert_eq!(
+            review.export_package_baseline_selection.status,
+            StudioShellExportPackageBaselineSelectionStatus::Selected
+        );
+        assert_eq!(
+            review
+                .export_package_comparison
+                .as_ref()
+                .map(|comparison| comparison.status),
+            Some(StudioShellExportPackageComparisonStatus::Unchanged)
+        );
+        assert!(review
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+
+        let status = shell_release_candidate_review_status(&review, &output_path);
+        assert!(status.contains("shell release candidate review ready"));
+        assert!(status.contains("acceptance baseline: selected"));
+        assert!(status.contains("comparison unchanged"));
+        assert!(status.contains("export package baseline: selected"));
+        assert!(status.contains("checks:"));
+        assert!(status.contains("failed 0"));
+        assert!(status.contains("not_executed.review_only"));
     }
 
     #[test]

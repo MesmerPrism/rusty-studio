@@ -51,6 +51,8 @@ pub const SHELL_HANDOFF_ACCEPTANCE_BASELINE_SELECTION_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_baseline_selection.v1";
 pub const SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA: &str =
     "rusty.studio.shell_handoff_acceptance_comparison.v1";
+pub const SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA: &str =
+    "rusty.studio.shell_release_candidate_review.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -1353,6 +1355,42 @@ pub enum StudioShellHandoffAcceptanceComparisonChange {
     Unchanged,
     Regressed,
     Changed,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellReleaseCandidateReviewReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub source_manifest_schema: String,
+    pub manifest_path: Option<String>,
+    pub manifest_id: String,
+    pub project_id: String,
+    pub project_revision: u64,
+    pub status: StudioShellReleaseCandidateReviewStatus,
+    pub issue_code: Option<String>,
+    pub execution_policy: String,
+    pub review_owner: String,
+    pub command_session_authority: String,
+    pub install_launch_evidence_authority: String,
+    pub studio_role: String,
+    pub handoff_status: StudioValidationStatus,
+    pub handoff_ready_count: usize,
+    pub handoff_failed_count: usize,
+    pub handoff_missing_bundle_count: usize,
+    pub acceptance_baseline_selection: StudioShellHandoffAcceptanceBaselineSelectionReport,
+    pub acceptance_comparison: Option<StudioShellHandoffAcceptanceComparisonReport>,
+    pub export_package_baseline_selection: StudioShellExportPackageBaselineSelectionReport,
+    pub export_package_comparison: Option<StudioShellExportPackageComparisonReport>,
+    pub checks: Vec<StudioValidationCheck>,
+    pub prohibited_actions: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellReleaseCandidateReviewStatus {
+    Ready,
+    Blocked,
+    Rejected,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

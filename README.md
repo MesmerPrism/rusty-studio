@@ -115,6 +115,11 @@ Current scope:
   downstream handoff readiness;
 - surface acceptance comparison in Makepad as a read-only revision review of a
   persisted baseline checklist against current generated handoff readiness;
+- write and review a schema-only shell release-candidate artifact that ties a
+  saved handoff manifest to acceptance baseline selection, export-package
+  baseline selection, and both comparison statuses;
+- expose the release-candidate review from Makepad through the same shared
+  core route without adding runtime execution authority;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -180,6 +185,7 @@ cargo run -p rusty-studio-cli -- shell-handoff-acceptance-baseline-index --basel
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-baseline-selection --baseline-index target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json --baseline-id synthetic-ready --output target\studio-shell-handoffs\shell-handoff-acceptance-baseline-selection.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-baseline-index-promote --baseline-index target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json --baseline-id synthetic-ready --output target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json
 cargo run -p rusty-studio-cli -- shell-handoff-acceptance-comparison --baseline-index target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json --baseline-id synthetic-ready --candidate target\studio-shell-handoffs\shell-handoff-acceptance-checklist.json --output target\studio-shell-handoffs\shell-handoff-acceptance-comparison.json
+cargo run -p rusty-studio-cli -- shell-release-candidate-review --manifest target\studio-shell-handoffs\shell-handoffs.json --acceptance-baseline-index target\studio-shell-handoffs\shell-handoff-acceptance-baselines.json --acceptance-baseline-id synthetic-ready --export-package-baseline-index target\studio-shell-handoffs\shell-export-package-baselines.json --export-package-baseline-id synthetic-ready-package --output target\studio-shell-handoffs\shell-release-candidate-review.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -247,4 +253,10 @@ Acceptance comparison reports carry that baseline identity when a baseline
 manifest is supplied, but they remain revision-review artifacts only: they
 compare checklist readiness and issue transitions without granting runtime
 authority. Makepad can render the same comparison without becoming the source
-of truth.
+of truth. Shell release-candidate reviews compose those existing artifacts into
+one schema-only gate: they load a saved handoff manifest, select acceptance and
+export-package baselines from their indexes, compare the current generated
+state against both selected baselines, and block on missing or regressed
+evidence. Makepad can write the same release-candidate review artifact, but the
+artifact remains review-only and does not stage, install, launch, open command
+sessions, or collect evidence.
