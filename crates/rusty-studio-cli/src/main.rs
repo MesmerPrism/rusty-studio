@@ -30,6 +30,7 @@ use rusty_studio_core::{
     shell_handoff_acceptance_checklist_for_intake, shell_handoff_acceptance_checklist_for_project,
     shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
+    shell_hostess_handoff_package_for_release_candidate_index,
     shell_release_candidate_review_for_manifest,
     shell_release_candidate_review_index_for_manifests,
     shell_release_candidate_review_manifest_for_report, shell_runbook_for_project,
@@ -105,6 +106,7 @@ enum Command {
     ShellReleaseCandidateReviewIndexAppend(ShellReleaseCandidateReviewIndexAppendArgs),
     ShellReleaseCandidateReviewIndexPromote(ShellReleaseCandidateReviewIndexPromoteArgs),
     ShellReleaseCandidateReviewSelection(ShellReleaseCandidateReviewSelectionArgs),
+    ShellHostessHandoffPackage(ShellHostessHandoffPackageArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -566,6 +568,16 @@ struct ShellReleaseCandidateReviewIndexPromoteArgs {
 
 #[derive(Debug, Parser)]
 struct ShellReleaseCandidateReviewSelectionArgs {
+    #[arg(long)]
+    review_index: PathBuf,
+    #[arg(long)]
+    candidate_id: Option<String>,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ShellHostessHandoffPackageArgs {
     #[arg(long)]
     review_index: PathBuf,
     #[arg(long)]
@@ -1441,6 +1453,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::ShellReleaseCandidateReviewSelection(args) => {
             let index = load_shell_release_candidate_review_index(&args.review_index)?;
             let report = summarize_shell_release_candidate_review_index_selection(
+                &index,
+                Some(&args.review_index),
+                args.candidate_id.as_deref(),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::ShellHostessHandoffPackage(args) => {
+            let index = load_shell_release_candidate_review_index(&args.review_index)?;
+            let report = shell_hostess_handoff_package_for_release_candidate_index(
                 &index,
                 Some(&args.review_index),
                 args.candidate_id.as_deref(),

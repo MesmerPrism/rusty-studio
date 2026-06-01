@@ -32,6 +32,8 @@ use rusty_studio_model::{
     StudioShellHandoffManifestValidationReport, StudioShellHandoffReadinessEntry,
     StudioShellHandoffReadinessReport, StudioShellHandoffReadinessTargetSummary,
     StudioShellHandoffReport, StudioShellHostProfile, StudioShellHostRoutes,
+    StudioShellHostessHandoffPackageAction, StudioShellHostessHandoffPackageActionStatus,
+    StudioShellHostessHandoffPackageReport, StudioShellHostessHandoffPackageStatus,
     StudioShellReleaseCandidateReviewIndex, StudioShellReleaseCandidateReviewIndexEntry,
     StudioShellReleaseCandidateReviewManifest, StudioShellReleaseCandidateReviewReport,
     StudioShellReleaseCandidateReviewSelectionEntry,
@@ -56,12 +58,12 @@ use rusty_studio_model::{
     SHELL_HANDOFF_ACCEPTANCE_COMPARISON_SCHEMA, SHELL_HANDOFF_ACCEPTANCE_SUMMARY_SCHEMA,
     SHELL_HANDOFF_INTAKE_REPORT_SCHEMA, SHELL_HANDOFF_MANIFEST_SCHEMA,
     SHELL_HANDOFF_MANIFEST_VALIDATION_REPORT_SCHEMA, SHELL_HANDOFF_READINESS_REPORT_SCHEMA,
-    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA,
-    SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA,
-    SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA, SHELL_RUNBOOK_REPORT_SCHEMA,
-    SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA,
-    SHELL_TEMPLATE_MANIFEST_SCHEMA, SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA,
-    VIEW_MODEL_SCHEMA,
+    SHELL_HANDOFF_REPORT_SCHEMA, SHELL_HOSTESS_HANDOFF_PACKAGE_SCHEMA,
+    SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA,
+    SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA, SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA,
+    SHELL_RUNBOOK_REPORT_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA,
+    SHELL_TEMPLATE_INDEX_VALIDATION_REPORT_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
+    SHELL_TEMPLATE_REPORT_SCHEMA, VALIDATION_REPORT_SCHEMA, VIEW_MODEL_SCHEMA,
 };
 use rusty_studio_model::{
     StudioCatalogPackageView, StudioEdgeInspectorView, StudioEdgeLayoutView, StudioEdgeView,
@@ -8438,6 +8440,512 @@ pub fn summarize_shell_release_candidate_review_index_selection(
     }
 }
 
+pub fn shell_hostess_handoff_package_for_release_candidate_index(
+    index: &StudioShellReleaseCandidateReviewIndex,
+    index_path: Option<&Path>,
+    requested_candidate_id: Option<&str>,
+) -> StudioShellHostessHandoffPackageReport {
+    let selection = summarize_shell_release_candidate_review_index_selection(
+        index,
+        index_path,
+        requested_candidate_id,
+    );
+    let selected_entry =
+        select_shell_release_candidate_review_index_entry(index, requested_candidate_id);
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.source_index_schema",
+        index.schema_id == SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA,
+        "source release-candidate review index schema is supported",
+        "source release-candidate review index schema is unsupported",
+        "studio.issue.shell_release_candidate_review_index_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.candidate_selected",
+        selection.status == StudioShellReleaseCandidateReviewSelectionStatus::Selected,
+        "release-candidate review index selected a candidate",
+        "release-candidate review index did not select a candidate",
+        selection
+            .issue_code
+            .as_deref()
+            .unwrap_or("studio.issue.shell_release_candidate_review_not_selected"),
+    );
+
+    let candidate_manifest_path = selected_entry
+        .and_then(|entry| entry.candidate_manifest_path.as_ref())
+        .map(PathBuf::from);
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.candidate_manifest_path",
+        candidate_manifest_path.is_some(),
+        "selected candidate has an identity manifest path",
+        "selected candidate does not include an identity manifest path",
+        "studio.issue.shell_hostess_handoff_candidate_manifest_missing",
+    );
+
+    let candidate_manifest = candidate_manifest_path.as_ref().and_then(|path| {
+        match load_shell_release_candidate_review_manifest(path) {
+            Ok(candidate) => Some(candidate),
+            Err(error) => {
+                checks.push(failed_hostess_handoff_package_check(
+                    "studio.check.shell_hostess_handoff_package.candidate_manifest_load",
+                    error.to_string(),
+                    "studio.issue.shell_hostess_handoff_candidate_manifest_load_failed",
+                ));
+                None
+            }
+        }
+    });
+
+    let candidate_manifest_schema = candidate_manifest
+        .as_ref()
+        .map(|candidate| candidate.schema_id.clone());
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.candidate_manifest_schema",
+        candidate_manifest.as_ref().is_some_and(|candidate| {
+            candidate.schema_id == SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA
+        }),
+        "selected candidate identity manifest schema is supported",
+        "selected candidate identity manifest schema is unsupported or unavailable",
+        "studio.issue.shell_release_candidate_review_manifest_schema",
+    );
+    let candidate_id_matches_index = selected_entry
+        .zip(candidate_manifest.as_ref())
+        .is_some_and(|(entry, candidate)| entry.candidate_id == candidate.candidate_id);
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.candidate_identity_matches_index",
+        candidate_id_matches_index,
+        "selected candidate identity matches the index entry",
+        "selected candidate identity does not match the index entry",
+        "studio.issue.shell_hostess_handoff_candidate_identity_mismatch",
+    );
+
+    let review_path = candidate_manifest
+        .as_ref()
+        .map(|candidate| PathBuf::from(&candidate.review_path))
+        .or_else(|| selected_entry.map(|entry| PathBuf::from(&entry.review_path)));
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.review_path",
+        review_path.is_some(),
+        "selected candidate names a release-candidate review artifact",
+        "selected candidate does not name a release-candidate review artifact",
+        "studio.issue.shell_hostess_handoff_review_missing",
+    );
+
+    let review = review_path.as_ref().and_then(|path| {
+        match load_shell_release_candidate_review_report(path) {
+            Ok(review) => Some(review),
+            Err(error) => {
+                checks.push(failed_hostess_handoff_package_check(
+                    "studio.check.shell_hostess_handoff_package.review_load",
+                    error.to_string(),
+                    "studio.issue.shell_hostess_handoff_review_load_failed",
+                ));
+                None
+            }
+        }
+    });
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.review_schema",
+        review
+            .as_ref()
+            .is_some_and(|review| review.schema_id == SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA),
+        "selected review artifact schema is supported",
+        "selected review artifact schema is unsupported or unavailable",
+        "studio.issue.shell_release_candidate_review_schema",
+    );
+    let review_matches_candidate = candidate_manifest
+        .as_ref()
+        .zip(review_path.as_ref())
+        .is_some_and(|(candidate, review_path)| {
+            candidate.review_path == review_path.display().to_string()
+        });
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.review_matches_candidate",
+        review_matches_candidate,
+        "selected review artifact path matches the candidate identity",
+        "selected review artifact path does not match the candidate identity",
+        "studio.issue.shell_hostess_handoff_review_identity_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.review_ready",
+        review
+            .as_ref()
+            .is_some_and(|review| review.status == StudioShellReleaseCandidateReviewStatus::Ready),
+        "selected release candidate is ready for Hostess handoff",
+        "selected release candidate is not ready for Hostess handoff",
+        review
+            .as_ref()
+            .and_then(|review| review.issue_code.as_deref())
+            .unwrap_or("studio.issue.shell_hostess_handoff_release_candidate_blocked"),
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.handoff_manifest_path",
+        review
+            .as_ref()
+            .and_then(|review| review.manifest_path.as_ref())
+            .is_some(),
+        "selected review names a saved handoff manifest",
+        "selected review does not name a saved handoff manifest",
+        "studio.issue.shell_hostess_handoff_manifest_path_missing",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.handoff_ready",
+        review.as_ref().is_some_and(|review| {
+            review.handoff_status == StudioValidationStatus::Pass
+                && review.handoff_failed_count == 0
+                && review.handoff_missing_bundle_count == 0
+        }),
+        "handoff manifest is ready with no failed or missing bundles",
+        "handoff manifest has failed or missing bundles",
+        "studio.issue.shell_release_candidate_handoff_blocked",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.runtime_command_authority",
+        review
+            .as_ref()
+            .is_some_and(|review| review.command_session_authority == "rusty.manifold"),
+        "Manifold remains command/session authority",
+        "command/session authority must remain rusty.manifold",
+        "studio.issue.runtime_authority_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.runtime_host_authority",
+        review
+            .as_ref()
+            .is_some_and(|review| review.install_launch_evidence_authority == "rusty.hostess"),
+        "Hostess remains install/launch/evidence authority",
+        "install/launch/evidence authority must remain rusty.hostess",
+        "studio.issue.runtime_authority_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.studio_role",
+        review
+            .as_ref()
+            .is_some_and(|review| review.studio_role == "authoring.export_planning"),
+        "Studio remains authoring/export-planning authority",
+        "Studio role must remain authoring.export_planning",
+        "studio.issue.studio_role_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.acceptance_baseline_selected",
+        review.as_ref().is_some_and(|review| {
+            review.acceptance_baseline_selection.status
+                == StudioShellHandoffAcceptanceBaselineSelectionStatus::Selected
+        }),
+        "acceptance baseline selection is present",
+        "acceptance baseline selection is missing",
+        "studio.issue.shell_release_candidate_acceptance_baseline_not_selected",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.acceptance_comparison_ready",
+        review.as_ref().is_some_and(|review| {
+            review
+                .acceptance_comparison
+                .as_ref()
+                .is_some_and(|comparison| {
+                    matches!(
+                        comparison.status,
+                        StudioShellHandoffAcceptanceComparisonStatus::Improved
+                            | StudioShellHandoffAcceptanceComparisonStatus::Unchanged
+                    )
+                })
+        }),
+        "acceptance comparison is unchanged or improved",
+        "acceptance comparison is missing, regressed, or incomparable",
+        review
+            .as_ref()
+            .and_then(|review| review.acceptance_comparison.as_ref())
+            .and_then(|comparison| comparison.issue_code.as_deref())
+            .unwrap_or("studio.issue.shell_release_candidate_acceptance_comparison_blocked"),
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.export_package_baseline_selected",
+        review.as_ref().is_some_and(|review| {
+            review.export_package_baseline_selection.status
+                == StudioShellExportPackageBaselineSelectionStatus::Selected
+        }),
+        "export-package baseline selection is present",
+        "export-package baseline selection is missing",
+        "studio.issue.shell_release_candidate_export_package_baseline_not_selected",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_handoff_package.export_package_comparison_ready",
+        review.as_ref().is_some_and(|review| {
+            review
+                .export_package_comparison
+                .as_ref()
+                .is_some_and(|comparison| {
+                    matches!(
+                        comparison.status,
+                        StudioShellExportPackageComparisonStatus::Improved
+                            | StudioShellExportPackageComparisonStatus::Unchanged
+                    )
+                })
+        }),
+        "export-package comparison is unchanged or improved",
+        "export-package comparison is missing, regressed, or incomparable",
+        review
+            .as_ref()
+            .and_then(|review| review.export_package_comparison.as_ref())
+            .and_then(|comparison| comparison.issue_code.as_deref())
+            .unwrap_or("studio.issue.shell_release_candidate_export_package_comparison_blocked"),
+    );
+
+    let prohibited_actions = shell_hostess_handoff_package_prohibited_actions(review.as_ref());
+    for action in [
+        "stage_generated_shells",
+        "install",
+        "launch",
+        "open_command_session",
+        "collect_device_evidence",
+        "collect_install_launch_evidence",
+    ] {
+        push_check(
+            &mut checks,
+            &format!("studio.check.shell_hostess_handoff_package.prohibits_{action}"),
+            prohibited_actions
+                .iter()
+                .any(|candidate| candidate == action),
+            "handoff package explicitly prohibits this Studio action",
+            "handoff package does not explicitly prohibit this Studio action",
+            "studio.issue.shell_hostess_handoff_prohibited_action_missing",
+        );
+    }
+
+    let has_failed_check = checks
+        .iter()
+        .any(|check| check.status == StudioValidationStatus::Fail);
+    let has_rejected_check = checks.iter().any(|check| {
+        check.status == StudioValidationStatus::Fail
+            && matches!(
+                check.issue_code.as_deref(),
+                Some("studio.issue.shell_release_candidate_review_index_schema")
+                    | Some("studio.issue.shell_release_candidate_review_manifest_schema")
+                    | Some("studio.issue.shell_release_candidate_review_schema")
+            )
+    });
+    let status = if has_rejected_check {
+        StudioShellHostessHandoffPackageStatus::Rejected
+    } else if has_failed_check {
+        StudioShellHostessHandoffPackageStatus::Blocked
+    } else {
+        StudioShellHostessHandoffPackageStatus::Ready
+    };
+    let issue_code = match status {
+        StudioShellHostessHandoffPackageStatus::Ready => None,
+        StudioShellHostessHandoffPackageStatus::Blocked
+        | StudioShellHostessHandoffPackageStatus::Rejected => {
+            first_failed_validation_check_issue_code(&checks)
+        }
+    };
+    let required_owner_actions =
+        shell_hostess_handoff_package_owner_actions(status, issue_code.as_deref());
+
+    StudioShellHostessHandoffPackageReport {
+        schema_id: SHELL_HOSTESS_HANDOFF_PACKAGE_SCHEMA.to_string(),
+        source_index_schema: index.schema_id.clone(),
+        index_path: index_path.map(|path| path.display().to_string()),
+        requested_candidate_id: requested_candidate_id.map(str::to_string),
+        default_candidate_id: index.default_candidate_id.clone(),
+        selected_candidate_id: selection.selected_candidate_id.clone(),
+        selection_status: selection.status,
+        selection_issue_code: selection.issue_code,
+        candidate_manifest_schema,
+        candidate_manifest_path: candidate_manifest_path.map(|path| path.display().to_string()),
+        candidate_id: candidate_manifest
+            .as_ref()
+            .map(|candidate| candidate.candidate_id.clone())
+            .or_else(|| selected_entry.map(|entry| entry.candidate_id.clone())),
+        candidate_label: candidate_manifest
+            .as_ref()
+            .map(|candidate| candidate.label.clone())
+            .or_else(|| selected_entry.map(|entry| entry.label.clone())),
+        review_schema: review
+            .as_ref()
+            .map(|review| review.schema_id.clone())
+            .or_else(|| selected_entry.map(|entry| entry.review_schema.clone())),
+        review_path: review_path.map(|path| path.display().to_string()),
+        handoff_manifest_schema: review
+            .as_ref()
+            .map(|review| review.source_manifest_schema.clone()),
+        handoff_manifest_path: review
+            .as_ref()
+            .and_then(|review| review.manifest_path.clone()),
+        manifest_id: review
+            .as_ref()
+            .map(|review| review.manifest_id.clone())
+            .or_else(|| selected_entry.map(|entry| entry.manifest_id.clone())),
+        project_id: review
+            .as_ref()
+            .map(|review| review.project_id.clone())
+            .or_else(|| selected_entry.map(|entry| entry.project_id.clone())),
+        project_revision: review
+            .as_ref()
+            .map(|review| review.project_revision)
+            .or_else(|| selected_entry.map(|entry| entry.project_revision)),
+        status,
+        issue_code,
+        execution_policy: "not_executed.review_only".to_string(),
+        handoff_owner: "rusty.hostess".to_string(),
+        review_owner: review.as_ref().map(|review| review.review_owner.clone()),
+        command_session_authority: review
+            .as_ref()
+            .map(|review| review.command_session_authority.clone()),
+        install_launch_evidence_authority: review
+            .as_ref()
+            .map(|review| review.install_launch_evidence_authority.clone()),
+        studio_role: review.as_ref().map(|review| review.studio_role.clone()),
+        handoff_ready_count: review
+            .as_ref()
+            .map(|review| review.handoff_ready_count)
+            .unwrap_or(0),
+        handoff_failed_count: review
+            .as_ref()
+            .map(|review| review.handoff_failed_count)
+            .unwrap_or(0),
+        handoff_missing_bundle_count: review
+            .as_ref()
+            .map(|review| review.handoff_missing_bundle_count)
+            .unwrap_or(0),
+        acceptance_baseline_id: review.as_ref().and_then(|review| {
+            review
+                .acceptance_baseline_selection
+                .selected_baseline_id
+                .clone()
+        }),
+        acceptance_baseline_status: review
+            .as_ref()
+            .map(|review| review.acceptance_baseline_selection.status),
+        acceptance_comparison_status: review
+            .as_ref()
+            .and_then(|review| review.acceptance_comparison.as_ref())
+            .map(|comparison| comparison.status),
+        export_package_baseline_id: review.as_ref().and_then(|review| {
+            review
+                .export_package_baseline_selection
+                .selected_baseline_id
+                .clone()
+        }),
+        export_package_baseline_status: review
+            .as_ref()
+            .map(|review| review.export_package_baseline_selection.status),
+        export_package_comparison_status: review
+            .as_ref()
+            .and_then(|review| review.export_package_comparison.as_ref())
+            .map(|comparison| comparison.status),
+        required_owner_actions,
+        prohibited_actions,
+        checks,
+    }
+}
+
+fn shell_hostess_handoff_package_prohibited_actions(
+    review: Option<&StudioShellReleaseCandidateReviewReport>,
+) -> Vec<String> {
+    unique_strings(
+        shell_handoff_acceptance_prohibited_actions()
+            .into_iter()
+            .chain(
+                ["stage_generated_shells", "collect_install_launch_evidence"]
+                    .into_iter()
+                    .map(str::to_string),
+            )
+            .chain(
+                review
+                    .into_iter()
+                    .flat_map(|review| review.prohibited_actions.iter().cloned()),
+            ),
+    )
+}
+
+fn shell_hostess_handoff_package_owner_actions(
+    status: StudioShellHostessHandoffPackageStatus,
+    issue_code: Option<&str>,
+) -> Vec<StudioShellHostessHandoffPackageAction> {
+    [
+        (
+            "hostess.review_release_candidate",
+            "rusty.hostess",
+            "release_candidate_review",
+            "review_selected_release_candidate",
+        ),
+        (
+            "hostess.stage_generated_shells",
+            "rusty.hostess",
+            "shell_handoff_manifest",
+            "stage_generated_shells_outside_studio",
+        ),
+        (
+            "manifold.review_command_session_contract",
+            "rusty.manifold",
+            "release_candidate_review",
+            "review_command_session_contract_outside_studio",
+        ),
+        (
+            "hostess.collect_install_launch_evidence",
+            "rusty.hostess",
+            "hostess_handoff_package",
+            "collect_install_launch_evidence_outside_studio",
+        ),
+    ]
+    .into_iter()
+    .map(|(action_id, owner, source, next_required_action)| {
+        StudioShellHostessHandoffPackageAction {
+            action_id: action_id.to_string(),
+            owner: owner.to_string(),
+            status: if status == StudioShellHostessHandoffPackageStatus::Ready {
+                StudioShellHostessHandoffPackageActionStatus::Ready
+            } else {
+                StudioShellHostessHandoffPackageActionStatus::Blocked
+            },
+            source: source.to_string(),
+            next_required_action: next_required_action.to_string(),
+            prohibited_in_studio: true,
+            issue_code: (status != StudioShellHostessHandoffPackageStatus::Ready).then(|| {
+                issue_code
+                    .unwrap_or("studio.issue.shell_hostess_handoff_package_blocked")
+                    .to_string()
+            }),
+        }
+    })
+    .collect()
+}
+
+fn failed_hostess_handoff_package_check(
+    check_id: &str,
+    evidence: String,
+    issue_code: &str,
+) -> StudioValidationCheck {
+    StudioValidationCheck {
+        check_id: check_id.to_string(),
+        status: StudioValidationStatus::Fail,
+        evidence,
+        issue_code: Some(issue_code.to_string()),
+        graph_id: None,
+        node_ids: Vec::new(),
+        edge_ids: Vec::new(),
+        reference_ids: Vec::new(),
+    }
+}
+
 fn default_shell_release_candidate_review_id(
     review: &StudioShellReleaseCandidateReviewReport,
 ) -> String {
@@ -14393,6 +14901,232 @@ mod tests {
             Some("studio.issue.shell_release_candidate_review_not_found")
         );
         assert_eq!(missing.selected_candidate_id, None);
+    }
+
+    #[test]
+    fn shell_hostess_handoff_package_summarizes_selected_candidate() {
+        let root = temp_root("shell-hostess-handoff-package");
+        write_reference_fixture_tree(&root);
+        let project = valid_multi_shell_project_with_relative_references();
+        let bundle_root = root.join("selected-shells");
+        save_selected_shell_bundles(&project, &root, &bundle_root);
+        let manifest = shell_handoff_manifest_for_project(&project, Some(&root), &bundle_root);
+        let manifest_path = root.join("shell-handoffs.json");
+        save_json(&manifest_path, &manifest).expect("save shell handoff manifest");
+
+        let acceptance_checklist = shell_handoff_acceptance_checklist_for_intake(
+            &shell_handoff_intake_for_manifest(&manifest),
+        );
+        let acceptance_checklist_path = root.join("shell-handoff-acceptance-checklist.json");
+        save_json(&acceptance_checklist_path, &acceptance_checklist)
+            .expect("save acceptance checklist");
+        let acceptance_baseline = shell_handoff_acceptance_baseline_manifest_for_checklist(
+            &acceptance_checklist,
+            &acceptance_checklist_path,
+            Some("synthetic-ready"),
+            Some("Synthetic ready acceptance baseline"),
+        );
+        let acceptance_baseline_path = root.join("shell-handoff-acceptance-baseline.json");
+        save_json(&acceptance_baseline_path, &acceptance_baseline)
+            .expect("save acceptance baseline");
+        let acceptance_index = shell_handoff_acceptance_baseline_index_for_manifests(
+            vec![(acceptance_baseline, Some(acceptance_baseline_path))],
+            Some("synthetic-ready"),
+        );
+        let acceptance_index_path = root.join("shell-handoff-acceptance-baselines.json");
+        save_json(&acceptance_index_path, &acceptance_index).expect("save acceptance index");
+
+        let export_package = shell_export_package_for_manifest(&manifest);
+        let export_package_path = root.join("shell-export-package.json");
+        save_json(&export_package_path, &export_package).expect("save export package");
+        let export_package_baseline = shell_export_package_baseline_manifest_for_report(
+            &export_package,
+            &export_package_path,
+            Some("synthetic-ready-package"),
+            Some("Synthetic ready export package baseline"),
+        );
+        let export_package_baseline_path = root.join("shell-export-package-baseline.json");
+        save_json(&export_package_baseline_path, &export_package_baseline)
+            .expect("save export package baseline");
+        let export_package_index = shell_export_package_baseline_index_for_manifests(
+            vec![(export_package_baseline, Some(export_package_baseline_path))],
+            Some("synthetic-ready-package"),
+        );
+        let export_package_index_path = root.join("shell-export-package-baselines.json");
+        save_json(&export_package_index_path, &export_package_index)
+            .expect("save export package index");
+
+        let ready_review = shell_release_candidate_review_for_manifest(
+            &manifest,
+            Some(&manifest_path),
+            &acceptance_index,
+            Some(&acceptance_index_path),
+            Some("synthetic-ready"),
+            &export_package_index,
+            Some(&export_package_index_path),
+            Some("synthetic-ready-package"),
+        );
+        let ready_review_path = root.join("shell-release-candidate-review.json");
+        save_json(&ready_review_path, &ready_review).expect("save ready review");
+        let ready_candidate = shell_release_candidate_review_manifest_for_report(
+            &ready_review,
+            &ready_review_path,
+            Some("synthetic-ready-candidate"),
+            Some("Synthetic ready release candidate"),
+        );
+        let ready_candidate_path = root.join("shell-release-candidate-review-manifest.json");
+        save_json(&ready_candidate_path, &ready_candidate).expect("save ready candidate");
+        let index = shell_release_candidate_review_index_for_manifests(
+            vec![(ready_candidate, Some(ready_candidate_path.clone()))],
+            Some("synthetic-ready-candidate"),
+        );
+        let index_path = root.join("shell-release-candidate-reviews.json");
+        save_json(&index_path, &index).expect("save release candidate index");
+
+        let package = shell_hostess_handoff_package_for_release_candidate_index(
+            &index,
+            Some(&index_path),
+            None,
+        );
+
+        assert_eq!(package.schema_id, SHELL_HOSTESS_HANDOFF_PACKAGE_SCHEMA);
+        assert_eq!(
+            package.source_index_schema,
+            SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA
+        );
+        assert_eq!(
+            package.status,
+            StudioShellHostessHandoffPackageStatus::Ready
+        );
+        assert_eq!(package.issue_code, None);
+        assert_eq!(
+            package.selected_candidate_id.as_deref(),
+            Some("synthetic-ready-candidate")
+        );
+        assert_eq!(
+            package.candidate_manifest_schema.as_deref(),
+            Some(SHELL_RELEASE_CANDIDATE_REVIEW_MANIFEST_SCHEMA)
+        );
+        assert_eq!(
+            package.candidate_manifest_path.as_deref(),
+            Some(ready_candidate_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            package.review_schema.as_deref(),
+            Some(SHELL_RELEASE_CANDIDATE_REVIEW_SCHEMA)
+        );
+        assert_eq!(
+            package.handoff_manifest_path.as_deref(),
+            Some(manifest_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            package.acceptance_baseline_id.as_deref(),
+            Some("synthetic-ready")
+        );
+        assert_eq!(
+            package.acceptance_comparison_status,
+            Some(StudioShellHandoffAcceptanceComparisonStatus::Unchanged)
+        );
+        assert_eq!(
+            package.export_package_baseline_id.as_deref(),
+            Some("synthetic-ready-package")
+        );
+        assert_eq!(
+            package.export_package_comparison_status,
+            Some(StudioShellExportPackageComparisonStatus::Unchanged)
+        );
+        assert_eq!(
+            package.command_session_authority.as_deref(),
+            Some("rusty.manifold")
+        );
+        assert_eq!(
+            package.install_launch_evidence_authority.as_deref(),
+            Some("rusty.hostess")
+        );
+        assert_eq!(
+            package.studio_role.as_deref(),
+            Some("authoring.export_planning")
+        );
+        assert!(package
+            .required_owner_actions
+            .iter()
+            .any(
+                |action| action.action_id == "hostess.stage_generated_shells"
+                    && action.owner == "rusty.hostess"
+                    && action.status == StudioShellHostessHandoffPackageActionStatus::Ready
+                    && action.prohibited_in_studio
+            ));
+        assert!(package.required_owner_actions.iter().any(|action| {
+            action.action_id == "manifold.review_command_session_contract"
+                && action.owner == "rusty.manifold"
+                && action.status == StudioShellHostessHandoffPackageActionStatus::Ready
+        }));
+        for prohibited in [
+            "stage_generated_shells",
+            "install",
+            "launch",
+            "open_command_session",
+            "collect_device_evidence",
+            "collect_install_launch_evidence",
+        ] {
+            assert!(package.prohibited_actions.contains(&prohibited.to_string()));
+        }
+        assert!(package
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+
+        std::fs::remove_file(
+            bundle_root
+                .join("studio.graph.phone")
+                .join("shells/phone/studio.graph.phone.shell-template.json"),
+        )
+        .expect("remove phone template manifest");
+        let blocked_review = shell_release_candidate_review_for_manifest(
+            &manifest,
+            Some(&manifest_path),
+            &acceptance_index,
+            Some(&acceptance_index_path),
+            Some("synthetic-ready"),
+            &export_package_index,
+            Some(&export_package_index_path),
+            Some("synthetic-ready-package"),
+        );
+        let blocked_review_path = root.join("shell-release-candidate-review-blocked.json");
+        save_json(&blocked_review_path, &blocked_review).expect("save blocked review");
+        let blocked_candidate = shell_release_candidate_review_manifest_for_report(
+            &blocked_review,
+            &blocked_review_path,
+            Some("synthetic-blocked-candidate"),
+            Some("Synthetic blocked release candidate"),
+        );
+        let blocked_candidate_path = root.join("shell-release-candidate-blocked-manifest.json");
+        save_json(&blocked_candidate_path, &blocked_candidate).expect("save blocked candidate");
+        let blocked_index = append_shell_release_candidate_review_index_manifests(
+            &index,
+            vec![(blocked_candidate, Some(blocked_candidate_path))],
+            Some("synthetic-blocked-candidate"),
+        );
+
+        let blocked_package = shell_hostess_handoff_package_for_release_candidate_index(
+            &blocked_index,
+            Some(&index_path),
+            None,
+        );
+
+        assert_eq!(
+            blocked_package.status,
+            StudioShellHostessHandoffPackageStatus::Blocked
+        );
+        assert_eq!(
+            blocked_package.issue_code.as_deref(),
+            Some("studio.issue.shell_export_package_template_load_failed")
+        );
+        assert!(blocked_package.required_owner_actions.iter().all(|action| {
+            action.status == StudioShellHostessHandoffPackageActionStatus::Blocked
+                && action.issue_code.as_deref()
+                    == Some("studio.issue.shell_export_package_template_load_failed")
+        }));
     }
 
     #[test]

@@ -124,6 +124,10 @@ Current scope:
   for saved Hostess review candidate slots;
 - expose release-candidate candidate write, archive, inspect, select, and
   promote actions in Makepad through the same shared lifecycle route;
+- review a schema-only Hostess handoff package over the selected release
+  candidate slot, naming downstream owner actions and prohibited Studio
+  actions without staging, installing, launching, opening command sessions, or
+  collecting evidence;
 - render a minimal Makepad desktop shell from a descriptor, artifact manifest,
   or shell-template index.
 
@@ -195,6 +199,7 @@ cargo run -p rusty-studio-cli -- shell-release-candidate-review-index --candidat
 cargo run -p rusty-studio-cli -- shell-release-candidate-review-selection --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-id synthetic-ready-candidate --output target\studio-shell-handoffs\shell-release-candidate-review-selection.json
 cargo run -p rusty-studio-cli -- shell-release-candidate-review-index-append --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-manifest target\studio-shell-handoffs\shell-release-candidate-review-regressed-manifest.json --default-candidate-id synthetic-regressed-candidate --output target\studio-shell-handoffs\shell-release-candidate-reviews.json
 cargo run -p rusty-studio-cli -- shell-release-candidate-review-index-promote --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-id synthetic-ready-candidate --output target\studio-shell-handoffs\shell-release-candidate-reviews.json
+cargo run -p rusty-studio-cli -- shell-hostess-handoff-package --review-index target\studio-shell-handoffs\shell-release-candidate-reviews.json --candidate-id synthetic-ready-candidate --output target\studio-shell-handoffs\shell-hostess-handoff-package.json
 cargo run -p rusty-studio-makepad -- --project examples\synthetic-studio-project.json --graph studio.graph.synthetic_wave_headset
 cargo run -p rusty-studio-desktop-shell -- --descriptor target\studio-shell-descriptor-desktop.json
 cargo run -p rusty-studio-desktop-shell -- --manifest target\studio-shells\shell-artifacts.json
@@ -275,4 +280,8 @@ sessions, or collect evidence. Release-candidate manifests and indexes turn
 saved review artifacts into named Hostess review candidate slots with default
 selection and promotion commands. Makepad exposes the same write/archive/inspect/
 select/promote lifecycle through shared core helpers, so GUI state cannot
-silently diverge from the CLI artifacts.
+silently diverge from the CLI artifacts. Hostess handoff packages are compact
+review artifacts over the selected candidate slot: they name the selected
+candidate, source handoff manifest, acceptance/export baselines, required
+Hostess/Manifold owner actions, and prohibited Studio actions while preserving
+the same review-only, not-executed boundary.

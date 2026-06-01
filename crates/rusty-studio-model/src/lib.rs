@@ -59,6 +59,8 @@ pub const SHELL_RELEASE_CANDIDATE_REVIEW_INDEX_SCHEMA: &str =
     "rusty.studio.shell_release_candidate_review_index.v1";
 pub const SHELL_RELEASE_CANDIDATE_REVIEW_SELECTION_SCHEMA: &str =
     "rusty.studio.shell_release_candidate_review_selection.v1";
+pub const SHELL_HOSTESS_HANDOFF_PACKAGE_SCHEMA: &str =
+    "rusty.studio.shell_hostess_handoff_package.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -1522,6 +1524,76 @@ pub struct StudioShellReleaseCandidateReviewSelectionEntry {
     pub export_package_comparison_status: Option<StudioShellExportPackageComparisonStatus>,
     pub check_count: usize,
     pub failed_check_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessHandoffPackageReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub source_index_schema: String,
+    pub index_path: Option<String>,
+    pub requested_candidate_id: Option<String>,
+    pub default_candidate_id: Option<String>,
+    pub selected_candidate_id: Option<String>,
+    pub selection_status: StudioShellReleaseCandidateReviewSelectionStatus,
+    pub selection_issue_code: Option<String>,
+    pub candidate_manifest_schema: Option<String>,
+    pub candidate_manifest_path: Option<String>,
+    pub candidate_id: Option<String>,
+    pub candidate_label: Option<String>,
+    pub review_schema: Option<String>,
+    pub review_path: Option<String>,
+    pub handoff_manifest_schema: Option<String>,
+    pub handoff_manifest_path: Option<String>,
+    pub manifest_id: Option<String>,
+    pub project_id: Option<String>,
+    pub project_revision: Option<u64>,
+    pub status: StudioShellHostessHandoffPackageStatus,
+    pub issue_code: Option<String>,
+    pub execution_policy: String,
+    pub handoff_owner: String,
+    pub review_owner: Option<String>,
+    pub command_session_authority: Option<String>,
+    pub install_launch_evidence_authority: Option<String>,
+    pub studio_role: Option<String>,
+    pub handoff_ready_count: usize,
+    pub handoff_failed_count: usize,
+    pub handoff_missing_bundle_count: usize,
+    pub acceptance_baseline_id: Option<String>,
+    pub acceptance_baseline_status: Option<StudioShellHandoffAcceptanceBaselineSelectionStatus>,
+    pub acceptance_comparison_status: Option<StudioShellHandoffAcceptanceComparisonStatus>,
+    pub export_package_baseline_id: Option<String>,
+    pub export_package_baseline_status: Option<StudioShellExportPackageBaselineSelectionStatus>,
+    pub export_package_comparison_status: Option<StudioShellExportPackageComparisonStatus>,
+    pub required_owner_actions: Vec<StudioShellHostessHandoffPackageAction>,
+    pub prohibited_actions: Vec<String>,
+    pub checks: Vec<StudioValidationCheck>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessHandoffPackageStatus {
+    Ready,
+    Blocked,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioShellHostessHandoffPackageAction {
+    pub action_id: String,
+    pub owner: String,
+    pub status: StudioShellHostessHandoffPackageActionStatus,
+    pub source: String,
+    pub next_required_action: String,
+    pub prohibited_in_studio: bool,
+    pub issue_code: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioShellHostessHandoffPackageActionStatus {
+    Ready,
+    Blocked,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

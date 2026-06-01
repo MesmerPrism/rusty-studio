@@ -25,6 +25,7 @@ use rusty_studio_core::{
     shell_handoff_acceptance_baseline_manifest_for_checklist,
     shell_handoff_acceptance_checklist_for_project, shell_handoff_for_bundle,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
+    shell_hostess_handoff_package_for_release_candidate_index,
     shell_release_candidate_review_for_manifest,
     shell_release_candidate_review_index_for_manifests,
     shell_release_candidate_review_manifest_for_report, shell_runbook_for_project,
@@ -48,8 +49,10 @@ use rusty_studio_model::{
     StudioShellHandoffAcceptanceComparisonReport, StudioShellHandoffAcceptanceComparisonStatus,
     StudioShellHandoffAcceptanceStatus, StudioShellHandoffManifest,
     StudioShellHandoffReadinessReport, StudioShellHandoffReport,
-    StudioShellReleaseCandidateReviewIndex, StudioShellReleaseCandidateReviewManifest,
-    StudioShellReleaseCandidateReviewReport, StudioShellReleaseCandidateReviewSelectionReport,
+    StudioShellHostessHandoffPackageActionStatus, StudioShellHostessHandoffPackageReport,
+    StudioShellHostessHandoffPackageStatus, StudioShellReleaseCandidateReviewIndex,
+    StudioShellReleaseCandidateReviewManifest, StudioShellReleaseCandidateReviewReport,
+    StudioShellReleaseCandidateReviewSelectionReport,
     StudioShellReleaseCandidateReviewSelectionStatus, StudioShellReleaseCandidateReviewStatus,
     StudioShellRunbookReport, StudioShellRunbookStatus, StudioShellTargetKind,
     StudioValidationStatus, StudioViewModel,
@@ -239,6 +242,7 @@ script_mod! {
             shell_release_candidate_summary_button := ActionButton{text: "Inspect Candidate"}
             shell_release_candidate_next_button := ActionButton{text: "Next Candidate"}
             shell_release_candidate_promote_button := ActionButton{text: "Promote Candidate"}
+            shell_hostess_handoff_package_button := ActionButton{text: "Review Hostess Package"}
         }
         Row{FieldLabel{text: "descriptor"} shell_preview := SmallValue{text: ""}}
         Rule{}
@@ -1700,6 +1704,26 @@ impl App {
         self.ui.redraw(cx);
     }
 
+    fn review_shell_hostess_handoff_package(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_hostess_handoff_package_for_project_source(&source) {
+            Ok((report, output_path)) => {
+                self.last_shell_bundle_status =
+                    shell_hostess_handoff_package_status(&report, &output_path);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+
     fn remove_module_from_selected_graph(&mut self, cx: &mut Cx, module_reference_id: &str) {
         let Some(source) = self.project_source.clone() else {
             self.last_edit_report = None;
@@ -2468,6 +2492,13 @@ impl MatchEvent for App {
             .clicked(actions)
         {
             self.promote_shell_release_candidate_default(cx);
+        }
+        if self
+            .ui
+            .button(cx, ids!(shell_hostess_handoff_package_button))
+            .clicked(actions)
+        {
+            self.review_shell_hostess_handoff_package(cx);
         }
         if self
             .ui
@@ -3564,6 +3595,20 @@ fn next_shell_release_candidate_default_id(
     Ok(index.entries[selected_position].candidate_id.clone())
 }
 
+fn shell_hostess_handoff_package_for_project_source(
+    project_path: &Path,
+) -> Result<(StudioShellHostessHandoffPackageReport, PathBuf), String> {
+    let index_path = shell_release_candidate_review_index_output_path(project_path);
+    let index = load_shell_release_candidate_review_index(&index_path)
+        .map_err(|error| format!("Shell release candidate index load failed: {error}"))?;
+    let report =
+        shell_hostess_handoff_package_for_release_candidate_index(&index, Some(&index_path), None);
+    let output_path = shell_hostess_handoff_package_output_path(project_path);
+    save_json(&output_path, &report)
+        .map_err(|error| format!("Shell Hostess handoff package save failed: {error}"))?;
+    Ok((report, output_path))
+}
+
 fn retarget_project_source(
     project_path: &Path,
     model: &StudioViewModel,
@@ -3919,6 +3964,15 @@ fn shell_release_candidate_review_index_output_path(project_path: &Path) -> Path
         .join("target")
         .join("studio-shell-handoffs")
         .join("shell-release-candidate-reviews.json")
+}
+
+fn shell_hostess_handoff_package_output_path(project_path: &Path) -> PathBuf {
+    project_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("studio-shell-handoffs")
+        .join("shell-hostess-handoff-package.json")
 }
 
 fn project_path_from_args() -> Option<PathBuf> {
@@ -6035,6 +6089,98 @@ fn shell_release_candidate_review_selection_status(
     )
 }
 
+fn shell_hostess_handoff_package_status(
+    report: &StudioShellHostessHandoffPackageReport,
+    output_path: &Path,
+) -> String {
+    let status = shell_hostess_handoff_package_status_label(report.status);
+    let issue = report.issue_code.as_deref().unwrap_or("none");
+    let selected = report.selected_candidate_id.as_deref().unwrap_or("none");
+    let candidate_path = report
+        .candidate_manifest_path
+        .as_deref()
+        .unwrap_or("unknown");
+    let review_path = report.review_path.as_deref().unwrap_or("unknown");
+    let handoff_path = report.handoff_manifest_path.as_deref().unwrap_or("unknown");
+    let acceptance = report
+        .acceptance_comparison_status
+        .map(shell_handoff_acceptance_comparison_status_label)
+        .unwrap_or("missing");
+    let export_package = report
+        .export_package_comparison_status
+        .map(shell_export_package_comparison_status_label)
+        .unwrap_or("missing");
+    let actions = report
+        .required_owner_actions
+        .iter()
+        .map(|action| {
+            let action_status = shell_hostess_handoff_package_action_status_label(action.status);
+            let issue = action.issue_code.as_deref().unwrap_or("none");
+            format!(
+                "{} [{}] owner {}; source {}; next {}; prohibited in Studio {}; issue {}",
+                action.action_id,
+                action_status,
+                action.owner,
+                action.source,
+                action.next_required_action,
+                if action.prohibited_in_studio {
+                    "yes"
+                } else {
+                    "no"
+                },
+                issue
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+    let prohibited = if report.prohibited_actions.is_empty() {
+        "none".to_string()
+    } else {
+        report.prohibited_actions.join(", ")
+    };
+    let failed_checks = report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .count();
+    format!(
+        "shell Hostess handoff package {status}; selected {selected}; issue {issue}\n  package: {}\n  candidate: {}\n  review: {}\n  handoff manifest: {}\n  project: {} rev {}\n  handoff ready {}; failed {}; missing {}; acceptance {}; export package {}\n  authority: command {}; host {}; studio {}; policy {}; owner {}\n  actions:\n  {}\n  prohibited: {}\n  checks: {}; failed {}",
+        output_path.display(),
+        candidate_path,
+        review_path,
+        handoff_path,
+        report.project_id.as_deref().unwrap_or("unknown"),
+        report
+            .project_revision
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        report.handoff_ready_count,
+        report.handoff_failed_count,
+        report.handoff_missing_bundle_count,
+        acceptance,
+        export_package,
+        report
+            .command_session_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report
+            .install_launch_evidence_authority
+            .as_deref()
+            .unwrap_or("unknown"),
+        report.studio_role.as_deref().unwrap_or("unknown"),
+        report.execution_policy,
+        report.handoff_owner,
+        if actions.is_empty() {
+            "none".to_string()
+        } else {
+            actions
+        },
+        prohibited,
+        report.checks.len(),
+        failed_checks
+    )
+}
+
 fn shell_release_candidate_review_manifest_summary_status(
     candidate: &StudioShellReleaseCandidateReviewManifest,
     index: &StudioShellReleaseCandidateReviewIndex,
@@ -6138,6 +6284,25 @@ fn shell_release_candidate_review_status_label(
         StudioShellReleaseCandidateReviewStatus::Ready => "ready",
         StudioShellReleaseCandidateReviewStatus::Blocked => "blocked",
         StudioShellReleaseCandidateReviewStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_hostess_handoff_package_status_label(
+    status: StudioShellHostessHandoffPackageStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessHandoffPackageStatus::Ready => "ready",
+        StudioShellHostessHandoffPackageStatus::Blocked => "blocked",
+        StudioShellHostessHandoffPackageStatus::Rejected => "rejected",
+    }
+}
+
+fn shell_hostess_handoff_package_action_status_label(
+    status: StudioShellHostessHandoffPackageActionStatus,
+) -> &'static str {
+    match status {
+        StudioShellHostessHandoffPackageActionStatus::Ready => "ready",
+        StudioShellHostessHandoffPackageActionStatus::Blocked => "blocked",
     }
 }
 
@@ -8304,6 +8469,102 @@ mod tests {
         );
         assert!(status.contains("release candidate default promoted"));
         assert!(status.contains("release candidate index slots 2"));
+    }
+
+    #[test]
+    fn shell_hostess_handoff_package_reports_ready_from_makepad_route() {
+        let root = temp_root("shell-hostess-handoff-package");
+        write_reference_fixture_tree(&root);
+        let project_path = root.join("project.json");
+        save_project(&project_path, &editable_project()).expect("save editable project");
+        let model = load_studio_view_model_for_path(&project_path, None, None, None, None)
+            .expect("load view model");
+        export_shell_bundle_for_project_source(&project_path, &model, 0)
+            .expect("export selected shell bundle");
+        write_shell_handoff_manifest_for_project_source(&project_path)
+            .expect("write shell handoff manifest");
+        write_shell_handoff_acceptance_baseline_for_project_source(&project_path)
+            .expect("write acceptance baseline");
+        write_shell_export_package_baseline_for_project_source(&project_path)
+            .expect("write export package baseline");
+        write_shell_release_candidate_review_manifest_for_project_source(&project_path)
+            .expect("write release candidate manifest");
+
+        let (package, output_path) =
+            shell_hostess_handoff_package_for_project_source(&project_path)
+                .expect("review shell Hostess handoff package");
+
+        assert!(output_path.is_file());
+        assert_eq!(
+            package.schema_id,
+            "rusty.studio.shell_hostess_handoff_package.v1"
+        );
+        assert_eq!(
+            package.status,
+            StudioShellHostessHandoffPackageStatus::Ready
+        );
+        assert_eq!(package.issue_code, None);
+        assert_eq!(
+            package.selected_candidate_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+        assert_eq!(
+            package.command_session_authority.as_deref(),
+            Some("rusty.manifold")
+        );
+        assert_eq!(
+            package.install_launch_evidence_authority.as_deref(),
+            Some("rusty.hostess")
+        );
+        assert_eq!(
+            package.studio_role.as_deref(),
+            Some("authoring.export_planning")
+        );
+        assert_eq!(package.handoff_ready_count, 1);
+        assert_eq!(package.handoff_failed_count, 0);
+        assert_eq!(package.handoff_missing_bundle_count, 0);
+        assert_eq!(
+            package.acceptance_baseline_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+        assert_eq!(
+            package.acceptance_comparison_status,
+            Some(StudioShellHandoffAcceptanceComparisonStatus::Unchanged)
+        );
+        assert_eq!(
+            package.export_package_baseline_id.as_deref(),
+            Some("studio.project.makepad_edit.rev1.ready")
+        );
+        assert_eq!(
+            package.export_package_comparison_status,
+            Some(StudioShellExportPackageComparisonStatus::Unchanged)
+        );
+        assert!(package.required_owner_actions.iter().any(|action| {
+            action.action_id == "hostess.collect_install_launch_evidence"
+                && action.owner == "rusty.hostess"
+                && action.status == StudioShellHostessHandoffPackageActionStatus::Ready
+                && action.prohibited_in_studio
+        }));
+        assert!(package
+            .prohibited_actions
+            .contains(&"stage_generated_shells".to_string()));
+        assert!(package
+            .prohibited_actions
+            .contains(&"collect_install_launch_evidence".to_string()));
+        assert!(package
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+
+        let status = shell_hostess_handoff_package_status(&package, &output_path);
+        assert!(status.contains("shell Hostess handoff package ready"));
+        assert!(status.contains("selected studio.project.makepad_edit.rev1.ready"));
+        assert!(status.contains("hostess.collect_install_launch_evidence [ready]"));
+        assert!(status.contains("manifold.review_command_session_contract [ready]"));
+        assert!(status.contains("prohibited:"));
+        assert!(status.contains("stage_generated_shells"));
+        assert!(status.contains("checks:"));
+        assert!(status.contains("failed 0"));
     }
 
     #[test]
