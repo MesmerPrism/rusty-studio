@@ -101,6 +101,8 @@ pub const PROJECTED_MOTION_BREATH_SOURCE_ADAPTER_SELECTION_REVIEW_SCHEMA: &str =
     "rusty.studio.projected_motion_breath_source_adapter_selection_review.v1";
 pub const PROJECTED_MOTION_BREATH_ADAPTER_NORMALIZATION_EVIDENCE_REVIEW_SCHEMA: &str =
     "rusty.studio.projected_motion_breath_adapter_normalization_evidence_review.v1";
+pub const PROJECTED_MOTION_BREATH_SHELL_HANDOFF_REVIEW_SCHEMA: &str =
+    "rusty.studio.projected_motion_breath_shell_handoff_review.v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StudioProject {
@@ -1904,6 +1906,47 @@ pub enum StudioProjectedMotionBreathAdapterNormalizationEvidenceReviewStatus {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StudioProjectedMotionBreathShellHandoffReviewReport {
+    #[serde(rename = "$schema")]
+    pub schema_id: String,
+    pub source_evidence_schema: Option<String>,
+    pub source_evidence_path: Option<String>,
+    pub target_package_id: Option<String>,
+    pub handoff_id: Option<String>,
+    pub target_host_profile: Option<String>,
+    pub shell_app_id: Option<String>,
+    pub status: StudioProjectedMotionBreathShellHandoffReviewStatus,
+    pub issue_code: Option<String>,
+    pub execution_policy: String,
+    pub runtime_authority: String,
+    pub authoring_authority: String,
+    pub platform_validation_authority: String,
+    pub runtime_execution_performed: bool,
+    pub platform_execution_performed: bool,
+    pub broker_transport_used: bool,
+    pub downstream_shell_runtime_used: bool,
+    pub legacy_app_dependency_used: bool,
+    pub required_binding_count: usize,
+    pub ready_required_binding_count: usize,
+    pub stream_bindings: Vec<String>,
+    pub command_ids: Vec<String>,
+    pub transport_ids: Vec<String>,
+    pub feedback_receipt_exported: bool,
+    pub feedback_sink_provides_receipt: bool,
+    pub proposal_kind: String,
+    pub prohibited_actions: Vec<String>,
+    pub checks: Vec<StudioValidationCheck>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioProjectedMotionBreathShellHandoffReviewStatus {
+    Ready,
+    Blocked,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StudioShellHostessStagingPreviewManifest {
     #[serde(rename = "$schema")]
     pub schema_id: String,
@@ -2448,6 +2491,19 @@ pub struct StudioShellHostessStagingExecutionRequestReport {
     pub intake_path: Option<String>,
     pub package_path: Option<String>,
     pub handoff_manifest_path: Option<String>,
+    #[serde(default)]
+    pub pmb_shell_handoff_review_required: bool,
+    pub pmb_shell_handoff_review_path: Option<String>,
+    pub source_pmb_shell_handoff_review_schema: Option<String>,
+    pub source_pmb_shell_handoff_review_status:
+        Option<StudioProjectedMotionBreathShellHandoffReviewStatus>,
+    pub source_pmb_shell_handoff_review_issue_code: Option<String>,
+    pub source_pmb_shell_handoff_id: Option<String>,
+    pub source_pmb_shell_app_id: Option<String>,
+    #[serde(default)]
+    pub pmb_shell_handoff_review_ready: bool,
+    #[serde(default)]
+    pub hostess_operator_start_preflight_cli_args: Vec<String>,
     pub status: StudioShellHostessStagingExecutionRequestStatus,
     pub issue_code: Option<String>,
     pub execution_policy: String,

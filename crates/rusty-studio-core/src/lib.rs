@@ -9,6 +9,8 @@ use rusty_studio_model::{
     StudioProjectedMotionBreathAdapterNormalizationEvidenceReviewStatus,
     StudioProjectedMotionBreathAuthoringReviewReport,
     StudioProjectedMotionBreathAuthoringReviewStatus,
+    StudioProjectedMotionBreathShellHandoffReviewReport,
+    StudioProjectedMotionBreathShellHandoffReviewStatus,
     StudioProjectedMotionBreathSourceAdapterSelectionReviewReport,
     StudioProjectedMotionBreathSourceAdapterSelectionReviewStatus, StudioResolvedGraph,
     StudioResolvedProject, StudioShellArtifact, StudioShellArtifactManifest,
@@ -83,6 +85,7 @@ use rusty_studio_model::{
     PROJECTED_MOTION_BREATH_ADAPTER_NORMALIZATION_CASE_SCHEMA,
     PROJECTED_MOTION_BREATH_ADAPTER_NORMALIZATION_EVIDENCE_REVIEW_SCHEMA,
     PROJECTED_MOTION_BREATH_AUTHORING_REVIEW_SCHEMA,
+    PROJECTED_MOTION_BREATH_SHELL_HANDOFF_REVIEW_SCHEMA,
     PROJECTED_MOTION_BREATH_SOURCE_ADAPTER_DESCRIPTOR_SCHEMA,
     PROJECTED_MOTION_BREATH_SOURCE_ADAPTER_SELECTION_REVIEW_SCHEMA,
     PROJECTED_MOTION_BREATH_SOURCE_BINDING_SCHEMA, PROJECT_SCHEMA, RESOLVED_PROJECT_SCHEMA,
@@ -127,6 +130,8 @@ use thiserror::Error;
 const NEXT_PALETTE_MODULE_REQUEST: &str = "module.palette.next_available";
 const PROJECTED_MOTION_BREATH_PACKAGE_ID: &str = "package.projected_motion_breath";
 const PROJECTED_MOTION_BREATH_MODULE_ID: &str = "module.breath.projected_motion";
+const MANIFOLD_SHELL_HANDOFF_SCHEMA: &str = "rusty.manifold.shell.handoff.v1";
+const DEFAULT_MANIFOLD_SHELL_HANDOFF_VALIDATION_SLOT_ID: &str = "host_run.slot.synthetic_smoke";
 const PROJECTED_MOTION_BREATH_ADAPTER_NORMALIZATION_CHECK_SUFFIX: &str =
     "projected_motion_adapter_normalization";
 const PROJECTED_MOTION_BREATH_REQUIRED_CHECK_SUFFIXES: [&str; 3] = [
@@ -134,6 +139,51 @@ const PROJECTED_MOTION_BREATH_REQUIRED_CHECK_SUFFIXES: [&str; 3] = [
     "projected_motion_profile_commands",
     "projected_motion_goldens",
 ];
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct StudioGeneratedManifoldShellHandoffManifest {
+    #[serde(rename = "$schema")]
+    schema_id: &'static str,
+    handoff_id: String,
+    handoff_revision: u64,
+    target_host_profile: String,
+    shell_app_id: String,
+    validation_slot_id: String,
+    stream_bindings: Vec<StudioGeneratedManifoldShellStreamBinding>,
+    command_ids: Vec<String>,
+    transport_offers: Vec<StudioGeneratedManifoldTransportOffer>,
+    expected_scorecard_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct StudioGeneratedManifoldShellStreamBinding {
+    stream_id: String,
+    direction: StudioGeneratedManifoldShellStreamDirection,
+    role: String,
+    required: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StudioGeneratedManifoldShellStreamDirection {
+    Publish,
+    Subscribe,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct StudioGeneratedManifoldTransportOffer {
+    transport_id: String,
+    transport: StudioGeneratedManifoldEndpointTransport,
+    endpoint_id: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StudioGeneratedManifoldEndpointTransport {
+    InProcess,
+    Stdio,
+    Http,
+}
 
 #[derive(Debug, Error)]
 pub enum StudioCoreError {
@@ -289,6 +339,18 @@ pub enum StudioCoreError {
     },
     #[error("{path}: {source}")]
     ParseProjectedMotionBreathAdapterNormalization {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseProjectedMotionBreathShellHandoffEvidence {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path}: {source}")]
+    ParseProjectedMotionBreathShellHandoffReview {
         path: String,
         #[source]
         source: serde_json::Error,
@@ -700,6 +762,36 @@ pub fn load_projected_motion_breath_adapter_normalization_case_document(
     })?;
     serde_json::from_str(&text).map_err(|source| {
         StudioCoreError::ParseProjectedMotionBreathAdapterNormalization {
+            path: path.display().to_string(),
+            source,
+        }
+    })
+}
+
+pub fn load_projected_motion_breath_shell_handoff_evidence(
+    path: &Path,
+) -> Result<Value, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseProjectedMotionBreathShellHandoffEvidence {
+            path: path.display().to_string(),
+            source,
+        }
+    })
+}
+
+pub fn load_projected_motion_breath_shell_handoff_review_report(
+    path: &Path,
+) -> Result<StudioProjectedMotionBreathShellHandoffReviewReport, StudioCoreError> {
+    let text = std::fs::read_to_string(path).map_err(|source| StudioCoreError::ReadProject {
+        path: path.display().to_string(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| {
+        StudioCoreError::ParseProjectedMotionBreathShellHandoffReview {
             path: path.display().to_string(),
             source,
         }
@@ -3040,6 +3132,12 @@ pub fn save_shell_bundle(
         )?;
         written_files.insert(relative_path);
     }
+    let manifold_handoff_path = shell_manifold_handoff_artifact_path(&descriptor.graph_id);
+    save_json(
+        &relative_output_path(output_dir, &manifold_handoff_path),
+        &manifold_shell_handoff_for_descriptor(descriptor),
+    )?;
+    written_files.insert(manifold_handoff_path);
     save_json(
         &relative_output_path(output_dir, "shell-artifacts.json"),
         artifact_manifest,
@@ -6413,6 +6511,92 @@ pub fn shell_descriptor_artifact_path(graph_id: &str) -> String {
     format!("descriptors/{graph_id}.shell-descriptor.json")
 }
 
+fn shell_manifold_handoff_artifact_path(graph_id: &str) -> String {
+    format!("descriptors/{graph_id}.manifold-shell-handoff.json")
+}
+
+fn manifold_shell_handoff_for_descriptor(
+    descriptor: &StudioShellDescriptor,
+) -> StudioGeneratedManifoldShellHandoffManifest {
+    StudioGeneratedManifoldShellHandoffManifest {
+        schema_id: MANIFOLD_SHELL_HANDOFF_SCHEMA,
+        handoff_id: format!("shell_handoff.{}", descriptor.graph_id),
+        handoff_revision: descriptor.project_revision,
+        target_host_profile: descriptor
+            .host_profile
+            .host_profile
+            .clone()
+            .unwrap_or_else(|| descriptor.target_host_profile.clone()),
+        shell_app_id: descriptor
+            .host_profile
+            .app_id
+            .clone()
+            .unwrap_or_else(|| descriptor.shell_id.clone()),
+        validation_slot_id: descriptor
+            .validation_slot_ids
+            .first()
+            .cloned()
+            .unwrap_or_else(|| DEFAULT_MANIFOLD_SHELL_HANDOFF_VALIDATION_SLOT_ID.to_string()),
+        stream_bindings: descriptor
+            .stream_bindings
+            .iter()
+            .filter(|binding| binding.binding_id.starts_with("stream."))
+            .map(manifold_shell_stream_binding)
+            .collect(),
+        command_ids: descriptor
+            .command_bindings
+            .iter()
+            .filter_map(|binding| {
+                binding
+                    .binding_id
+                    .starts_with("command.")
+                    .then(|| binding.binding_id.clone())
+            })
+            .collect(),
+        transport_offers: vec![StudioGeneratedManifoldTransportOffer {
+            transport_id: format!("transport.shell_handoff.{}", descriptor.graph_id),
+            transport: manifold_transport_for_command_bridge(
+                descriptor.host_profile.command_bridge.as_deref(),
+            ),
+            endpoint_id: None,
+        }],
+        expected_scorecard_id: format!("scorecard.shell_handoff.{}", descriptor.graph_id),
+    }
+}
+
+fn manifold_shell_stream_binding(
+    binding: &StudioShellBinding,
+) -> StudioGeneratedManifoldShellStreamBinding {
+    let shell_is_source = binding.source_node_id.contains(".shell.");
+    let direction = if shell_is_source {
+        StudioGeneratedManifoldShellStreamDirection::Publish
+    } else {
+        StudioGeneratedManifoldShellStreamDirection::Subscribe
+    };
+    let role = match direction {
+        StudioGeneratedManifoldShellStreamDirection::Publish => "role.shell.publish",
+        StudioGeneratedManifoldShellStreamDirection::Subscribe => "role.shell.subscribe",
+    };
+    StudioGeneratedManifoldShellStreamBinding {
+        stream_id: binding.binding_id.clone(),
+        direction,
+        role: role.to_string(),
+        required: true,
+    }
+}
+
+fn manifold_transport_for_command_bridge(
+    command_bridge: Option<&str>,
+) -> StudioGeneratedManifoldEndpointTransport {
+    match command_bridge {
+        Some(bridge) if bridge.contains("http") => StudioGeneratedManifoldEndpointTransport::Http,
+        Some(bridge) if bridge.contains("stdio") || bridge.contains("cli") => {
+            StudioGeneratedManifoldEndpointTransport::Stdio
+        }
+        _ => StudioGeneratedManifoldEndpointTransport::InProcess,
+    }
+}
+
 pub fn shell_template_manifest_path(artifact: &StudioShellArtifact) -> String {
     format!(
         "shells/{}/{}.shell-template.json",
@@ -9610,6 +9794,267 @@ fn package_evidence_intake_prohibited_actions() -> Vec<String> {
     .collect()
 }
 
+pub fn projected_motion_breath_shell_handoff_review_for_evidence(
+    evidence: &Value,
+    evidence_path: Option<&Path>,
+) -> StudioProjectedMotionBreathShellHandoffReviewReport {
+    let source_evidence_schema = json_string(evidence, "$schema");
+    let target_package_id = nested_json_string(evidence, "package", "package_id");
+    let handoff_id = nested_json_string(evidence, "shell_handoff", "handoff_id");
+    let target_host_profile = nested_json_string(evidence, "shell_handoff", "target_host_profile");
+    let shell_app_id = nested_json_string(evidence, "shell_handoff", "shell_app_id");
+    let command_ids = nested_json_string_array(evidence, "shell_handoff", "command_ids");
+    let exported_stream_ids =
+        nested_json_string_array(evidence, "package_contract", "exported_stream_ids");
+    let feedback_sink_streams = nested_json_string_array(
+        evidence,
+        "package_contract",
+        "feedback_sink_provides_streams",
+    );
+    let binding_pairs = projected_motion_breath_shell_binding_pairs(evidence);
+    let required_bindings = projected_motion_breath_shell_required_bindings();
+    let ready_required_binding_count = required_bindings
+        .iter()
+        .filter(|binding| binding_pairs.contains(*binding))
+        .count();
+    let transport_ids = projected_motion_breath_shell_transport_ids(evidence);
+    let runtime_execution_performed =
+        nested_json_bool(evidence, "execution", "runtime_execution_performed").unwrap_or(true);
+    let platform_execution_performed =
+        nested_json_bool(evidence, "execution", "platform_execution_performed").unwrap_or(true);
+    let broker_transport_used =
+        nested_json_bool(evidence, "execution", "broker_transport_used").unwrap_or(true);
+    let downstream_shell_runtime_used =
+        nested_json_bool(evidence, "execution", "downstream_shell_runtime_used").unwrap_or(true);
+    let legacy_app_dependency_used =
+        nested_json_bool(evidence, "execution", "legacy_app_dependency_used").unwrap_or(true);
+    let legacy_rusty_xr_repo_used =
+        nested_json_bool(evidence, "execution", "legacy_rusty_xr_repo_used").unwrap_or(true);
+    let feedback_receipt_exported = exported_stream_ids
+        .iter()
+        .any(|stream_id| stream_id == "stream.breath.feedback_receipt");
+    let feedback_sink_provides_receipt = feedback_sink_streams
+        .iter()
+        .any(|stream_id| stream_id == "stream.breath.feedback_receipt");
+    let clean_execution_boundary = !runtime_execution_performed
+        && !platform_execution_performed
+        && !broker_transport_used
+        && !downstream_shell_runtime_used
+        && !legacy_app_dependency_used
+        && !legacy_rusty_xr_repo_used;
+
+    let mut checks = Vec::new();
+    push_check(
+        &mut checks,
+        "studio.check.projected_motion_breath_shell_handoff.source_schema",
+        source_evidence_schema.as_deref()
+            == Some("rusty.hostess.projected_motion_breath.shell_handoff_validation_evidence.v1"),
+        "source Hostess shell handoff evidence schema is supported",
+        "source Hostess shell handoff evidence schema is unsupported",
+        "studio.issue.projected_motion_breath_shell_handoff_source_schema",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.projected_motion_breath_shell_handoff.source_path",
+        evidence_path.is_some(),
+        "source Hostess shell handoff evidence has a durable path",
+        "source Hostess shell handoff evidence path is missing",
+        "studio.issue.projected_motion_breath_shell_handoff_path_missing",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.projected_motion_breath_shell_handoff.source_status",
+        evidence.get("status").and_then(Value::as_str) == Some("pass")
+            && evidence
+                .get("scorecard")
+                .and_then(|scorecard| scorecard.get("status"))
+                .and_then(Value::as_str)
+                == Some("pass"),
+        "source Hostess shell handoff evidence and scorecard passed",
+        "source Hostess shell handoff evidence or scorecard failed",
+        "studio.issue.projected_motion_breath_shell_handoff_source_failed",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.projected_motion_breath_shell_handoff.target_package",
+        target_package_id.as_deref() == Some(PROJECTED_MOTION_BREATH_PACKAGE_ID),
+        "source evidence targets projected-motion breath",
+        "source evidence targets a different package",
+        "studio.issue.projected_motion_breath_shell_handoff_package_mismatch",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.projected_motion_breath_shell_handoff.handoff_id",
+        handoff_id.as_deref().is_some_and(is_dotted_id),
+        "source evidence declares a dotted shell handoff id",
+        "source evidence is missing a dotted shell handoff id",
+        "studio.issue.projected_motion_breath_shell_handoff_id",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.projected_motion_breath_shell_handoff.required_bindings",
+        ready_required_binding_count == required_bindings.len(),
+        "source evidence includes controller pose publish, feedback subscribe, and receipt publish bindings",
+        "source evidence is missing one or more required PMB shell bindings",
+        "studio.issue.projected_motion_breath_shell_handoff_required_bindings",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.projected_motion_breath_shell_handoff.feedback_receipt_export",
+        feedback_receipt_exported && feedback_sink_provides_receipt,
+        "source evidence proves feedback receipt export and feedback sink provisioning",
+        "source evidence does not prove feedback receipt export and feedback sink provisioning",
+        "studio.issue.projected_motion_breath_shell_handoff_feedback_receipt",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.projected_motion_breath_shell_handoff.command_status",
+        command_ids
+            .iter()
+            .any(|command_id| command_id == "command.breath.status"),
+        "source evidence exposes command.breath.status for read-only handoff checks",
+        "source evidence does not expose command.breath.status",
+        "studio.issue.projected_motion_breath_shell_handoff_command_missing",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.projected_motion_breath_shell_handoff.transport_offer",
+        !transport_ids.is_empty(),
+        "source evidence includes a named transport offer for downstream shell wiring",
+        "source evidence does not include a named transport offer",
+        "studio.issue.projected_motion_breath_shell_handoff_transport_missing",
+    );
+    push_check(
+        &mut checks,
+        "studio.check.projected_motion_breath_shell_handoff.authority_boundary",
+        clean_execution_boundary,
+        "Studio review preserves Hostess runtime evidence ownership and avoids shell execution",
+        "source evidence indicates runtime, transport, downstream shell, or legacy repo execution",
+        "studio.issue.projected_motion_breath_shell_handoff_authority_mismatch",
+    );
+
+    let has_failed_check = checks
+        .iter()
+        .any(|check| check.status == StudioValidationStatus::Fail);
+    let has_rejected_check = checks.iter().any(|check| {
+        check.status == StudioValidationStatus::Fail
+            && matches!(
+                check.issue_code.as_deref(),
+                Some("studio.issue.projected_motion_breath_shell_handoff_source_schema")
+                    | Some("studio.issue.projected_motion_breath_shell_handoff_package_mismatch")
+            )
+    });
+    let status = if has_rejected_check {
+        StudioProjectedMotionBreathShellHandoffReviewStatus::Rejected
+    } else if has_failed_check {
+        StudioProjectedMotionBreathShellHandoffReviewStatus::Blocked
+    } else {
+        StudioProjectedMotionBreathShellHandoffReviewStatus::Ready
+    };
+    let issue_code = match status {
+        StudioProjectedMotionBreathShellHandoffReviewStatus::Ready => None,
+        StudioProjectedMotionBreathShellHandoffReviewStatus::Blocked
+        | StudioProjectedMotionBreathShellHandoffReviewStatus::Rejected => {
+            first_failed_validation_check_issue_code(&checks)
+        }
+    };
+
+    StudioProjectedMotionBreathShellHandoffReviewReport {
+        schema_id: PROJECTED_MOTION_BREATH_SHELL_HANDOFF_REVIEW_SCHEMA.to_string(),
+        source_evidence_schema,
+        source_evidence_path: evidence_path.map(|path| path.display().to_string()),
+        target_package_id,
+        handoff_id,
+        target_host_profile,
+        shell_app_id,
+        status,
+        issue_code,
+        execution_policy: "not_executed.review_only".to_string(),
+        runtime_authority: "rusty.manifold".to_string(),
+        authoring_authority: "rusty.studio".to_string(),
+        platform_validation_authority: "rusty.hostess".to_string(),
+        runtime_execution_performed,
+        platform_execution_performed,
+        broker_transport_used,
+        downstream_shell_runtime_used,
+        legacy_app_dependency_used,
+        required_binding_count: required_bindings.len(),
+        ready_required_binding_count,
+        stream_bindings: binding_pairs
+            .iter()
+            .map(|(stream_id, direction)| format!("{stream_id}:{direction}"))
+            .collect(),
+        command_ids,
+        transport_ids,
+        feedback_receipt_exported,
+        feedback_sink_provides_receipt,
+        proposal_kind: "review_shell_handoff_for_hostess_owner_execution".to_string(),
+        prohibited_actions: projected_motion_breath_shell_handoff_review_prohibited_actions(),
+        checks,
+    }
+}
+
+fn projected_motion_breath_shell_required_bindings() -> BTreeSet<(String, String)> {
+    [
+        ("stream.motion.object_pose", "publish"),
+        ("stream.breath.feedback_state", "subscribe"),
+        ("stream.breath.feedback_receipt", "publish"),
+    ]
+    .iter()
+    .map(|(stream_id, direction)| (stream_id.to_string(), direction.to_string()))
+    .collect()
+}
+
+fn projected_motion_breath_shell_binding_pairs(evidence: &Value) -> BTreeSet<(String, String)> {
+    let mut bindings = BTreeSet::new();
+    if let Some(shell_handoff) = evidence.get("shell_handoff") {
+        for field in ["binding_pairs", "stream_bindings"] {
+            if let Some(values) = shell_handoff.get(field).and_then(Value::as_array) {
+                for value in values {
+                    if let (Some(stream_id), Some(direction)) = (
+                        value.get("stream_id").and_then(Value::as_str),
+                        value.get("direction").and_then(Value::as_str),
+                    ) {
+                        bindings.insert((stream_id.to_string(), direction.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    bindings
+}
+
+fn projected_motion_breath_shell_transport_ids(evidence: &Value) -> Vec<String> {
+    evidence
+        .get("shell_handoff")
+        .and_then(|shell_handoff| shell_handoff.get("transport_offers"))
+        .and_then(Value::as_array)
+        .map(|offers| {
+            offers
+                .iter()
+                .filter_map(|offer| offer.get("transport_id").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn projected_motion_breath_shell_handoff_review_prohibited_actions() -> Vec<String> {
+    [
+        "build",
+        "install",
+        "launch",
+        "stage_shell_files",
+        "launch_downstream_shell",
+        "open_command_session",
+        "collect_device_evidence",
+        "start_runtime_package",
+    ]
+    .iter()
+    .map(|action| action.to_string())
+    .collect()
+}
+
 pub fn projected_motion_breath_authoring_review_for_intake(
     intake: &StudioPackageEvidenceIntakeReport,
     intake_path: Option<&Path>,
@@ -10375,9 +10820,31 @@ fn nested_json_string(document: &Value, object_field: &str, field: &str) -> Opti
         .map(str::to_string)
 }
 
+fn nested_json_bool(document: &Value, object_field: &str, field: &str) -> Option<bool> {
+    document
+        .get(object_field)
+        .and_then(|value| value.get(field))
+        .and_then(Value::as_bool)
+}
+
 fn json_string_array(document: &Value, field: &str) -> Vec<String> {
     document
         .get(field)
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn nested_json_string_array(document: &Value, object_field: &str, field: &str) -> Vec<String> {
+    document
+        .get(object_field)
+        .and_then(|value| value.get(field))
         .and_then(Value::as_array)
         .map(|values| {
             values
@@ -11148,6 +11615,19 @@ fn shell_hostess_staging_preview_artifacts_for_assignment(
                         Some(entry.consumer_id.as_str()),
                         None,
                     );
+                    let manifold_handoff_path = relative_output_path(
+                        Path::new(&entry.bundle_dir),
+                        &shell_manifold_handoff_artifact_path(&entry.graph_id),
+                    );
+                    push_staging_artifact(
+                        &mut artifacts,
+                        "manifold_shell_handoff",
+                        &manifold_handoff_path.display().to_string(),
+                        Some(entry.target_kind),
+                        Some(entry.graph_id.as_str()),
+                        Some(entry.consumer_id.as_str()),
+                        None,
+                    );
                 }
                 if let Some(template) = entry.template_manifest.as_ref() {
                     push_staging_artifact(
@@ -11185,6 +11665,19 @@ fn shell_hostess_staging_preview_artifacts_for_assignment(
                         Some(entry.graph_id.as_str()),
                         Some(entry.consumer_id.as_str()),
                         Some("manifold.command_session_contract"),
+                    );
+                    let manifold_handoff_path = relative_output_path(
+                        Path::new(&entry.bundle_dir),
+                        &shell_manifold_handoff_artifact_path(&entry.graph_id),
+                    );
+                    push_staging_artifact(
+                        &mut artifacts,
+                        "manifold_shell_handoff",
+                        &manifold_handoff_path.display().to_string(),
+                        Some(entry.target_kind),
+                        Some(entry.graph_id.as_str()),
+                        Some(entry.consumer_id.as_str()),
+                        Some("manifold.shell_handoff_review"),
                     );
                 }
                 if let Some(template) = entry.template_manifest.as_ref() {
@@ -11809,6 +12302,9 @@ fn shell_hostess_staging_destination_path(
                     "{root}/descriptor/{}",
                     source_path_file_name(&artifact.path)
                 )
+            }
+            "manifold_shell_handoff" => {
+                format!("{root}/manifold/{}", source_path_file_name(&artifact.path))
             }
             "shell_template_manifest" => {
                 format!("{root}/template/{}", source_path_file_name(&artifact.path))
@@ -13098,6 +13594,34 @@ pub fn shell_hostess_staging_execution_request_for_acceptance_index_entry(
     handoff_path: Option<&Path>,
     handoff: &StudioShellHostessStagingHandoffEnvelope,
 ) -> StudioShellHostessStagingExecutionRequestReport {
+    shell_hostess_staging_execution_request_for_acceptance_index_entry_with_pmb_review(
+        acceptance_index,
+        acceptance_index_path,
+        acceptance_index_entry,
+        acceptance_manifest_path,
+        acceptance,
+        checklist,
+        handoff_path,
+        handoff,
+        None,
+        None,
+        false,
+    )
+}
+
+pub fn shell_hostess_staging_execution_request_for_acceptance_index_entry_with_pmb_review(
+    acceptance_index: &StudioShellHostessStagingAcceptanceIndex,
+    acceptance_index_path: Option<&Path>,
+    acceptance_index_entry: &StudioShellHostessStagingAcceptanceIndexEntry,
+    acceptance_manifest_path: Option<&Path>,
+    acceptance: &StudioShellHostessStagingAcceptanceManifest,
+    checklist: &StudioShellHostessStagingAcceptanceChecklistReport,
+    handoff_path: Option<&Path>,
+    handoff: &StudioShellHostessStagingHandoffEnvelope,
+    pmb_shell_handoff_review_path: Option<&Path>,
+    pmb_shell_handoff_review: Option<&StudioProjectedMotionBreathShellHandoffReviewReport>,
+    require_pmb_shell_handoff_review: bool,
+) -> StudioShellHostessStagingExecutionRequestReport {
     let mut checks = Vec::new();
     let expected_manifest_path = acceptance_manifest_path.map(|path| path.display().to_string());
     let manifest_path_matches = match (
@@ -13128,6 +13652,18 @@ pub fn shell_hostess_staging_execution_request_for_acceptance_index_entry(
                     && entry.expected_input_path == spec.expected_input_path
             })
         });
+    let pmb_shell_handoff_review_required =
+        require_pmb_shell_handoff_review || pmb_shell_handoff_review_path.is_some();
+    let pmb_shell_handoff_review_path_string =
+        pmb_shell_handoff_review_path.map(|path| path.display().to_string());
+    let pmb_shell_handoff_review_ready =
+        pmb_shell_handoff_review_is_ready(pmb_shell_handoff_review);
+    let pmb_shell_handoff_review_issue_code =
+        pmb_shell_handoff_review_issue_code(pmb_shell_handoff_review);
+    let hostess_operator_start_preflight_cli_args = hostess_operator_start_preflight_pmb_cli_args(
+        pmb_shell_handoff_review_required,
+        pmb_shell_handoff_review_path_string.as_deref(),
+    );
 
     push_check(
         &mut checks,
@@ -13360,6 +13896,19 @@ pub fn shell_hostess_staging_execution_request_for_acceptance_index_entry(
         "execution request is missing one or more Studio prohibitions",
         "studio.issue.shell_hostess_staging_acceptance_prohibited_action_missing",
     );
+    push_check(
+        &mut checks,
+        "studio.check.shell_hostess_staging_execution_request.pmb_shell_handoff_review",
+        !pmb_shell_handoff_review_required
+            || (pmb_shell_handoff_review_path_string.is_some()
+                && pmb_shell_handoff_review_ready
+                && pmb_shell_handoff_review_issue_code.is_none()),
+        "PMB shell handoff review is ready for Hostess operator-start preflight",
+        "PMB shell handoff review is missing, blocked, or invalid",
+        pmb_shell_handoff_review_issue_code
+            .as_deref()
+            .unwrap_or("studio.issue.projected_motion_breath_shell_handoff_review_missing"),
+    );
 
     let has_failed_check = checks
         .iter()
@@ -13435,6 +13984,20 @@ pub fn shell_hostess_staging_execution_request_for_acceptance_index_entry(
         intake_path: checklist.intake_path.clone(),
         package_path: checklist.package_path.clone(),
         handoff_manifest_path: checklist.handoff_manifest_path.clone(),
+        pmb_shell_handoff_review_required,
+        pmb_shell_handoff_review_path: pmb_shell_handoff_review_path_string,
+        source_pmb_shell_handoff_review_schema: pmb_shell_handoff_review
+            .map(|review| review.schema_id.clone()),
+        source_pmb_shell_handoff_review_status: pmb_shell_handoff_review
+            .map(|review| review.status),
+        source_pmb_shell_handoff_review_issue_code: pmb_shell_handoff_review
+            .and_then(|review| review.issue_code.clone()),
+        source_pmb_shell_handoff_id: pmb_shell_handoff_review
+            .and_then(|review| review.handoff_id.clone()),
+        source_pmb_shell_app_id: pmb_shell_handoff_review
+            .and_then(|review| review.shell_app_id.clone()),
+        pmb_shell_handoff_review_ready,
+        hostess_operator_start_preflight_cli_args,
         status,
         issue_code,
         execution_policy: "not_executed.hostess_request_only".to_string(),
@@ -13460,6 +14023,77 @@ pub fn shell_hostess_staging_execution_request_for_acceptance_index_entry(
         ack_template,
         reject_template,
     }
+}
+
+fn pmb_shell_handoff_review_is_ready(
+    review: Option<&StudioProjectedMotionBreathShellHandoffReviewReport>,
+) -> bool {
+    let Some(review) = review else {
+        return false;
+    };
+    review.schema_id == PROJECTED_MOTION_BREATH_SHELL_HANDOFF_REVIEW_SCHEMA
+        && review.status == StudioProjectedMotionBreathShellHandoffReviewStatus::Ready
+        && review.issue_code.is_none()
+        && review.execution_policy == "not_executed.review_only"
+        && review.runtime_authority == "rusty.manifold"
+        && review.authoring_authority == "rusty.studio"
+        && review.platform_validation_authority == "rusty.hostess"
+        && !review.runtime_execution_performed
+        && !review.platform_execution_performed
+        && !review.broker_transport_used
+        && !review.downstream_shell_runtime_used
+        && !review.legacy_app_dependency_used
+        && review.required_binding_count > 0
+        && review.ready_required_binding_count == review.required_binding_count
+        && review.feedback_receipt_exported
+        && review.feedback_sink_provides_receipt
+        && review
+            .command_ids
+            .iter()
+            .any(|command_id| command_id == "command.breath.status")
+        && !review.transport_ids.is_empty()
+}
+
+fn pmb_shell_handoff_review_issue_code(
+    review: Option<&StudioProjectedMotionBreathShellHandoffReviewReport>,
+) -> Option<String> {
+    let Some(review) = review else {
+        return Some(
+            "studio.issue.projected_motion_breath_shell_handoff_review_missing".to_string(),
+        );
+    };
+    if review.schema_id != PROJECTED_MOTION_BREATH_SHELL_HANDOFF_REVIEW_SCHEMA {
+        return Some(
+            "studio.issue.projected_motion_breath_shell_handoff_review_schema".to_string(),
+        );
+    }
+    if review.status != StudioProjectedMotionBreathShellHandoffReviewStatus::Ready {
+        return Some(review.issue_code.clone().unwrap_or_else(|| {
+            "studio.issue.projected_motion_breath_shell_handoff_review_not_ready".to_string()
+        }));
+    }
+    if !pmb_shell_handoff_review_is_ready(Some(review)) {
+        return Some(review.issue_code.clone().unwrap_or_else(|| {
+            "studio.issue.projected_motion_breath_shell_handoff_review_boundary".to_string()
+        }));
+    }
+    None
+}
+
+fn hostess_operator_start_preflight_pmb_cli_args(
+    pmb_shell_handoff_review_required: bool,
+    pmb_shell_handoff_review_path: Option<&str>,
+) -> Vec<String> {
+    if !pmb_shell_handoff_review_required {
+        return Vec::new();
+    }
+    let mut args = Vec::new();
+    if let Some(path) = pmb_shell_handoff_review_path {
+        args.push("--pmb-shell-handoff-review-in".to_string());
+        args.push(path.to_string());
+    }
+    args.push("--require-pmb-shell-handoff-review".to_string());
+    args
 }
 
 fn shell_hostess_staging_execution_actions(
@@ -14809,6 +15443,7 @@ fn selected_shell_bundle_files(
 ) -> Vec<String> {
     let mut files = BTreeSet::new();
     files.insert(artifact.descriptor_path.clone());
+    files.insert(shell_manifold_handoff_artifact_path(&artifact.graph_id));
     files.insert(template_entry.descriptor_path.clone());
     files.insert(template_entry.template_path.clone());
     files.insert("shell-artifacts.json".to_string());
@@ -16518,6 +17153,52 @@ mod tests {
         })
     }
 
+    fn projected_motion_shell_handoff_evidence() -> Value {
+        serde_json::json!({
+            "$schema": "rusty.hostess.projected_motion_breath.shell_handoff_validation_evidence.v1",
+            "status": "pass",
+            "package": {
+                "package_id": PROJECTED_MOTION_BREATH_PACKAGE_ID
+            },
+            "execution": {
+                "runtime_execution_performed": false,
+                "platform_execution_performed": false,
+                "broker_transport_used": false,
+                "downstream_shell_runtime_used": false,
+                "legacy_app_dependency_used": false,
+                "legacy_rusty_xr_repo_used": false
+            },
+            "shell_handoff": {
+                "handoff_id": "shell_handoff.projected_motion_breath.loopback",
+                "target_host_profile": "host.headset",
+                "shell_app_id": "app.downstream_shell",
+                "binding_pairs": [
+                    {"stream_id": "stream.motion.object_pose", "direction": "publish"},
+                    {"stream_id": "stream.breath.feedback_state", "direction": "subscribe"},
+                    {"stream_id": "stream.breath.feedback_receipt", "direction": "publish"}
+                ],
+                "command_ids": ["command.breath.status"],
+                "transport_offers": [
+                    {"transport_id": "transport.shell_loopback", "transport": "http"}
+                ]
+            },
+            "package_contract": {
+                "exported_stream_ids": [
+                    "stream.motion.object_pose",
+                    "stream.breath.feedback_state",
+                    "stream.breath.feedback_receipt"
+                ],
+                "feedback_sink_provides_streams": [
+                    "stream.breath.feedback_state",
+                    "stream.breath.feedback_receipt"
+                ]
+            },
+            "scorecard": {
+                "status": "pass"
+            }
+        })
+    }
+
     #[test]
     fn package_evidence_intake_accepts_projected_motion_report() {
         let root = temp_root("package-evidence-intake");
@@ -16610,6 +17291,99 @@ mod tests {
             intake.issue_code.as_deref(),
             Some("studio.issue.package_evidence_source_schema")
         );
+    }
+
+    #[test]
+    fn projected_motion_breath_shell_handoff_review_accepts_hostess_evidence() {
+        let root = temp_root("projected-motion-shell-handoff-review");
+        let evidence_path = root.join("pmb-shell-handoff.json");
+        let evidence = projected_motion_shell_handoff_evidence();
+        save_json(&evidence_path, &evidence).expect("save shell handoff evidence");
+        let loaded = load_projected_motion_breath_shell_handoff_evidence(&evidence_path)
+            .expect("load shell handoff evidence");
+
+        let review = projected_motion_breath_shell_handoff_review_for_evidence(
+            &loaded,
+            Some(&evidence_path),
+        );
+
+        assert_eq!(
+            review.schema_id,
+            PROJECTED_MOTION_BREATH_SHELL_HANDOFF_REVIEW_SCHEMA
+        );
+        assert_eq!(
+            review.status,
+            StudioProjectedMotionBreathShellHandoffReviewStatus::Ready
+        );
+        assert_eq!(review.issue_code, None);
+        assert_eq!(
+            review.target_package_id.as_deref(),
+            Some(PROJECTED_MOTION_BREATH_PACKAGE_ID)
+        );
+        assert_eq!(
+            review.handoff_id.as_deref(),
+            Some("shell_handoff.projected_motion_breath.loopback")
+        );
+        assert_eq!(review.required_binding_count, 3);
+        assert_eq!(review.ready_required_binding_count, 3);
+        assert!(review
+            .stream_bindings
+            .contains(&"stream.breath.feedback_receipt:publish".to_string()));
+        assert!(review
+            .command_ids
+            .contains(&"command.breath.status".to_string()));
+        assert!(review
+            .transport_ids
+            .contains(&"transport.shell_loopback".to_string()));
+        assert!(review.feedback_receipt_exported);
+        assert!(review.feedback_sink_provides_receipt);
+        assert_eq!(review.runtime_authority, "rusty.manifold");
+        assert_eq!(review.authoring_authority, "rusty.studio");
+        assert_eq!(review.platform_validation_authority, "rusty.hostess");
+        assert!(!review.runtime_execution_performed);
+        assert!(!review.platform_execution_performed);
+        assert!(!review.broker_transport_used);
+        assert!(!review.downstream_shell_runtime_used);
+        assert!(!review.legacy_app_dependency_used);
+        assert!(review
+            .prohibited_actions
+            .iter()
+            .any(|action| action == "launch_downstream_shell"));
+        assert!(review
+            .checks
+            .iter()
+            .all(|check| check.status == StudioValidationStatus::Pass));
+    }
+
+    #[test]
+    fn projected_motion_breath_shell_handoff_review_blocks_missing_receipt_binding() {
+        let mut evidence = projected_motion_shell_handoff_evidence();
+        let bindings = evidence["shell_handoff"]["binding_pairs"]
+            .as_array_mut()
+            .expect("binding pairs");
+        bindings.retain(|binding| {
+            binding.get("stream_id").and_then(Value::as_str)
+                != Some("stream.breath.feedback_receipt")
+        });
+
+        let review = projected_motion_breath_shell_handoff_review_for_evidence(
+            &evidence,
+            Some(Path::new("target/pmb-shell-handoff.json")),
+        );
+
+        assert_eq!(
+            review.status,
+            StudioProjectedMotionBreathShellHandoffReviewStatus::Blocked
+        );
+        assert_eq!(review.ready_required_binding_count, 2);
+        assert_eq!(
+            review.issue_code.as_deref(),
+            Some("studio.issue.projected_motion_breath_shell_handoff_required_bindings")
+        );
+        assert!(review.checks.iter().any(|check| {
+            check.check_id == "studio.check.projected_motion_breath_shell_handoff.required_bindings"
+                && check.status == StudioValidationStatus::Fail
+        }));
     }
 
     #[test]
@@ -17657,6 +18431,7 @@ mod tests {
         assert_eq!(
             report.bundle_files,
             vec![
+                "descriptors/studio.graph.test.manifold-shell-handoff.json".to_string(),
                 "descriptors/studio.graph.test.shell-descriptor.json".to_string(),
                 "shell-artifacts.json".to_string(),
                 "shell-templates.json".to_string(),
@@ -17727,11 +18502,32 @@ mod tests {
         assert!(output_dir
             .join("descriptors/studio.graph.test.shell-descriptor.json")
             .is_file());
+        let manifold_handoff_path =
+            output_dir.join("descriptors/studio.graph.test.manifold-shell-handoff.json");
+        assert!(manifold_handoff_path.is_file());
         assert!(output_dir.join("shell-artifacts.json").is_file());
         assert!(output_dir.join("shell-templates.json").is_file());
         assert!(output_dir
             .join("shells/desktop/studio.graph.test.shell-template.json")
             .is_file());
+        let manifold_handoff: Value = serde_json::from_str(
+            &std::fs::read_to_string(&manifold_handoff_path).expect("read Manifold handoff"),
+        )
+        .expect("parse Manifold handoff");
+        assert_eq!(
+            manifold_handoff.get("$schema").and_then(Value::as_str),
+            Some(MANIFOLD_SHELL_HANDOFF_SCHEMA)
+        );
+        assert_eq!(
+            manifold_handoff.get("handoff_id").and_then(Value::as_str),
+            Some("shell_handoff.studio.graph.test")
+        );
+        assert_eq!(
+            manifold_handoff
+                .get("validation_slot_id")
+                .and_then(Value::as_str),
+            Some(DEFAULT_MANIFOLD_SHELL_HANDOFF_VALIDATION_SLOT_ID)
+        );
 
         let manifest =
             load_shell_artifact_manifest(&output_dir.join("shell-artifacts.json")).unwrap();
@@ -21130,6 +21926,10 @@ mod tests {
         assert!(stage_group
             .expected_artifacts
             .iter()
+            .any(|artifact| artifact.artifact_kind == "manifold_shell_handoff"));
+        assert!(stage_group
+            .expected_artifacts
+            .iter()
             .any(|artifact| artifact.artifact_kind == "shell_template_manifest"));
         assert!(stage_group
             .expected_artifacts
@@ -21148,6 +21948,10 @@ mod tests {
             .expected_artifacts
             .iter()
             .any(|artifact| artifact.route_hint.is_some()));
+        assert!(manifold_group.expected_artifacts.iter().any(|artifact| {
+            artifact.artifact_kind == "manifold_shell_handoff"
+                && artifact.route_hint.as_deref() == Some("manifold.shell_handoff_review")
+        }));
         assert!(staging
             .checks
             .iter()
@@ -21180,7 +21984,7 @@ mod tests {
             file_plan.source_artifact_count,
             staging.expected_artifact_count
         );
-        assert_eq!(file_plan.planned_file_count, 14);
+        assert_eq!(file_plan.planned_file_count, 17);
         assert!(file_plan.duplicate_artifact_count > 0);
         assert_eq!(file_plan.request_count, 4);
         assert_eq!(file_plan.ready_request_count, 4);
@@ -21219,6 +22023,7 @@ mod tests {
         for artifact_kind in [
             "shell_bundle_dir",
             "shell_descriptor",
+            "manifold_shell_handoff",
             "shell_template_manifest",
         ] {
             assert!(desktop_request
@@ -21226,6 +22031,15 @@ mod tests {
                 .iter()
                 .any(|file| file.artifact_kind == artifact_kind));
         }
+        assert!(desktop_request.planned_files.iter().any(|file| {
+            file.artifact_kind == "manifold_shell_handoff"
+                && file.destination_path
+                    == "hostess-staging/targets/desktop/studio.graph.test/manifold/studio.graph.test.manifold-shell-handoff.json"
+                && file
+                    .route_hints
+                    .contains(&"manifold.shell_handoff_review".to_string())
+                && file.source_route_kinds.len() > 1
+        }));
         assert!(file_plan.requests.iter().all(|request| {
             request.owner == "rusty.hostess"
                 && request.planned_file_count == request.planned_files.len()
@@ -21304,7 +22118,7 @@ mod tests {
             .iter()
             .any(
                 |summary| summary.target_kind == Some(StudioShellTargetKind::Desktop)
-                    && summary.planned_file_count == 3
+                    && summary.planned_file_count == 4
             ));
         assert!(envelope.owner_instructions.iter().any(|instruction| {
             instruction.instruction_id == "hostess.copy_staging_files"
@@ -21976,6 +22790,12 @@ mod tests {
         assert_eq!(execution_request.adapter_action_count, 6);
         assert_eq!(execution_request.ready_adapter_action_count, 6);
         assert_eq!(execution_request.blocked_adapter_action_count, 0);
+        assert!(!execution_request.pmb_shell_handoff_review_required);
+        assert_eq!(execution_request.pmb_shell_handoff_review_path, None);
+        assert!(!execution_request.pmb_shell_handoff_review_ready);
+        assert!(execution_request
+            .hostess_operator_start_preflight_cli_args
+            .is_empty());
         assert!(execution_request.actions.iter().all(|action| {
             action.status == StudioShellHostessStagingExecutionActionStatus::Ready
                 && action.ack_required
@@ -22013,6 +22833,102 @@ mod tests {
             StudioShellHostessStagingExecutionRejectStatus::Pending
         );
         assert!(!execution_request.reject_template.execution_in_studio);
+
+        let pmb_review_path = root.join("target/pmb-shell-handoff.studio-review.json");
+        let pmb_review = projected_motion_breath_shell_handoff_review_for_evidence(
+            &projected_motion_shell_handoff_evidence(),
+            Some(&pmb_review_path),
+        );
+        let gated_execution_request =
+            shell_hostess_staging_execution_request_for_acceptance_index_entry_with_pmb_review(
+                &index,
+                Some(&index_path),
+                ready_index_entry,
+                Some(&ready_manifest_path),
+                &ready_acceptance,
+                &staging_acceptance,
+                Some(&handoff_path),
+                &envelope,
+                Some(&pmb_review_path),
+                Some(&pmb_review),
+                true,
+            );
+        assert_eq!(
+            gated_execution_request.status,
+            StudioShellHostessStagingExecutionRequestStatus::Ready
+        );
+        assert!(gated_execution_request.pmb_shell_handoff_review_required);
+        assert!(gated_execution_request.pmb_shell_handoff_review_ready);
+        assert_eq!(
+            gated_execution_request
+                .pmb_shell_handoff_review_path
+                .as_deref(),
+            Some(pmb_review_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            gated_execution_request
+                .source_pmb_shell_handoff_review_schema
+                .as_deref(),
+            Some(PROJECTED_MOTION_BREATH_SHELL_HANDOFF_REVIEW_SCHEMA)
+        );
+        assert_eq!(
+            gated_execution_request.source_pmb_shell_handoff_review_status,
+            Some(StudioProjectedMotionBreathShellHandoffReviewStatus::Ready)
+        );
+        assert_eq!(
+            gated_execution_request
+                .source_pmb_shell_handoff_id
+                .as_deref(),
+            Some("shell_handoff.projected_motion_breath.loopback")
+        );
+        assert_eq!(
+            gated_execution_request.hostess_operator_start_preflight_cli_args,
+            vec![
+                "--pmb-shell-handoff-review-in".to_string(),
+                pmb_review_path.display().to_string(),
+                "--require-pmb-shell-handoff-review".to_string(),
+            ]
+        );
+        assert!(gated_execution_request.checks.iter().any(|check| {
+            check.check_id
+                == "studio.check.shell_hostess_staging_execution_request.pmb_shell_handoff_review"
+                && check.status == StudioValidationStatus::Pass
+        }));
+
+        let missing_pmb_execution_request =
+            shell_hostess_staging_execution_request_for_acceptance_index_entry_with_pmb_review(
+                &index,
+                Some(&index_path),
+                ready_index_entry,
+                Some(&ready_manifest_path),
+                &ready_acceptance,
+                &staging_acceptance,
+                Some(&handoff_path),
+                &envelope,
+                None,
+                None,
+                true,
+            );
+        assert_eq!(
+            missing_pmb_execution_request.status,
+            StudioShellHostessStagingExecutionRequestStatus::Blocked
+        );
+        assert_eq!(
+            missing_pmb_execution_request.issue_code.as_deref(),
+            Some("studio.issue.projected_motion_breath_shell_handoff_review_missing")
+        );
+        assert!(missing_pmb_execution_request.pmb_shell_handoff_review_required);
+        assert!(!missing_pmb_execution_request.pmb_shell_handoff_review_ready);
+        assert_eq!(
+            missing_pmb_execution_request.hostess_operator_start_preflight_cli_args,
+            vec!["--require-pmb-shell-handoff-review".to_string()]
+        );
+        assert_eq!(missing_pmb_execution_request.ready_adapter_action_count, 0);
+        assert!(missing_pmb_execution_request.checks.iter().any(|check| {
+            check.check_id
+                == "studio.check.shell_hostess_staging_execution_request.pmb_shell_handoff_review"
+                && check.status == StudioValidationStatus::Fail
+        }));
 
         let changed_execution_request =
             shell_hostess_staging_execution_request_for_acceptance_index_entry(

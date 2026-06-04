@@ -17,6 +17,8 @@ use rusty_studio_core::{
     load_package_evidence_intake_report, load_project,
     load_projected_motion_breath_adapter_normalization_case_document,
     load_projected_motion_breath_authoring_review_report,
+    load_projected_motion_breath_shell_handoff_evidence,
+    load_projected_motion_breath_shell_handoff_review_report,
     load_projected_motion_breath_source_adapter_descriptors,
     load_projected_motion_breath_source_adapter_selection_review_report,
     load_projected_motion_breath_source_binding_document, load_shell_artifact_manifest,
@@ -33,6 +35,7 @@ use rusty_studio_core::{
     load_shell_template_index, package_evidence_intake_for_validation_report,
     projected_motion_breath_adapter_normalization_evidence_review_for_selection,
     projected_motion_breath_authoring_review_for_intake,
+    projected_motion_breath_shell_handoff_review_for_evidence,
     projected_motion_breath_source_adapter_selection_review_for_authoring,
     promote_shell_export_package_baseline_index_default,
     promote_shell_handoff_acceptance_baseline_index_default,
@@ -55,7 +58,7 @@ use rusty_studio_core::{
     shell_hostess_staging_acceptance_checklist_for_handoff,
     shell_hostess_staging_acceptance_index_for_manifests,
     shell_hostess_staging_acceptance_manifest_for_checklist,
-    shell_hostess_staging_execution_request_for_acceptance_index_entry,
+    shell_hostess_staging_execution_request_for_acceptance_index_entry_with_pmb_review,
     shell_hostess_staging_file_plan_for_preview,
     shell_hostess_staging_handoff_envelope_for_file_plan,
     shell_hostess_staging_preview_for_owner_intake, shell_release_candidate_review_for_manifest,
@@ -153,6 +156,7 @@ enum Command {
     ProjectedMotionBreathAdapterNormalizationEvidenceReview(
         ProjectedMotionBreathAdapterNormalizationEvidenceReviewArgs,
     ),
+    ProjectedMotionBreathShellHandoffReview(ProjectedMotionBreathShellHandoffReviewArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -749,6 +753,10 @@ struct ShellHostessStagingExecutionRequestArgs {
     #[arg(long)]
     acceptance_id: Option<String>,
     #[arg(long)]
+    pmb_shell_handoff_review: Option<PathBuf>,
+    #[arg(long)]
+    require_pmb_shell_handoff_review: bool,
+    #[arg(long)]
     output: Option<PathBuf>,
 }
 
@@ -794,6 +802,14 @@ struct ProjectedMotionBreathAdapterNormalizationEvidenceReviewArgs {
     source_binding: PathBuf,
     #[arg(long)]
     normalization_case: PathBuf,
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct ProjectedMotionBreathShellHandoffReviewArgs {
+    #[arg(long)]
+    evidence: PathBuf,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -1947,16 +1963,34 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     )
                 })?;
             let handoff = load_shell_hostess_staging_handoff_envelope(&handoff_path)?;
-            let report = shell_hostess_staging_execution_request_for_acceptance_index_entry(
-                &acceptance_index,
-                Some(&args.acceptance_index),
-                acceptance_index_entry,
-                Some(&acceptance_manifest_path),
-                &acceptance,
-                &checklist,
-                Some(&handoff_path),
-                &handoff,
-            );
+            let pmb_shell_handoff_review_path = args
+                .pmb_shell_handoff_review
+                .clone()
+                .or_else(|| default_pmb_shell_handoff_review_path(&args.acceptance_index));
+            let pmb_shell_handoff_review_path = match pmb_shell_handoff_review_path {
+                Some(path) => Some(canonical_existing_path(&path)?),
+                None => None,
+            };
+            let pmb_shell_handoff_review = pmb_shell_handoff_review_path
+                .as_ref()
+                .map(|path| load_projected_motion_breath_shell_handoff_review_report(path))
+                .transpose()?;
+            let pmb_shell_handoff_review_required =
+                args.require_pmb_shell_handoff_review || pmb_shell_handoff_review_path.is_some();
+            let report =
+                shell_hostess_staging_execution_request_for_acceptance_index_entry_with_pmb_review(
+                    &acceptance_index,
+                    Some(&args.acceptance_index),
+                    acceptance_index_entry,
+                    Some(&acceptance_manifest_path),
+                    &acceptance,
+                    &checklist,
+                    Some(&handoff_path),
+                    &handoff,
+                    pmb_shell_handoff_review_path.as_deref(),
+                    pmb_shell_handoff_review.as_ref(),
+                    pmb_shell_handoff_review_required,
+                );
             if let Some(output) = args.output.as_ref() {
                 save_json(output, &report)?;
             }
@@ -2038,7 +2072,41 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
+        Command::ProjectedMotionBreathShellHandoffReview(args) => {
+            let evidence = load_projected_motion_breath_shell_handoff_evidence(&args.evidence)?;
+            let report = projected_motion_breath_shell_handoff_review_for_evidence(
+                &evidence,
+                Some(&args.evidence),
+            );
+            if let Some(output) = args.output.as_ref() {
+                save_json(output, &report)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
     }
+}
+
+fn default_pmb_shell_handoff_review_path(acceptance_index_path: &Path) -> Option<PathBuf> {
+    let index_parent = acceptance_index_path.parent();
+    let current_dir = std::env::current_dir().ok();
+    let mut candidates = Vec::new();
+    if let Some(parent) = index_parent {
+        candidates.push(parent.join("pmb-shell-handoff.studio-review.json"));
+        candidates.push(parent.join("../pmb-shell-handoff.studio-review.json"));
+        candidates.push(parent.join("../../pmb-shell-handoff.studio-review.json"));
+        candidates.push(parent.join("target/pmb-shell-handoff.studio-review.json"));
+    }
+    if let Some(current_dir) = current_dir.as_ref() {
+        candidates.push(current_dir.join("target/pmb-shell-handoff.studio-review.json"));
+        candidates.push(current_dir.join("../../target/pmb-shell-handoff.studio-review.json"));
+        candidates.push(current_dir.join("../../../target/pmb-shell-handoff.studio-review.json"));
+    }
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+fn canonical_existing_path(path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    Ok(std::fs::canonicalize(path)?)
 }
 
 fn relative_output_path(output_dir: &Path, relative_path: &str) -> PathBuf {

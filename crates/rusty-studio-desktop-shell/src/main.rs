@@ -2,14 +2,16 @@ pub use makepad_widgets;
 
 use makepad_widgets::*;
 use rusty_studio_core::{
-    load_shell_artifact_manifest, load_shell_descriptor, load_shell_template_index,
-    load_shell_template_manifest, validate_shell_artifact_manifest, validate_shell_descriptor,
-    validate_shell_template_index,
+    load_projected_motion_breath_shell_handoff_review_report, load_shell_artifact_manifest,
+    load_shell_descriptor, load_shell_template_index, load_shell_template_manifest,
+    validate_shell_artifact_manifest, validate_shell_descriptor, validate_shell_template_index,
 };
 use rusty_studio_model::{
-    StudioShellArtifact, StudioShellArtifactManifest, StudioShellBinding, StudioShellDescriptor,
-    StudioShellTargetKind, StudioShellTemplateIndex, StudioShellTemplateIndexEntry,
-    StudioShellTemplateManifest, StudioValidationStatus,
+    StudioProjectedMotionBreathShellHandoffReviewReport,
+    StudioProjectedMotionBreathShellHandoffReviewStatus, StudioShellArtifact,
+    StudioShellArtifactManifest, StudioShellBinding, StudioShellDescriptor, StudioShellTargetKind,
+    StudioShellTemplateIndex, StudioShellTemplateIndexEntry, StudioShellTemplateManifest,
+    StudioValidationStatus,
 };
 use std::path::{Path, PathBuf};
 
@@ -125,6 +127,14 @@ script_mod! {
         Row{FieldLabel{text: "boundary"} authority_note := SmallValue{text: ""}}
     }
 
+    let PmbShellHandoffPanel = Panel{
+        SectionTitle{text: "PMB Shell Handoff"}
+        Row{FieldLabel{text: "review"} pmb_handoff_source := SmallValue{text: ""}}
+        Row{FieldLabel{text: "status"} pmb_handoff_status := FieldValue{text: ""}}
+        Row{FieldLabel{text: "bindings"} pmb_handoff_bindings := SmallValue{text: ""}}
+        Row{FieldLabel{text: "authority"} pmb_handoff_authority := SmallValue{text: ""}}
+    }
+
     startup() do #(App::script_component(vm)){
         ui: Root{
             main_window := Window{
@@ -175,6 +185,7 @@ script_mod! {
                         DescriptorPanel{}
                         HostPanel{}
                         PackagePanel{}
+                        PmbShellHandoffPanel{}
                         AuthorityPanel{}
                     }
                 }
@@ -201,6 +212,10 @@ pub struct App {
     descriptor_source: Option<PathBuf>,
     #[rust]
     descriptor: Option<StudioShellDescriptor>,
+    #[rust]
+    pmb_handoff_review_source: Option<PathBuf>,
+    #[rust]
+    pmb_handoff_review: Option<StudioProjectedMotionBreathShellHandoffReviewReport>,
 }
 
 impl App {
@@ -219,6 +234,8 @@ impl App {
         self.template_manifest = input.template_manifest;
         self.descriptor_source = Some(input.descriptor_source);
         self.descriptor = Some(input.descriptor);
+        self.pmb_handoff_review_source = input.pmb_handoff_review_source;
+        self.pmb_handoff_review = input.pmb_handoff_review;
         self.sync_loaded_descriptor(cx);
     }
 
@@ -269,10 +286,44 @@ impl App {
         self.ui
             .label(cx, ids!(command_bindings))
             .set_text(cx, &binding_lines(&descriptor.command_bindings));
+        self.sync_pmb_shell_handoff_review(cx);
         self.ui.label(cx, ids!(authority_note)).set_text(
             cx,
             "This shell consumes a Studio descriptor. Manifold and Hostess own runtime authority, command sessions, launch, and evidence.",
         );
+    }
+
+    fn sync_pmb_shell_handoff_review(&mut self, cx: &mut Cx) {
+        if let (Some(source), Some(review)) = (
+            self.pmb_handoff_review_source.as_ref(),
+            self.pmb_handoff_review.as_ref(),
+        ) {
+            self.ui
+                .label(cx, ids!(pmb_handoff_source))
+                .set_text(cx, &source.display().to_string());
+            self.ui
+                .label(cx, ids!(pmb_handoff_status))
+                .set_text(cx, &pmb_handoff_status_line(review));
+            self.ui
+                .label(cx, ids!(pmb_handoff_bindings))
+                .set_text(cx, &pmb_handoff_binding_lines(review));
+            self.ui
+                .label(cx, ids!(pmb_handoff_authority))
+                .set_text(cx, &pmb_handoff_authority_line(review));
+        } else {
+            self.ui
+                .label(cx, ids!(pmb_handoff_source))
+                .set_text(cx, "not supplied");
+            self.ui
+                .label(cx, ids!(pmb_handoff_status))
+                .set_text(cx, "not reviewed");
+            self.ui
+                .label(cx, ids!(pmb_handoff_bindings))
+                .set_text(cx, "");
+            self.ui
+                .label(cx, ids!(pmb_handoff_authority))
+                .set_text(cx, "");
+        }
     }
 
     fn sync_manifest(&mut self, cx: &mut Cx) {
@@ -380,6 +431,14 @@ impl App {
             .set_text(cx, "");
         self.ui.label(cx, ids!(stream_bindings)).set_text(cx, "");
         self.ui.label(cx, ids!(command_bindings)).set_text(cx, "");
+        self.ui.label(cx, ids!(pmb_handoff_source)).set_text(cx, "");
+        self.ui.label(cx, ids!(pmb_handoff_status)).set_text(cx, "");
+        self.ui
+            .label(cx, ids!(pmb_handoff_bindings))
+            .set_text(cx, "");
+        self.ui
+            .label(cx, ids!(pmb_handoff_authority))
+            .set_text(cx, "");
         self.ui.label(cx, ids!(authority_note)).set_text(cx, "");
     }
 }
@@ -410,18 +469,24 @@ struct LoadedShellInput {
     template_manifest: Option<StudioShellTemplateManifest>,
     descriptor_source: PathBuf,
     descriptor: StudioShellDescriptor,
+    pmb_handoff_review_source: Option<PathBuf>,
+    pmb_handoff_review: Option<StudioProjectedMotionBreathShellHandoffReviewReport>,
 }
 
 fn load_initial_shell_input() -> Result<LoadedShellInput, String> {
     if let Some(template_index_path) = template_index_path_from_args() {
-        return load_shell_input_from_template_index(&template_index_path);
+        return attach_optional_pmb_shell_handoff_review(load_shell_input_from_template_index(
+            &template_index_path,
+        )?);
     }
     if let Some(manifest_path) = manifest_path_from_args() {
-        return load_shell_input_from_manifest(&manifest_path);
+        return attach_optional_pmb_shell_handoff_review(load_shell_input_from_manifest(
+            &manifest_path,
+        )?);
     }
     if let Some(descriptor_path) = descriptor_path_from_args() {
         let descriptor = load_descriptor_for_path(&descriptor_path)?;
-        return Ok(LoadedShellInput {
+        return attach_optional_pmb_shell_handoff_review(LoadedShellInput {
             manifest_source: None,
             manifest: None,
             template_index_source: None,
@@ -429,20 +494,26 @@ fn load_initial_shell_input() -> Result<LoadedShellInput, String> {
             template_manifest: None,
             descriptor_source: descriptor_path,
             descriptor,
+            pmb_handoff_review_source: None,
+            pmb_handoff_review: None,
         });
     }
     if let Some(template_index_path) = find_default_template_index_path() {
-        return load_shell_input_from_template_index(&template_index_path);
+        return attach_optional_pmb_shell_handoff_review(load_shell_input_from_template_index(
+            &template_index_path,
+        )?);
     }
     if let Some(manifest_path) = find_default_manifest_path() {
-        return load_shell_input_from_manifest(&manifest_path);
+        return attach_optional_pmb_shell_handoff_review(load_shell_input_from_manifest(
+            &manifest_path,
+        )?);
     }
     let descriptor_path = find_default_descriptor_path().ok_or_else(|| {
         "no descriptor or artifact manifest path supplied and no default shell input was found"
             .to_string()
     })?;
     let descriptor = load_descriptor_for_path(&descriptor_path)?;
-    Ok(LoadedShellInput {
+    attach_optional_pmb_shell_handoff_review(LoadedShellInput {
         manifest_source: None,
         manifest: None,
         template_index_source: None,
@@ -450,6 +521,8 @@ fn load_initial_shell_input() -> Result<LoadedShellInput, String> {
         template_manifest: None,
         descriptor_source: descriptor_path,
         descriptor,
+        pmb_handoff_review_source: None,
+        pmb_handoff_review: None,
     })
 }
 
@@ -467,6 +540,10 @@ fn manifest_path_from_args() -> Option<PathBuf> {
 
 fn template_index_path_from_args() -> Option<PathBuf> {
     path_from_args("--templates")
+}
+
+fn pmb_shell_handoff_review_path_from_args() -> Option<PathBuf> {
+    path_from_args("--pmb-shell-handoff-review")
 }
 
 fn path_from_args(flag: &str) -> Option<PathBuf> {
@@ -509,6 +586,30 @@ fn find_default_template_index_path() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
+fn find_default_pmb_shell_handoff_review_path() -> Option<PathBuf> {
+    let current_dir = std::env::current_dir().ok()?;
+    let candidates = [
+        current_dir.join("target/pmb-shell-handoff.studio-review.json"),
+        current_dir.join("../../target/pmb-shell-handoff.studio-review.json"),
+        current_dir.join("../../../target/pmb-shell-handoff.studio-review.json"),
+    ];
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+fn attach_optional_pmb_shell_handoff_review(
+    mut input: LoadedShellInput,
+) -> Result<LoadedShellInput, String> {
+    let review_path = pmb_shell_handoff_review_path_from_args()
+        .or_else(find_default_pmb_shell_handoff_review_path);
+    if let Some(review_path) = review_path {
+        let review = load_projected_motion_breath_shell_handoff_review_report(&review_path)
+            .map_err(|error| error.to_string())?;
+        input.pmb_handoff_review_source = Some(review_path);
+        input.pmb_handoff_review = Some(review);
+    }
+    Ok(input)
+}
+
 fn load_shell_input_from_manifest(path: &Path) -> Result<LoadedShellInput, String> {
     let manifest = load_shell_artifact_manifest(path).map_err(|error| error.to_string())?;
     let validation = validate_shell_artifact_manifest(&manifest, path.parent());
@@ -527,6 +628,8 @@ fn load_shell_input_from_manifest(path: &Path) -> Result<LoadedShellInput, Strin
         template_manifest: None,
         descriptor_source,
         descriptor,
+        pmb_handoff_review_source: None,
+        pmb_handoff_review: None,
     })
 }
 
@@ -551,6 +654,8 @@ fn load_shell_input_from_template_index(path: &Path) -> Result<LoadedShellInput,
         template_manifest: Some(template_manifest),
         descriptor_source,
         descriptor,
+        pmb_handoff_review_source: None,
+        pmb_handoff_review: None,
     })
 }
 
@@ -712,6 +817,71 @@ fn template_authority_line(template: Option<&StudioShellTemplateManifest>) -> St
     )
 }
 
+fn pmb_handoff_status_line(review: &StudioProjectedMotionBreathShellHandoffReviewReport) -> String {
+    format!(
+        "{}; required bindings {}/{}; proposal {}",
+        pmb_handoff_status_word(review.status),
+        review.ready_required_binding_count,
+        review.required_binding_count,
+        review.proposal_kind
+    )
+}
+
+fn pmb_handoff_binding_lines(
+    review: &StudioProjectedMotionBreathShellHandoffReviewReport,
+) -> String {
+    let bindings = if review.stream_bindings.is_empty() {
+        "bindings: none".to_string()
+    } else {
+        format!("bindings:\n{}", review.stream_bindings.join("\n"))
+    };
+    let commands = if review.command_ids.is_empty() {
+        "commands: none".to_string()
+    } else {
+        format!("commands:\n{}", review.command_ids.join("\n"))
+    };
+    let transports = if review.transport_ids.is_empty() {
+        "transports: none".to_string()
+    } else {
+        format!("transports:\n{}", review.transport_ids.join("\n"))
+    };
+    format!("{bindings}\n{commands}\n{transports}")
+}
+
+fn pmb_handoff_authority_line(
+    review: &StudioProjectedMotionBreathShellHandoffReviewReport,
+) -> String {
+    format!(
+        "runtime: {}\nauthoring: {}\nplatform validation: {}\nexecuted runtime/platform: {}/{}\nbroker transport: {}\ndownstream shell runtime: {}\nlegacy app dependency: {}",
+        review.runtime_authority,
+        review.authoring_authority,
+        review.platform_validation_authority,
+        yes_no(review.runtime_execution_performed),
+        yes_no(review.platform_execution_performed),
+        yes_no(review.broker_transport_used),
+        yes_no(review.downstream_shell_runtime_used),
+        yes_no(review.legacy_app_dependency_used)
+    )
+}
+
+fn pmb_handoff_status_word(
+    status: StudioProjectedMotionBreathShellHandoffReviewStatus,
+) -> &'static str {
+    match status {
+        StudioProjectedMotionBreathShellHandoffReviewStatus::Ready => "ready",
+        StudioProjectedMotionBreathShellHandoffReviewStatus::Blocked => "blocked",
+        StudioProjectedMotionBreathShellHandoffReviewStatus::Rejected => "rejected",
+    }
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value {
+        "yes"
+    } else {
+        "no"
+    }
+}
+
 fn artifact_lines(artifacts: &[StudioShellArtifact]) -> String {
     if artifacts.is_empty() {
         return "none".to_string();
@@ -805,7 +975,8 @@ mod tests {
     use super::*;
     use rusty_studio_model::{
         StudioShellArtifact, StudioShellHostProfile, StudioShellHostRoutes,
-        StudioShellRuntimeAuthority, StudioShellTemplateIndexEntry, SHELL_ARTIFACT_MANIFEST_SCHEMA,
+        StudioShellRuntimeAuthority, StudioShellTemplateIndexEntry, StudioValidationCheck,
+        PROJECTED_MOTION_BREATH_SHELL_HANDOFF_REVIEW_SCHEMA, SHELL_ARTIFACT_MANIFEST_SCHEMA,
         SHELL_DESCRIPTOR_SCHEMA, SHELL_TEMPLATE_INDEX_SCHEMA, SHELL_TEMPLATE_MANIFEST_SCHEMA,
     };
 
@@ -944,6 +1115,72 @@ mod tests {
         }
     }
 
+    fn sample_pmb_handoff_review(
+        status: StudioProjectedMotionBreathShellHandoffReviewStatus,
+    ) -> StudioProjectedMotionBreathShellHandoffReviewReport {
+        StudioProjectedMotionBreathShellHandoffReviewReport {
+            schema_id: PROJECTED_MOTION_BREATH_SHELL_HANDOFF_REVIEW_SCHEMA.to_string(),
+            source_evidence_schema: Some(
+                "rusty.hostess.projected_motion_breath.shell_handoff_validation_evidence.v1"
+                    .to_string(),
+            ),
+            source_evidence_path: Some("target/pmb-shell-handoff.json".to_string()),
+            target_package_id: Some("package.projected_motion_breath".to_string()),
+            handoff_id: Some("shell_handoff.projected_motion_breath.loopback".to_string()),
+            target_host_profile: Some("host.headset".to_string()),
+            shell_app_id: Some("app.downstream_shell".to_string()),
+            status,
+            issue_code: (status != StudioProjectedMotionBreathShellHandoffReviewStatus::Ready)
+                .then(|| {
+                    "studio.issue.projected_motion_breath_shell_handoff_required_bindings"
+                        .to_string()
+                }),
+            execution_policy: "not_executed.review_only".to_string(),
+            runtime_authority: "rusty.manifold".to_string(),
+            authoring_authority: "rusty.studio".to_string(),
+            platform_validation_authority: "rusty.hostess".to_string(),
+            runtime_execution_performed: false,
+            platform_execution_performed: false,
+            broker_transport_used: false,
+            downstream_shell_runtime_used: false,
+            legacy_app_dependency_used: false,
+            required_binding_count: 3,
+            ready_required_binding_count: if status
+                == StudioProjectedMotionBreathShellHandoffReviewStatus::Ready
+            {
+                3
+            } else {
+                2
+            },
+            stream_bindings: vec![
+                "stream.motion.object_pose:publish".to_string(),
+                "stream.breath.feedback_state:subscribe".to_string(),
+                "stream.breath.feedback_receipt:publish".to_string(),
+            ],
+            command_ids: vec!["command.breath.status".to_string()],
+            transport_ids: vec!["transport.shell_loopback".to_string()],
+            feedback_receipt_exported: true,
+            feedback_sink_provides_receipt: true,
+            proposal_kind: "review_shell_handoff_for_hostess_owner_execution".to_string(),
+            prohibited_actions: vec!["launch_downstream_shell".to_string()],
+            checks: vec![StudioValidationCheck {
+                check_id: "studio.check.projected_motion_breath_shell_handoff.required_bindings"
+                    .to_string(),
+                status: if status == StudioProjectedMotionBreathShellHandoffReviewStatus::Ready {
+                    StudioValidationStatus::Pass
+                } else {
+                    StudioValidationStatus::Fail
+                },
+                evidence: "required bindings checked".to_string(),
+                issue_code: None,
+                graph_id: None,
+                node_ids: Vec::new(),
+                edge_ids: Vec::new(),
+                reference_ids: Vec::new(),
+            }],
+        }
+    }
+
     #[test]
     fn descriptor_helpers_surface_pass_validation() {
         let descriptor = sample_descriptor();
@@ -993,5 +1230,35 @@ mod tests {
         assert!(template_index_identity_line(&index).contains("studio.project.test rev 1"));
         assert!(authority.contains("command/session: rusty.manifold"));
         assert!(authority.contains("install/launch/evidence: rusty.hostess"));
+    }
+
+    #[test]
+    fn pmb_shell_handoff_review_helpers_surface_ready_boundary() {
+        let review =
+            sample_pmb_handoff_review(StudioProjectedMotionBreathShellHandoffReviewStatus::Ready);
+
+        let status = pmb_handoff_status_line(&review);
+        let bindings = pmb_handoff_binding_lines(&review);
+        let authority = pmb_handoff_authority_line(&review);
+
+        assert!(status.starts_with("ready; required bindings 3/3"));
+        assert!(bindings.contains("stream.breath.feedback_receipt:publish"));
+        assert!(bindings.contains("command.breath.status"));
+        assert!(bindings.contains("transport.shell_loopback"));
+        assert!(authority.contains("runtime: rusty.manifold"));
+        assert!(authority.contains("platform validation: rusty.hostess"));
+        assert!(authority.contains("legacy app dependency: no"));
+        assert_eq!(pmb_handoff_status_word(review.status), "ready");
+    }
+
+    #[test]
+    fn pmb_shell_handoff_review_helpers_surface_blocked_boundary() {
+        let review =
+            sample_pmb_handoff_review(StudioProjectedMotionBreathShellHandoffReviewStatus::Blocked);
+
+        let status = pmb_handoff_status_line(&review);
+
+        assert!(status.starts_with("blocked; required bindings 2/3"));
+        assert_eq!(pmb_handoff_status_word(review.status), "blocked");
     }
 }

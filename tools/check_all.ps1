@@ -131,6 +131,8 @@ try {
     $ProjectedMotionSourceBindingCliPath = "target\studio-package-evidence\source-binding-synthetic.json"
     $ProjectedMotionAdapterNormalizationCaseCliPath = "target\studio-package-evidence\adapter-normalization-external-patch-vector.json"
     $ProjectedMotionAdapterNormalizationReviewCliPath = "target\studio-package-evidence\adapter-normalization-evidence-review.json"
+    $ProjectedMotionShellHandoffEvidenceCliPath = "target\pmb-shell-handoff.json"
+    $ProjectedMotionShellHandoffReviewCliPath = "target\pmb-shell-handoff.studio-review.json"
     $PackageEvidenceReportPath = Join-Path $RepoRoot $PackageEvidenceReportCliPath
     $PackageEvidenceIntakePath = Join-Path $RepoRoot $PackageEvidenceIntakeCliPath
     $ProjectedMotionProfilePath = Join-Path $RepoRoot $ProjectedMotionProfileCliPath
@@ -140,6 +142,8 @@ try {
     $ProjectedMotionSourceBindingPath = Join-Path $RepoRoot $ProjectedMotionSourceBindingCliPath
     $ProjectedMotionAdapterNormalizationCasePath = Join-Path $RepoRoot $ProjectedMotionAdapterNormalizationCaseCliPath
     $ProjectedMotionAdapterNormalizationReviewPath = Join-Path $RepoRoot $ProjectedMotionAdapterNormalizationReviewCliPath
+    $ProjectedMotionShellHandoffEvidencePath = Join-Path $RepoRoot $ProjectedMotionShellHandoffEvidenceCliPath
+    $ProjectedMotionShellHandoffReviewPath = Join-Path $RepoRoot $ProjectedMotionShellHandoffReviewCliPath
     $MissingShellBundleRoot = Join-Path $RepoRoot "target\studio-missing-selected-shell"
     $MissingShellHandoffManifestPath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoffs-missing-bundles.json"
     $MissingShellHandoffIntakePath = Join-Path $RepoRoot "target\studio-shell-handoffs\shell-handoff-intake-missing-bundles.json"
@@ -151,7 +155,7 @@ try {
     $SelectedPhoneShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_phone"
     $SelectedQuestShellBundleDir = Join-Path $SelectedShellBundleRoot "studio.graph.synthetic_wave_headset"
     New-Item -ItemType Directory -Path (Split-Path $EditOutput) -Force | Out-Null
-    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $ShellHostessHandoffPackagePath, $ShellHostessOwnerIntakePath, $ShellHostessStagingPreviewPath, $ShellHostessStagingFilePlanPath, $ShellHostessStagingHandoffPath, $ShellHostessStagingAcceptancePath, $ShellHostessStagingAcceptanceManifestPath, $ShellHostessStagingAcceptanceArchiveManifestPath, $ShellHostessStagingAcceptanceIndexPath, $ShellHostessStagingAcceptanceSelectionPath, $ShellHostessStagingAcceptanceMultiIndexPath, $ShellHostessStagingAcceptancePromotedIndexPath, $ShellHostessStagingAcceptanceComparisonPath, $ShellHostessStagingAcceptanceRouteDriftPath, $ShellHostessStagingAcceptanceRouteDriftComparisonPath, $ShellHostessStagingExecutionRequestPath, $PackageEvidenceReportPath, $PackageEvidenceIntakePath, $ProjectedMotionProfilePath, $ProjectedMotionAuthoringReviewPath, $ProjectedMotionSourceDescriptorsPath, $ProjectedMotionSourceSelectionPath, $ProjectedMotionSourceBindingPath, $ProjectedMotionAdapterNormalizationCasePath, $ProjectedMotionAdapterNormalizationReviewPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
+    foreach ($GeneratedOutput in @($EditOutput, $DiagnosticProjectOutput, $LayoutDiagnosticProjectOutput, $AddModuleOutput, $AddPaletteModuleOutput, $AddSelectedPackageModuleOutput, $RemoveModuleOutput, $AddBindingOutput, $RemoveBindingOutput, $ShellOutput, $ShellHandoffManifestPath, $ShellHandoffIntakePath, $ShellRunbookPath, $ShellExportPackagePath, $DamagedShellHandoffManifestPath, $DamagedShellExportPackagePath, $DamagedTemplateShellHandoffManifestPath, $DamagedTemplateShellExportPackagePath, $ShellExportPackageComparisonPath, $RegressedShellExportPackageComparisonPath, $ShellExportPackageBaselinePath, $ShellExportPackageBaselineIndexPath, $ShellExportPackageBaselineSelectionPath, $ShellExportPackageIndexComparisonPath, $DamagedTemplateShellExportPackageBaselinePath, $ShellExportPackageMultiBaselineIndexPath, $ShellExportPackagePromotedBaselineIndexPath, $ShellHandoffAcceptanceChecklistPath, $ShellHandoffAcceptanceSnapshotPath, $ShellHandoffAcceptanceSummaryPath, $ShellHandoffAcceptanceBaselinePath, $ShellHandoffAcceptanceBaselineIndexPath, $ShellHandoffAcceptanceBaselineSelectionPath, $ShellHandoffAcceptanceMultiBaselineIndexPath, $ShellHandoffAcceptancePromotedBaselineIndexPath, $ShellHandoffAcceptanceComparisonPath, $ShellReleaseCandidateReviewPath, $ShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewIndexPath, $ShellReleaseCandidateReviewSelectionPath, $RegressedShellReleaseCandidateReviewPath, $RegressedShellReleaseCandidateReviewManifestPath, $ShellReleaseCandidateReviewMultiIndexPath, $ShellReleaseCandidateReviewPromotedIndexPath, $ShellHostessHandoffPackagePath, $ShellHostessOwnerIntakePath, $ShellHostessStagingPreviewPath, $ShellHostessStagingFilePlanPath, $ShellHostessStagingHandoffPath, $ShellHostessStagingAcceptancePath, $ShellHostessStagingAcceptanceManifestPath, $ShellHostessStagingAcceptanceArchiveManifestPath, $ShellHostessStagingAcceptanceIndexPath, $ShellHostessStagingAcceptanceSelectionPath, $ShellHostessStagingAcceptanceMultiIndexPath, $ShellHostessStagingAcceptancePromotedIndexPath, $ShellHostessStagingAcceptanceComparisonPath, $ShellHostessStagingAcceptanceRouteDriftPath, $ShellHostessStagingAcceptanceRouteDriftComparisonPath, $ShellHostessStagingExecutionRequestPath, $PackageEvidenceReportPath, $PackageEvidenceIntakePath, $ProjectedMotionProfilePath, $ProjectedMotionAuthoringReviewPath, $ProjectedMotionSourceDescriptorsPath, $ProjectedMotionSourceSelectionPath, $ProjectedMotionSourceBindingPath, $ProjectedMotionAdapterNormalizationCasePath, $ProjectedMotionAdapterNormalizationReviewPath, $ProjectedMotionShellHandoffEvidencePath, $ProjectedMotionShellHandoffReviewPath, $MissingShellHandoffManifestPath, $MissingShellHandoffIntakePath, $MissingShellHandoffAcceptanceChecklistPath, $MissingShellHandoffAcceptanceBaselinePath, $InvalidShellHandoffManifestPath, $InvalidShellHandoffIntakePath)) {
         if (Test-Path $GeneratedOutput) {
             Remove-Item -LiteralPath $GeneratedOutput
         }
@@ -319,6 +323,66 @@ try {
     [System.IO.File]::WriteAllText(
         $ProjectedMotionAdapterNormalizationCasePath,
         ($ProjectedMotionAdapterNormalizationCase | ConvertTo-Json -Depth 12),
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $ProjectedMotionShellHandoffEvidence = [ordered]@{
+        '$schema' = "rusty.hostess.projected_motion_breath.shell_handoff_validation_evidence.v1"
+        status = "pass"
+        package = [ordered]@{
+            package_id = "package.projected_motion_breath"
+        }
+        execution = [ordered]@{
+            runtime_execution_performed = $false
+            platform_execution_performed = $false
+            broker_transport_used = $false
+            downstream_shell_runtime_used = $false
+            legacy_app_dependency_used = $false
+            legacy_rusty_xr_repo_used = $false
+        }
+        shell_handoff = [ordered]@{
+            handoff_id = "shell_handoff.projected_motion_breath.loopback"
+            target_host_profile = "host.headset"
+            shell_app_id = "app.downstream_shell"
+            binding_pairs = @(
+                [ordered]@{
+                    stream_id = "stream.motion.object_pose"
+                    direction = "publish"
+                },
+                [ordered]@{
+                    stream_id = "stream.breath.feedback_state"
+                    direction = "subscribe"
+                },
+                [ordered]@{
+                    stream_id = "stream.breath.feedback_receipt"
+                    direction = "publish"
+                }
+            )
+            command_ids = @("command.breath.status")
+            transport_offers = @(
+                [ordered]@{
+                    transport_id = "transport.shell_loopback"
+                    transport = "http"
+                }
+            )
+        }
+        package_contract = [ordered]@{
+            exported_stream_ids = @(
+                "stream.motion.object_pose",
+                "stream.breath.feedback_state",
+                "stream.breath.feedback_receipt"
+            )
+            feedback_sink_provides_streams = @(
+                "stream.breath.feedback_state",
+                "stream.breath.feedback_receipt"
+            )
+        }
+        scorecard = [ordered]@{
+            status = "pass"
+        }
+    }
+    [System.IO.File]::WriteAllText(
+        $ProjectedMotionShellHandoffEvidencePath,
+        ($ProjectedMotionShellHandoffEvidence | ConvertTo-Json -Depth 12),
         [System.Text.UTF8Encoding]::new($false)
     )
 
@@ -1506,7 +1570,7 @@ try {
     if ($SelectedBundleCurrentValidation.graph_id -ne "studio.graph.synthetic_wave_desktop") {
         throw "selected shell bundle current validation graph id mismatch"
     }
-    if (@($SelectedBundleCurrentValidation.expected_bundle_files).Count -ne 4) {
+    if (@($SelectedBundleCurrentValidation.expected_bundle_files).Count -ne 5) {
         throw "selected shell bundle current validation expected file count mismatch"
     }
     $FailedSelectedBundleChecks = @($SelectedBundleCurrentValidation.checks | Where-Object { $_.status -ne "pass" })
@@ -3545,7 +3609,7 @@ try {
         if ($HostessStagingFilePlanView.preview_group_count -ne 4 -or $HostessStagingFilePlanView.ready_preview_group_count -ne 4 -or $HostessStagingFilePlanView.blocked_preview_group_count -ne 0) {
             throw "shell Hostess staging file plan preview group counts mismatch"
         }
-        if ($HostessStagingFilePlanView.source_artifact_count -le $HostessStagingFilePlanView.planned_file_count -or $HostessStagingFilePlanView.planned_file_count -ne 14 -or $HostessStagingFilePlanView.duplicate_artifact_count -lt 1) {
+        if ($HostessStagingFilePlanView.source_artifact_count -le $HostessStagingFilePlanView.planned_file_count -or $HostessStagingFilePlanView.planned_file_count -ne 17 -or $HostessStagingFilePlanView.duplicate_artifact_count -lt 1) {
             throw "shell Hostess staging file plan artifact dedupe counts mismatch"
         }
         if ($HostessStagingFilePlanView.request_count -ne 4 -or $HostessStagingFilePlanView.ready_request_count -ne 4 -or $HostessStagingFilePlanView.blocked_request_count -ne 0 -or $HostessStagingFilePlanView.target_request_count -ne 3 -or $HostessStagingFilePlanView.shared_request_count -ne 1) {
@@ -3562,15 +3626,15 @@ try {
         }
         foreach ($Target in @("desktop", "phone", "quest")) {
             $TargetRequest = @($HostessStagingFilePlanView.requests | Where-Object { $_.target_key -like "$Target/*" })[0]
-            if ($null -eq $TargetRequest -or $TargetRequest.status -ne "ready" -or $TargetRequest.request_kind -ne "hostess_target_staging_file_plan" -or $TargetRequest.planned_file_count -ne 3) {
+            if ($null -eq $TargetRequest -or $TargetRequest.status -ne "ready" -or $TargetRequest.request_kind -ne "hostess_target_staging_file_plan" -or $TargetRequest.planned_file_count -ne 4) {
                 throw "shell Hostess staging file plan missing target request $Target"
             }
-            foreach ($ArtifactKind in @("shell_bundle_dir", "shell_descriptor", "shell_template_manifest")) {
+            foreach ($ArtifactKind in @("shell_bundle_dir", "shell_descriptor", "manifold_shell_handoff", "shell_template_manifest")) {
                 if (-not (@($TargetRequest.planned_files | ForEach-Object { $_.artifact_kind }) -contains $ArtifactKind)) {
                     throw "shell Hostess staging file plan target $Target missing artifact $ArtifactKind"
                 }
             }
-            if (@($TargetRequest.planned_files | Where-Object { $_.destination_path -like "hostess-staging/targets/$Target/*" }).Count -ne 3) {
+            if (@($TargetRequest.planned_files | Where-Object { $_.destination_path -like "hostess-staging/targets/$Target/*" }).Count -ne 4) {
                 throw "shell Hostess staging file plan target $Target destination mismatch"
             }
         }
@@ -3620,7 +3684,7 @@ try {
         if ($HostessStagingHandoffView.command_session_authority -ne "rusty.manifold" -or $HostessStagingHandoffView.install_launch_evidence_authority -ne "rusty.hostess" -or $HostessStagingHandoffView.studio_role -ne "authoring.export_planning") {
             throw "shell Hostess staging handoff runtime authority mismatch"
         }
-        if ($HostessStagingHandoffView.planned_file_count -ne 14 -or $HostessStagingHandoffView.request_count -ne 4 -or $HostessStagingHandoffView.ready_request_count -ne 4 -or $HostessStagingHandoffView.blocked_request_count -ne 0 -or $HostessStagingHandoffView.target_request_count -ne 3 -or $HostessStagingHandoffView.shared_request_count -ne 1) {
+        if ($HostessStagingHandoffView.planned_file_count -ne 17 -or $HostessStagingHandoffView.request_count -ne 4 -or $HostessStagingHandoffView.ready_request_count -ne 4 -or $HostessStagingHandoffView.blocked_request_count -ne 0 -or $HostessStagingHandoffView.target_request_count -ne 3 -or $HostessStagingHandoffView.shared_request_count -ne 1) {
             throw "shell Hostess staging handoff request counts mismatch"
         }
         if ($HostessStagingHandoffView.instruction_count -ne 4 -or $HostessStagingHandoffView.ready_instruction_count -ne 4 -or $HostessStagingHandoffView.blocked_instruction_count -ne 0) {
@@ -3658,7 +3722,7 @@ try {
         }
         foreach ($Target in @("desktop", "phone", "quest")) {
             $TargetSummary = @($HostessStagingHandoffView.request_summaries | Where-Object { $_.target_key -like "$Target/*" })[0]
-            if ($null -eq $TargetSummary -or $TargetSummary.status -ne "ready" -or $TargetSummary.planned_file_count -ne 3) {
+            if ($null -eq $TargetSummary -or $TargetSummary.status -ne "ready" -or $TargetSummary.planned_file_count -ne 4) {
                 throw "shell Hostess staging handoff target summary mismatch for $Target"
             }
         }
@@ -3928,6 +3992,49 @@ try {
             throw "shell Hostess staging acceptance route drift action row mismatch"
         }
     }
+    $ProjectedMotionShellHandoffReviewOutput = & cargo run --quiet -p rusty-studio-cli -- projected-motion-breath-shell-handoff-review --evidence $ProjectedMotionShellHandoffEvidencePath --output $ProjectedMotionShellHandoffReviewPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "studio PMB shell handoff review failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $ProjectedMotionShellHandoffReviewPath)) {
+        throw "PMB shell handoff review was not written"
+    }
+    $ProjectedMotionShellHandoffReview = ($ProjectedMotionShellHandoffReviewOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    $WrittenProjectedMotionShellHandoffReview = Get-Content -Raw $ProjectedMotionShellHandoffReviewPath | ConvertFrom-Json
+    foreach ($PmbShellHandoffReviewView in @($ProjectedMotionShellHandoffReview, $WrittenProjectedMotionShellHandoffReview)) {
+        if ($PmbShellHandoffReviewView.'$schema' -ne "rusty.studio.projected_motion_breath_shell_handoff_review.v1") {
+            throw "PMB shell handoff review schema mismatch"
+        }
+        if ($PmbShellHandoffReviewView.source_evidence_schema -ne "rusty.hostess.projected_motion_breath.shell_handoff_validation_evidence.v1" -or $PmbShellHandoffReviewView.source_evidence_path -ne $ProjectedMotionShellHandoffEvidencePath) {
+            throw "PMB shell handoff review source evidence mismatch"
+        }
+        if ($PmbShellHandoffReviewView.status -ne "ready" -or $null -ne $PmbShellHandoffReviewView.issue_code) {
+            throw "PMB shell handoff review should be ready"
+        }
+        if ($PmbShellHandoffReviewView.target_package_id -ne "package.projected_motion_breath" -or $PmbShellHandoffReviewView.handoff_id -ne "shell_handoff.projected_motion_breath.loopback" -or $PmbShellHandoffReviewView.shell_app_id -ne "app.downstream_shell") {
+            throw "PMB shell handoff review identity mismatch"
+        }
+        if ($PmbShellHandoffReviewView.execution_policy -ne "not_executed.review_only" -or $PmbShellHandoffReviewView.runtime_authority -ne "rusty.manifold" -or $PmbShellHandoffReviewView.authoring_authority -ne "rusty.studio" -or $PmbShellHandoffReviewView.platform_validation_authority -ne "rusty.hostess") {
+            throw "PMB shell handoff review authority mismatch"
+        }
+        if ($PmbShellHandoffReviewView.runtime_execution_performed -ne $false -or $PmbShellHandoffReviewView.platform_execution_performed -ne $false -or $PmbShellHandoffReviewView.broker_transport_used -ne $false -or $PmbShellHandoffReviewView.downstream_shell_runtime_used -ne $false -or $PmbShellHandoffReviewView.legacy_app_dependency_used -ne $false) {
+            throw "PMB shell handoff review should remain review-only"
+        }
+        if ($PmbShellHandoffReviewView.required_binding_count -ne 3 -or $PmbShellHandoffReviewView.ready_required_binding_count -ne 3 -or $PmbShellHandoffReviewView.feedback_receipt_exported -ne $true -or $PmbShellHandoffReviewView.feedback_sink_provides_receipt -ne $true) {
+            throw "PMB shell handoff review binding counts mismatch"
+        }
+        foreach ($Binding in @("stream.motion.object_pose:publish", "stream.breath.feedback_state:subscribe", "stream.breath.feedback_receipt:publish")) {
+            if (-not (@($PmbShellHandoffReviewView.stream_bindings) -contains $Binding)) {
+                throw "PMB shell handoff review missing binding $Binding"
+            }
+        }
+        if (-not (@($PmbShellHandoffReviewView.command_ids) -contains "command.breath.status") -or -not (@($PmbShellHandoffReviewView.transport_ids) -contains "transport.shell_loopback")) {
+            throw "PMB shell handoff review command or transport mismatch"
+        }
+        if (@($PmbShellHandoffReviewView.checks | Where-Object { $_.status -eq "fail" }).Count -ne 0) {
+            throw "PMB shell handoff review should not contain failed checks"
+        }
+    }
     $ShellHostessStagingExecutionRequestOutput = & cargo run --quiet -p rusty-studio-cli -- shell-hostess-staging-execution-request --acceptance-index $ShellHostessStagingAcceptanceIndexPath --acceptance-id "synthetic-hostess-staging-ready" --output $ShellHostessStagingExecutionRequestPath
     if ($LASTEXITCODE -ne 0) {
         throw "studio shell Hostess staging execution request failed with exit code $LASTEXITCODE"
@@ -3973,6 +4080,25 @@ try {
         }
         if ($HostessStagingExecutionRequestView.adapter_action_count -ne 6 -or $HostessStagingExecutionRequestView.ready_adapter_action_count -ne 6 -or $HostessStagingExecutionRequestView.blocked_adapter_action_count -ne 0) {
             throw "shell Hostess staging execution request action counts mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.pmb_shell_handoff_review_required -ne $true -or $HostessStagingExecutionRequestView.pmb_shell_handoff_review_ready -ne $true) {
+            throw "shell Hostess staging execution request PMB gate should be required and ready"
+        }
+        if ([string]::IsNullOrWhiteSpace($HostessStagingExecutionRequestView.pmb_shell_handoff_review_path) -or -not $HostessStagingExecutionRequestView.pmb_shell_handoff_review_path.EndsWith("pmb-shell-handoff.studio-review.json")) {
+            throw "shell Hostess staging execution request PMB review path mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.source_pmb_shell_handoff_review_schema -ne "rusty.studio.projected_motion_breath_shell_handoff_review.v1" -or $HostessStagingExecutionRequestView.source_pmb_shell_handoff_review_status -ne "ready" -or $null -ne $HostessStagingExecutionRequestView.source_pmb_shell_handoff_review_issue_code) {
+            throw "shell Hostess staging execution request PMB review source mismatch"
+        }
+        if ($HostessStagingExecutionRequestView.source_pmb_shell_handoff_id -ne "shell_handoff.projected_motion_breath.loopback" -or $HostessStagingExecutionRequestView.source_pmb_shell_app_id -ne "app.downstream_shell") {
+            throw "shell Hostess staging execution request PMB handoff identity mismatch"
+        }
+        $PmbReviewCliArgs = @($HostessStagingExecutionRequestView.hostess_operator_start_preflight_cli_args)
+        if ($PmbReviewCliArgs.Count -ne 3 -or $PmbReviewCliArgs[0] -ne "--pmb-shell-handoff-review-in" -or $PmbReviewCliArgs[1] -ne $HostessStagingExecutionRequestView.pmb_shell_handoff_review_path -or $PmbReviewCliArgs[2] -ne "--require-pmb-shell-handoff-review") {
+            throw "shell Hostess staging execution request PMB Hostess CLI args mismatch"
+        }
+        if (@($HostessStagingExecutionRequestView.checks | Where-Object { $_.check_id -eq "studio.check.shell_hostess_staging_execution_request.pmb_shell_handoff_review" -and $_.status -eq "pass" }).Count -ne 1) {
+            throw "shell Hostess staging execution request missing passing PMB gate check"
         }
         foreach ($Action in @(
             @{ Id = "adapter.hostess.accept_staging_handoff"; Source = "hostess.accept_staging_handoff"; Owner = "rusty.hostess"; Route = "hostess.accept.staging_handoff" },

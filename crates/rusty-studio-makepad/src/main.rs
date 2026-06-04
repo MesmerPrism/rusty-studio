@@ -1,6 +1,14 @@
 pub use makepad_widgets;
 
+mod paths;
+mod selection;
+
 use makepad_widgets::*;
+use paths::{
+    default_project_working_copy_path, find_default_project_path, initial_edge_id_from_args,
+    initial_graph_id_from_args, initial_issue_check_id_from_args, initial_node_id_from_args,
+    project_path_for_mutable_session, project_path_from_args,
+};
 use rusty_studio_core::{
     add_binding_to_graph, add_next_catalog_module_from_package_to_graph,
     add_next_catalog_module_to_graph, append_shell_export_package_baseline_index_manifests,
@@ -87,6 +95,10 @@ use rusty_studio_model::{
     StudioShellReleaseCandidateReviewSelectionStatus, StudioShellReleaseCandidateReviewStatus,
     StudioShellRunbookReport, StudioShellRunbookStatus, StudioShellTargetKind,
     StudioValidationStatus, StudioViewModel,
+};
+use selection::{
+    selected_binding_request, selected_command_binding_request, selected_module_reference_id,
+    selected_package_reference_id,
 };
 use std::path::{Path, PathBuf};
 
@@ -452,13 +464,6 @@ enum StudioGraphCanvasAction {
 enum StudioGraphCanvasHit {
     Node(String),
     Edge(String),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct SelectedBindingRequest {
-    binding_kind: StudioBindingKind,
-    source_node_id: String,
-    target_node_id: String,
 }
 
 impl StudioGraphCanvasModel {
@@ -4866,133 +4871,6 @@ fn shell_hostess_staging_execution_request_output_path(project_path: &Path) -> P
         .join("shell-hostess-staging-execution-request.json")
 }
 
-fn project_path_from_args() -> Option<PathBuf> {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--project" {
-            return args.next().map(PathBuf::from);
-        }
-    }
-    None
-}
-
-fn initial_graph_id_from_args() -> Option<String> {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--graph" {
-            return args.next();
-        }
-    }
-    None
-}
-
-fn initial_issue_check_id_from_args() -> Option<String> {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--issue" {
-            return args.next();
-        }
-    }
-    None
-}
-
-fn initial_node_id_from_args() -> Option<String> {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--node" {
-            return args.next();
-        }
-    }
-    None
-}
-
-fn initial_edge_id_from_args() -> Option<String> {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--edge" {
-            return args.next();
-        }
-    }
-    None
-}
-
-fn find_default_project_path() -> Option<PathBuf> {
-    let current_dir = std::env::current_dir().ok()?;
-    let candidates = [
-        current_dir.join("examples/synthetic-studio-project.json"),
-        current_dir.join("../../examples/synthetic-studio-project.json"),
-        current_dir.join("../../../examples/synthetic-studio-project.json"),
-    ];
-    candidates.into_iter().find(|path| path.is_file())
-}
-
-fn default_project_working_copy_path(default_path: &Path) -> Result<PathBuf, String> {
-    let default_path = normalize_verbatim_path(
-        std::fs::canonicalize(default_path)
-            .map_err(|error| format!("Default example resolve failed: {error}"))?,
-    );
-    let examples_dir = default_path
-        .parent()
-        .ok_or_else(|| "default example has no parent directory".to_string())?;
-    let repo_root = examples_dir
-        .parent()
-        .ok_or_else(|| "default example is not inside the repo examples directory".to_string())?;
-    let file_name = default_path
-        .file_name()
-        .ok_or_else(|| "default example has no file name".to_string())?;
-    let working_dir = repo_root.join("examples-working");
-    let working_path = working_dir.join(file_name);
-    std::fs::create_dir_all(&working_dir)
-        .map_err(|error| format!("Default example working directory create failed: {error}"))?;
-    std::fs::copy(&default_path, &working_path)
-        .map_err(|error| format!("Default example working copy failed: {error}"))?;
-    Ok(working_path)
-}
-
-fn project_path_for_mutable_session(project_path: PathBuf) -> Result<PathBuf, String> {
-    if is_tracked_synthetic_example_path(&project_path)? {
-        return default_project_working_copy_path(&project_path);
-    }
-
-    Ok(project_path)
-}
-
-fn is_tracked_synthetic_example_path(project_path: &Path) -> Result<bool, String> {
-    if project_path.file_name().and_then(|name| name.to_str())
-        != Some("synthetic-studio-project.json")
-    {
-        return Ok(false);
-    }
-
-    if !project_path.is_file() {
-        return Ok(false);
-    }
-
-    let project_path = normalize_verbatim_path(
-        std::fs::canonicalize(project_path)
-            .map_err(|error| format!("Project path resolve failed: {error}"))?,
-    );
-    Ok(project_path
-        .parent()
-        .and_then(|parent| parent.file_name())
-        .and_then(|name| name.to_str())
-        == Some("examples"))
-}
-
-fn normalize_verbatim_path(path: PathBuf) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let path_text = path.to_string_lossy();
-        if let Some(rest) = path_text.strip_prefix(r"\\?\UNC\") {
-            return PathBuf::from(format!(r"\\{rest}"));
-        }
-        if let Some(rest) = path_text.strip_prefix(r"\\?\") {
-            return PathBuf::from(rest);
-        }
-    }
-    path
-}
-
 fn validation_line(model: &StudioViewModel) -> String {
     let status = match model.validation_status {
         StudioValidationStatus::Pass => "pass",
@@ -8367,102 +8245,6 @@ fn edit_validation_line(report: &StudioEditReport) -> String {
     format!("{status}; {} check(s)", report.validation.checks.len())
 }
 
-fn selected_package_reference_id(model: &StudioViewModel) -> Result<String, String> {
-    let Some(node) = model.selected_node.as_ref() else {
-        return Err("No node is selected".to_string());
-    };
-    if node.kind != "package" {
-        return Err(format!(
-            "Selected node {} is {}; select a package node to add a package module",
-            node.node_id, node.kind
-        ));
-    }
-    Ok(node.reference_id.clone())
-}
-
-fn selected_module_reference_id(model: &StudioViewModel) -> Result<String, String> {
-    let Some(node) = model.selected_node.as_ref() else {
-        return Err("No node is selected".to_string());
-    };
-    if node.kind != "module" {
-        return Err(format!(
-            "Selected node {} is {}; select a module node to remove a module",
-            node.node_id, node.kind
-        ));
-    }
-    Ok(node.reference_id.clone())
-}
-
-fn selected_command_binding_request(
-    model: &StudioViewModel,
-) -> Result<SelectedBindingRequest, String> {
-    let Some(node) = model.selected_node.as_ref() else {
-        return Err("No node is selected".to_string());
-    };
-    if node.kind != "module" {
-        return Err(format!(
-            "Selected node {} is {}; select a module node to add a command binding",
-            node.node_id, node.kind
-        ));
-    }
-    let graph = model
-        .graphs
-        .iter()
-        .find(|graph| graph.graph_id == node.graph_id)
-        .ok_or_else(|| format!("Selected graph {} is unavailable", node.graph_id))?;
-    let operator_shell_nodes = graph
-        .node_rows
-        .iter()
-        .filter(|row| row.kind == "operator_shell")
-        .collect::<Vec<_>>();
-    let Some(source_node) = operator_shell_nodes.first() else {
-        return Err(format!(
-            "Selected graph {} has no operator shell for command binding",
-            graph.graph_id
-        ));
-    };
-    if operator_shell_nodes.len() > 1 {
-        return Err(format!(
-            "Selected graph {} has multiple operator shells; select one shell before adding a command binding",
-            graph.graph_id
-        ));
-    }
-    Ok(SelectedBindingRequest {
-        binding_kind: StudioBindingKind::Command,
-        source_node_id: source_node.node_id.clone(),
-        target_node_id: node.node_id.clone(),
-    })
-}
-
-fn selected_binding_request(model: &StudioViewModel) -> Result<SelectedBindingRequest, String> {
-    let Some(edge) = model.selected_edge.as_ref() else {
-        return Err("No edge is selected".to_string());
-    };
-    let Some(binding_kind) = edge
-        .binding_kind
-        .as_deref()
-        .and_then(studio_binding_kind_from_view)
-    else {
-        return Err(format!(
-            "Selected edge {} is {}; select a stream or command binding to remove a binding",
-            edge.edge_id, edge.kind
-        ));
-    };
-    Ok(SelectedBindingRequest {
-        binding_kind,
-        source_node_id: edge.source_node_id.clone(),
-        target_node_id: edge.target_node_id.clone(),
-    })
-}
-
-fn studio_binding_kind_from_view(value: &str) -> Option<StudioBindingKind> {
-    match value {
-        "stream" => Some(StudioBindingKind::Stream),
-        "command" => Some(StudioBindingKind::Command),
-        _ => None,
-    }
-}
-
 fn graph_canvas_model(model: &StudioViewModel, graph: &StudioGraphView) -> StudioGraphCanvasModel {
     if let Some(layout) = graph.layout.as_ref() {
         return StudioGraphCanvasModel {
@@ -9032,6 +8814,7 @@ mod tests {
         assert_eq!(
             report.bundle_files,
             vec![
+                "descriptors/studio.graph.makepad_edit.manifold-shell-handoff.json".to_string(),
                 "descriptors/studio.graph.makepad_edit.shell-descriptor.json".to_string(),
                 "shell-artifacts.json".to_string(),
                 "shell-templates.json".to_string(),
@@ -9089,7 +8872,7 @@ mod tests {
         let status = shell_bundle_validation_status(&report, &output_dir);
         assert!(status.contains("validated; status pass"));
         assert!(status.contains("studio.graph.makepad_edit"));
-        assert!(status.contains("files: 4"));
+        assert!(status.contains("files: 5"));
     }
 
     #[test]
@@ -10683,7 +10466,7 @@ mod tests {
         );
         assert_eq!(file_plan.ready_preview_group_count, 4);
         assert_eq!(file_plan.blocked_preview_group_count, 0);
-        assert_eq!(file_plan.planned_file_count, 8);
+        assert_eq!(file_plan.planned_file_count, 9);
         assert!(file_plan.duplicate_artifact_count > 0);
         assert_eq!(file_plan.request_count, 2);
         assert_eq!(file_plan.ready_request_count, 2);
@@ -10716,7 +10499,7 @@ mod tests {
         let file_plan_status = shell_hostess_staging_file_plan_status(&file_plan, &file_plan_path);
         assert!(file_plan_status.contains("shell Hostess staging file plan ready"));
         assert!(file_plan_status.contains("not_executed.dry_run_only"));
-        assert!(file_plan_status.contains("planned files 8"));
+        assert!(file_plan_status.contains("planned files 9"));
         assert!(file_plan_status.contains("target 1; shared 1"));
 
         let (handoff, handoff_path) =
