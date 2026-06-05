@@ -560,3 +560,269 @@ fn shell_preview_for_selected_graph(
         studio_role: Some(template.runtime_authority.studio_role),
     })
 }
+
+#[derive(Default)]
+struct ValidationIssueTargetIndex {
+    graph_counts: BTreeMap<String, usize>,
+    node_counts: BTreeMap<(String, String), usize>,
+    edge_counts: BTreeMap<(String, String), usize>,
+}
+
+impl ValidationIssueTargetIndex {
+    fn graph_issue_count(&self, graph_id: &str) -> usize {
+        self.graph_counts.get(graph_id).copied().unwrap_or(0)
+    }
+
+    fn node_issue_count(&self, graph_id: &str, node_id: &str) -> usize {
+        self.node_counts
+            .get(&(graph_id.to_string(), node_id.to_string()))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn edge_issue_count(&self, graph_id: &str, edge_id: &str) -> usize {
+        self.edge_counts
+            .get(&(graph_id.to_string(), edge_id.to_string()))
+            .copied()
+            .unwrap_or(0)
+    }
+}
+
+fn validation_issue_target_index(report: &StudioValidationReport) -> ValidationIssueTargetIndex {
+    let mut index = ValidationIssueTargetIndex::default();
+    for check in report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+    {
+        let Some(graph_id) = check.graph_id.as_deref() else {
+            continue;
+        };
+        *index.graph_counts.entry(graph_id.to_string()).or_insert(0) += 1;
+        for node_id in &check.node_ids {
+            *index
+                .node_counts
+                .entry((graph_id.to_string(), node_id.clone()))
+                .or_insert(0) += 1;
+        }
+        for edge_id in &check.edge_ids {
+            *index
+                .edge_counts
+                .entry((graph_id.to_string(), edge_id.clone()))
+                .or_insert(0) += 1;
+        }
+    }
+    index
+}
+
+fn graph_view(
+    graph: &StudioGraph,
+    issue_target_index: &ValidationIssueTargetIndex,
+) -> StudioGraphView {
+    let resolved = resolve_graph(graph);
+    StudioGraphView {
+        graph_id: graph.graph_id.clone(),
+        display_name: graph.display_name.clone(),
+        target_host_profile: graph.target_host_profile.clone(),
+        validation_issue_count: issue_target_index.graph_issue_count(&graph.graph_id),
+        node_count: resolved.node_count,
+        edge_count: resolved.edge_count,
+        package_count: resolved.package_count,
+        module_count: resolved.module_count,
+        operator_shell_count: resolved.operator_shell_count,
+        node_rows: graph
+            .nodes
+            .iter()
+            .map(|node| StudioNodeView {
+                node_id: node.node_id.clone(),
+                kind: node_kind_label(node.kind).to_string(),
+                reference_id: node.reference_id.clone(),
+                label: node.label.clone(),
+                validation_issue_count: issue_target_index
+                    .node_issue_count(&graph.graph_id, &node.node_id),
+            })
+            .collect(),
+        edge_rows: graph
+            .edges
+            .iter()
+            .map(|edge| StudioEdgeView {
+                edge_id: edge.edge_id.clone(),
+                kind: edge_kind_label(edge.kind).to_string(),
+                source_node_id: edge.source_node_id.clone(),
+                target_node_id: edge.target_node_id.clone(),
+                validation_issue_count: issue_target_index
+                    .edge_issue_count(&graph.graph_id, &edge.edge_id),
+            })
+            .collect(),
+        layout: graph
+            .layout
+            .as_ref()
+            .map(|layout| graph_layout_view(&graph.graph_id, layout, issue_target_index)),
+    }
+}
+
+fn graph_layout_view(
+    graph_id: &str,
+    layout: &rusty_studio_model::StudioGraphLayout,
+    issue_target_index: &ValidationIssueTargetIndex,
+) -> StudioGraphLayoutView {
+    StudioGraphLayoutView {
+        layout_id: layout.layout_id.clone(),
+        coordinate_space: layout.coordinate_space.clone(),
+        node_count: layout.nodes.len(),
+        edge_count: layout.edges.len(),
+        nodes: layout
+            .nodes
+            .iter()
+            .map(|node| StudioNodeLayoutView {
+                node_id: node.node_id.clone(),
+                x: node.x,
+                y: node.y,
+                width: node.width,
+                height: node.height,
+                validation_issue_count: issue_target_index
+                    .node_issue_count(graph_id, &node.node_id),
+            })
+            .collect(),
+        edges: layout
+            .edges
+            .iter()
+            .map(|edge| StudioEdgeLayoutView {
+                edge_id: edge.edge_id.clone(),
+                route: edge_route_label(edge.route).to_string(),
+                validation_issue_count: issue_target_index
+                    .edge_issue_count(graph_id, &edge.edge_id),
+            })
+            .collect(),
+    }
+}
+
+fn validation_issue_views(
+    report: &StudioValidationReport,
+    selected_graph_id: Option<&str>,
+) -> Vec<StudioValidationIssueView> {
+    report
+        .checks
+        .iter()
+        .filter(|check| check.status == StudioValidationStatus::Fail)
+        .map(|check| StudioValidationIssueView {
+            check_id: check.check_id.clone(),
+            issue_code: check.issue_code.clone(),
+            evidence: check.evidence.clone(),
+            graph_id: check.graph_id.clone(),
+            node_ids: check.node_ids.clone(),
+            edge_ids: check.edge_ids.clone(),
+            reference_ids: check.reference_ids.clone(),
+            targets_selected_graph: check
+                .graph_id
+                .as_deref()
+                .is_some_and(|graph_id| selected_graph_id == Some(graph_id)),
+        })
+        .collect()
+}
+
+struct FocusedIssueSelection {
+    focused_issue: Option<StudioIssueFocusView>,
+    selected_issue_index: Option<usize>,
+    selected_issue_check_id: Option<String>,
+    issue_selection_code: Option<String>,
+}
+
+fn focused_issue_selection(
+    issues: &[StudioValidationIssueView],
+    requested_issue_check_id: Option<&str>,
+) -> FocusedIssueSelection {
+    let (selected_issue_index, issue_selection_code) =
+        if let Some(requested_issue_check_id) = requested_issue_check_id {
+            match issues
+                .iter()
+                .position(|issue| issue.check_id == requested_issue_check_id)
+            {
+                Some(index) => (Some(index), None),
+                None => (
+                    fallback_issue_index(issues),
+                    Some("studio.issue.validation_issue_selection_missing".to_string()),
+                ),
+            }
+        } else {
+            (fallback_issue_index(issues), None)
+        };
+    let selected_issue_check_id = selected_issue_index.map(|index| issues[index].check_id.clone());
+    let focused_issue =
+        selected_issue_index.and_then(|index| focused_issue_view(index, &issues[index]));
+    FocusedIssueSelection {
+        focused_issue,
+        selected_issue_index,
+        selected_issue_check_id,
+        issue_selection_code,
+    }
+}
+
+fn fallback_issue_index(issues: &[StudioValidationIssueView]) -> Option<usize> {
+    issues
+        .iter()
+        .position(|issue| issue.targets_selected_graph)
+        .or_else(|| issues.iter().position(|issue| issue.graph_id.is_some()))
+        .or_else(|| (!issues.is_empty()).then_some(0))
+}
+
+fn focused_issue_view(
+    issue_index: usize,
+    issue: &StudioValidationIssueView,
+) -> Option<StudioIssueFocusView> {
+    let graph_id = issue.graph_id.clone()?;
+    Some(StudioIssueFocusView {
+        issue_index,
+        check_id: issue.check_id.clone(),
+        issue_code: issue.issue_code.clone(),
+        evidence: issue.evidence.clone(),
+        graph_id,
+        node_id: issue.node_ids.first().cloned(),
+        edge_id: issue.edge_ids.first().cloned(),
+        reference_id: issue.reference_ids.first().cloned(),
+    })
+}
+
+fn selected_graph_index(
+    graphs: &[StudioGraphView],
+    requested_graph_id: Option<&str>,
+) -> Option<usize> {
+    if graphs.is_empty() {
+        return None;
+    }
+    if let Some(requested_graph_id) = requested_graph_id {
+        return graphs
+            .iter()
+            .position(|graph| graph.graph_id == requested_graph_id);
+    }
+    Some(0)
+}
+
+fn node_kind_label(kind: StudioNodeKind) -> &'static str {
+    match kind {
+        StudioNodeKind::Package => "package",
+        StudioNodeKind::Module => "module",
+        StudioNodeKind::HostProfile => "host_profile",
+        StudioNodeKind::ValidationSlot => "validation_slot",
+        StudioNodeKind::OperatorShell => "operator_shell",
+    }
+}
+
+fn edge_kind_label(kind: rusty_studio_model::StudioEdgeKind) -> &'static str {
+    match kind {
+        rusty_studio_model::StudioEdgeKind::PackageProvidesModule => "package_provides_module",
+        rusty_studio_model::StudioEdgeKind::StreamBinding => "stream_binding",
+        rusty_studio_model::StudioEdgeKind::CommandBinding => "command_binding",
+        rusty_studio_model::StudioEdgeKind::ValidationSlotUsesPackage => {
+            "validation_slot_uses_package"
+        }
+        rusty_studio_model::StudioEdgeKind::ShellTargetsHostProfile => "shell_targets_host_profile",
+    }
+}
+
+fn edge_route_label(route: StudioEdgeRouteKind) -> &'static str {
+    match route {
+        StudioEdgeRouteKind::Direct => "direct",
+        StudioEdgeRouteKind::Orthogonal => "orthogonal",
+    }
+}
