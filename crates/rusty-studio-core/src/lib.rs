@@ -14,6 +14,7 @@ mod id_grammar;
 mod io;
 mod project_references;
 mod projected_motion_breath;
+mod shell_artifacts;
 mod shell_contract;
 mod shell_descriptor;
 mod shell_export_package;
@@ -45,15 +46,18 @@ pub use projected_motion_breath::{
     projected_motion_breath_shell_handoff_review_for_evidence,
     projected_motion_breath_source_adapter_selection_review_for_authoring,
 };
+pub(crate) use shell_artifacts::{
+    manifold_shell_handoff_for_descriptor, shell_artifact_for_descriptor,
+    shell_manifold_handoff_artifact_path,
+};
+pub use shell_artifacts::{shell_artifacts_for_project, validate_shell_artifact_manifest};
 pub(crate) use shell_contract::resolve_manifest_relative_path;
 pub(crate) use shell_contract::{
-    is_safe_relative_manifest_path, relative_output_path, shell_artifact_for_descriptor,
-    shell_handoff_manifest_id, shell_manifold_handoff_artifact_path, shell_runtime_authority,
-    shell_target_kind,
+    is_safe_relative_manifest_path, relative_output_path, shell_handoff_manifest_id,
+    shell_runtime_authority, shell_target_kind,
 };
 pub use shell_contract::{
-    save_shell_bundle, selected_shell_bundle_for_graph, shell_artifacts_for_project,
-    validate_selected_shell_bundle, validate_shell_artifact_manifest,
+    save_shell_bundle, selected_shell_bundle_for_graph, validate_selected_shell_bundle,
 };
 pub(crate) use shell_descriptor::shell_host_profile;
 pub use shell_descriptor::{
