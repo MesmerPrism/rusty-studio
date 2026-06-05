@@ -13,7 +13,7 @@ use rusty_studio_core::{
     compare_shell_hostess_staging_acceptance_against_index_entry,
     compare_shell_hostess_staging_acceptance_against_manifest,
     compare_shell_hostess_staging_acceptance_checklists, desktop_shell_handoff_for_bundle,
-    export_plan, load_manifold_package_validation_report, load_motion_breath_profile_document,
+    load_manifold_package_validation_report, load_motion_breath_profile_document,
     load_package_evidence_intake_report, load_project,
     load_projected_motion_breath_adapter_normalization_case_document,
     load_projected_motion_breath_authoring_review_report,
@@ -80,7 +80,9 @@ use rusty_studio_model::{
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod graph_edit_commands;
 mod hostess_commands;
+mod project_commands;
 mod projected_motion_breath_commands;
 mod release_candidate_commands;
 mod shell_generation_commands;
@@ -834,203 +836,16 @@ fn main() -> ExitCode {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Validate(args) => {
-            let project = load_project(&args.project)?;
-            let report = validate_project_with_base(&project, args.project.parent());
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::Resolve(args) => {
-            let project = load_project(&args.project)?;
-            let resolved = resolve_project(&project);
-            println!("{}", serde_json::to_string_pretty(&resolved)?);
-            Ok(())
-        }
-        Command::ExportPlan(args) => {
-            let project = load_project(&args.project)?;
-            let plan = export_plan(&project);
-            println!("{}", serde_json::to_string_pretty(&plan)?);
-            Ok(())
-        }
-        Command::ViewModel(args) => {
-            let project = load_project(&args.project)?;
-            let model = view_model_for_graph_issue_node_and_edge(
-                &project,
-                args.project.parent(),
-                args.graph.as_deref(),
-                args.issue.as_deref(),
-                args.node.as_deref(),
-                args.edge.as_deref(),
-            );
-            println!("{}", serde_json::to_string_pretty(&model)?);
-            Ok(())
-        }
-        Command::RetargetHost(args) => {
-            if args.write && args.output.is_some() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "--write and --output are mutually exclusive",
-                )
-                .into());
-            }
-
-            let mut project = load_project(&args.project)?;
-            let report = retarget_graph_host_profile(
-                &mut project,
-                &args.graph,
-                &args.host_profile,
-                args.project.parent(),
-            );
-            if report.status == StudioEditStatus::Applied {
-                if args.write {
-                    save_project(&args.project, &project)?;
-                } else if let Some(output) = args.output.as_ref() {
-                    save_project(output, &project)?;
-                }
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::AddModule(args) => {
-            if args.write && args.output.is_some() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "--write and --output are mutually exclusive",
-                )
-                .into());
-            }
-
-            let mut project = load_project(&args.project)?;
-            let report = add_module_to_graph(
-                &mut project,
-                &args.graph,
-                &args.package,
-                &args.module,
-                args.label.as_deref(),
-                args.project.parent(),
-            );
-            if report.status == StudioEditStatus::Applied {
-                if args.write {
-                    save_project(&args.project, &project)?;
-                } else if let Some(output) = args.output.as_ref() {
-                    save_project(output, &project)?;
-                }
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::AddPaletteModule(args) => {
-            if args.write && args.output.is_some() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "--write and --output are mutually exclusive",
-                )
-                .into());
-            }
-
-            let mut project = load_project(&args.project)?;
-            let report = if let Some(package) = args.package.as_deref() {
-                add_next_catalog_module_from_package_to_graph(
-                    &mut project,
-                    &args.graph,
-                    package,
-                    args.project.parent(),
-                )
-            } else {
-                add_next_catalog_module_to_graph(&mut project, &args.graph, args.project.parent())
-            };
-            if report.status == StudioEditStatus::Applied {
-                if args.write {
-                    save_project(&args.project, &project)?;
-                } else if let Some(output) = args.output.as_ref() {
-                    save_project(output, &project)?;
-                }
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::RemoveModule(args) => {
-            if args.write && args.output.is_some() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "--write and --output are mutually exclusive",
-                )
-                .into());
-            }
-
-            let mut project = load_project(&args.project)?;
-            let report = remove_module_from_graph(
-                &mut project,
-                &args.graph,
-                &args.module,
-                args.project.parent(),
-            );
-            if report.status == StudioEditStatus::Applied {
-                if args.write {
-                    save_project(&args.project, &project)?;
-                } else if let Some(output) = args.output.as_ref() {
-                    save_project(output, &project)?;
-                }
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::AddBinding(args) => {
-            if args.write && args.output.is_some() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "--write and --output are mutually exclusive",
-                )
-                .into());
-            }
-
-            let mut project = load_project(&args.project)?;
-            let report = add_binding_to_graph(
-                &mut project,
-                &args.graph,
-                args.kind.into(),
-                &args.source_node,
-                &args.target_node,
-                args.project.parent(),
-            );
-            if report.status == StudioEditStatus::Applied {
-                if args.write {
-                    save_project(&args.project, &project)?;
-                } else if let Some(output) = args.output.as_ref() {
-                    save_project(output, &project)?;
-                }
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::RemoveBinding(args) => {
-            if args.write && args.output.is_some() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "--write and --output are mutually exclusive",
-                )
-                .into());
-            }
-
-            let mut project = load_project(&args.project)?;
-            let report = remove_binding_from_graph(
-                &mut project,
-                &args.graph,
-                args.kind.into(),
-                &args.source_node,
-                &args.target_node,
-                args.project.parent(),
-            );
-            if report.status == StudioEditStatus::Applied {
-                if args.write {
-                    save_project(&args.project, &project)?;
-                } else if let Some(output) = args.output.as_ref() {
-                    save_project(output, &project)?;
-                }
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
+        Command::Validate(args) => project_commands::validate(args),
+        Command::Resolve(args) => project_commands::resolve(args),
+        Command::ExportPlan(args) => project_commands::export_plan(args),
+        Command::ViewModel(args) => project_commands::view_model(args),
+        Command::RetargetHost(args) => graph_edit_commands::retarget_host(args),
+        Command::AddModule(args) => graph_edit_commands::add_module(args),
+        Command::AddPaletteModule(args) => graph_edit_commands::add_palette_module(args),
+        Command::RemoveModule(args) => graph_edit_commands::remove_module(args),
+        Command::AddBinding(args) => graph_edit_commands::add_binding(args),
+        Command::RemoveBinding(args) => graph_edit_commands::remove_binding(args),
         Command::ShellDescriptor(args) => shell_generation_commands::descriptor(args),
         Command::ValidateShellDescriptor(args) => {
             shell_generation_commands::validate_descriptor(args)
