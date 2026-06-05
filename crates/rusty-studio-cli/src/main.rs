@@ -83,6 +83,7 @@ use std::process::ExitCode;
 mod hostess_commands;
 mod projected_motion_breath_commands;
 mod release_candidate_commands;
+mod shell_generation_commands;
 mod shell_handoff_acceptance_commands;
 mod shell_package_commands;
 
@@ -1030,175 +1031,29 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
-        Command::ShellDescriptor(args) => {
-            let project = load_project(&args.project)?;
-            let report = shell_descriptor_for_graph(&project, args.project.parent(), &args.graph);
-            if report.status == StudioShellDescriptorStatus::Exported {
-                if let (Some(output), Some(descriptor)) =
-                    (args.output.as_ref(), report.descriptor.as_ref())
-                {
-                    save_json(output, descriptor)?;
-                }
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
+        Command::ShellDescriptor(args) => shell_generation_commands::descriptor(args),
         Command::ValidateShellDescriptor(args) => {
-            let descriptor = load_shell_descriptor(&args.descriptor)?;
-            let report = validate_shell_descriptor(&descriptor);
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
+            shell_generation_commands::validate_descriptor(args)
         }
-        Command::ShellArtifacts(args) => {
-            let project = load_project(&args.project)?;
-            let report = shell_artifacts_for_project(&project, args.project.parent());
-            if report.status == StudioShellArtifactStatus::Exported {
-                if let (Some(output_dir), Some(manifest)) =
-                    (args.output_dir.as_ref(), report.manifest.as_ref())
-                {
-                    for descriptor in &report.descriptors {
-                        let descriptor_path = relative_output_path(
-                            output_dir,
-                            &shell_descriptor_artifact_path(&descriptor.graph_id),
-                        );
-                        save_json(&descriptor_path, descriptor)?;
-                    }
-                    save_json(&output_dir.join("shell-artifacts.json"), manifest)?;
-                }
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
+        Command::ShellArtifacts(args) => shell_generation_commands::artifacts(args),
         Command::ValidateShellArtifacts(args) => {
-            let manifest = load_shell_artifact_manifest(&args.manifest)?;
-            let report = validate_shell_artifact_manifest(&manifest, args.manifest.parent());
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
+            shell_generation_commands::validate_artifacts(args)
         }
-        Command::ShellTemplates(args) => {
-            let manifest = load_shell_artifact_manifest(&args.manifest)?;
-            let report = shell_templates_for_artifact_manifest(&manifest, args.manifest.parent());
-            if report.status == StudioShellTemplateStatus::Exported {
-                if let (Some(output_dir), Some(index)) =
-                    (args.output_dir.as_ref(), report.index.as_ref())
-                {
-                    for (entry, template) in index.templates.iter().zip(report.templates.iter()) {
-                        save_json(
-                            &relative_output_path(output_dir, &entry.template_path),
-                            template,
-                        )?;
-                        copy_manifest_descriptor(
-                            args.manifest.parent(),
-                            &template.source_descriptor_path,
-                            output_dir,
-                            &template.descriptor_path,
-                        )?;
-                    }
-                    save_json(&output_dir.join("shell-templates.json"), index)?;
-                }
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
+        Command::ShellTemplates(args) => shell_generation_commands::templates(args),
         Command::ValidateShellTemplates(args) => {
-            let index = load_shell_template_index(&args.index)?;
-            let report = validate_shell_template_index(&index, args.index.parent());
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
+            shell_generation_commands::validate_templates(args)
         }
-        Command::ShellBundle(args) => {
-            let project = load_project(&args.project)?;
-            let report =
-                selected_shell_bundle_for_graph(&project, args.project.parent(), &args.graph);
-            if report.status == StudioShellBundleStatus::Exported {
-                if let Some(output_dir) = args.output_dir.as_ref() {
-                    save_shell_bundle(output_dir, &report)?;
-                }
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::ValidateShellBundle(args) => {
-            let project = load_project(&args.project)?;
-            let report = validate_selected_shell_bundle(
-                &project,
-                args.project.parent(),
-                &args.graph,
-                &args.bundle_dir,
-            );
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::ShellHandoff(args) => {
-            let project = load_project(&args.project)?;
-            let report = shell_handoff_for_bundle(
-                &project,
-                args.project.parent(),
-                &args.graph,
-                &args.bundle_dir,
-            );
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::DesktopShellHandoff(args) => {
-            let project = load_project(&args.project)?;
-            let report = desktop_shell_handoff_for_bundle(
-                &project,
-                args.project.parent(),
-                &args.graph,
-                &args.bundle_dir,
-            );
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::ShellHandoffReadiness(args) => {
-            let project = load_project(&args.project)?;
-            let report = shell_handoff_readiness_for_project(
-                &project,
-                args.project.parent(),
-                &args.bundle_root,
-            );
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::ShellHandoffManifest(args) => {
-            let project = load_project(&args.project)?;
-            let manifest = shell_handoff_manifest_for_project(
-                &project,
-                args.project.parent(),
-                &args.bundle_root,
-            );
-            if let Some(output) = args.output.as_ref() {
-                save_json(output, &manifest)?;
-            }
-            println!("{}", serde_json::to_string_pretty(&manifest)?);
-            Ok(())
-        }
+        Command::ShellBundle(args) => shell_generation_commands::bundle(args),
+        Command::ValidateShellBundle(args) => shell_generation_commands::validate_bundle(args),
+        Command::ShellHandoff(args) => shell_generation_commands::handoff(args),
+        Command::DesktopShellHandoff(args) => shell_generation_commands::desktop_handoff(args),
+        Command::ShellHandoffReadiness(args) => shell_generation_commands::handoff_readiness(args),
+        Command::ShellHandoffManifest(args) => shell_generation_commands::handoff_manifest(args),
         Command::ValidateShellHandoffManifest(args) => {
-            let manifest = load_shell_handoff_manifest(&args.manifest)?;
-            let report = validate_shell_handoff_manifest(&manifest);
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
+            shell_generation_commands::validate_handoff_manifest(args)
         }
-        Command::ShellHandoffIntake(args) => {
-            let manifest = load_shell_handoff_manifest(&args.manifest)?;
-            let report = shell_handoff_intake_for_manifest(&manifest);
-            if let Some(output) = args.output.as_ref() {
-                save_json(output, &report)?;
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
-        Command::ShellRunbook(args) => {
-            let project = load_project(&args.project)?;
-            let report =
-                shell_runbook_for_project(&project, args.project.parent(), &args.bundle_root);
-            if let Some(output) = args.output.as_ref() {
-                save_json(output, &report)?;
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
+        Command::ShellHandoffIntake(args) => shell_generation_commands::handoff_intake(args),
+        Command::ShellRunbook(args) => shell_generation_commands::runbook(args),
         Command::ShellExportPackage(args) => shell_package_commands::export_package(args),
         Command::ShellExportPackageBaseline(args) => shell_package_commands::baseline(args),
         Command::ShellExportPackageBaselineIndex(args) => {
@@ -1322,29 +1177,4 @@ fn default_pmb_shell_handoff_review_path(acceptance_index_path: &Path) -> Option
 
 fn canonical_existing_path(path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(std::fs::canonicalize(path)?)
-}
-
-fn relative_output_path(output_dir: &Path, relative_path: &str) -> PathBuf {
-    relative_path
-        .split('/')
-        .fold(output_dir.to_path_buf(), |path, segment| path.join(segment))
-}
-
-fn copy_manifest_descriptor(
-    manifest_dir: Option<&Path>,
-    source_relative_path: &str,
-    output_dir: &Path,
-    output_relative_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let manifest_dir = manifest_dir.ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "manifest path must have a parent directory",
-        )
-    })?;
-    let source = relative_output_path(manifest_dir, source_relative_path);
-    let output = relative_output_path(output_dir, output_relative_path);
-    let descriptor = load_shell_descriptor(&source)?;
-    save_json(&output, &descriptor)?;
-    Ok(())
 }
