@@ -24,6 +24,7 @@ mod shell_hostess_staging_acceptance;
 mod shell_hostess_staging_plan;
 mod shell_release_candidate;
 mod shell_shared;
+mod shell_templates;
 mod validation_helpers;
 mod view_model;
 
@@ -44,18 +45,15 @@ pub use projected_motion_breath::{
     projected_motion_breath_shell_handoff_review_for_evidence,
     projected_motion_breath_source_adapter_selection_review_for_authoring,
 };
-#[cfg(test)]
 pub(crate) use shell_contract::resolve_manifest_relative_path;
 pub(crate) use shell_contract::{
     is_safe_relative_manifest_path, relative_output_path, shell_artifact_for_descriptor,
     shell_handoff_manifest_id, shell_manifold_handoff_artifact_path, shell_runtime_authority,
-    shell_target_kind, shell_template_for_artifact, shell_template_index_entry,
+    shell_target_kind,
 };
 pub use shell_contract::{
     save_shell_bundle, selected_shell_bundle_for_graph, shell_artifacts_for_project,
-    shell_template_descriptor_path, shell_template_manifest_path,
-    shell_templates_for_artifact_manifest, validate_selected_shell_bundle,
-    validate_shell_artifact_manifest, validate_shell_template_index,
+    validate_selected_shell_bundle, validate_shell_artifact_manifest,
 };
 pub(crate) use shell_descriptor::shell_host_profile;
 pub use shell_descriptor::{
@@ -128,6 +126,11 @@ pub(crate) use shell_shared::{
     shell_handoff_consumer_id, shell_handoff_kind_for_target, shell_target_kind_label,
     shell_target_kinds, string_set, unique_strings,
 };
+pub use shell_templates::{
+    shell_template_descriptor_path, shell_template_manifest_path,
+    shell_templates_for_artifact_manifest, validate_shell_template_index,
+};
+pub(crate) use shell_templates::{shell_template_for_artifact, shell_template_index_entry};
 pub(crate) use validation_helpers::{
     first_failed_check_issue_code, first_failed_issue_code,
     first_failed_shell_artifact_manifest_issue_code,
