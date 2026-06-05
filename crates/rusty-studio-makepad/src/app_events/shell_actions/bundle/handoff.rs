@@ -1,0 +1,28 @@
+use super::super::super::*;
+
+impl App {
+    pub(in crate::app_events) fn prepare_shell_handoff_for_selected_graph(&mut self, cx: &mut Cx) {
+        let Some(source) = self.project_source.clone() else {
+            self.last_shell_bundle_status = "No project source is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        let Some(model) = self.model.clone() else {
+            self.last_shell_bundle_status = "No view model is loaded".to_string();
+            self.sync_loaded_model(cx);
+            self.ui.redraw(cx);
+            return;
+        };
+        match shell_handoff_for_project_source(&source, &model, self.selected_graph_index) {
+            Ok((report, output_dir)) => {
+                self.last_shell_bundle_status = shell_handoff_status(&report, &output_dir);
+            }
+            Err(error) => {
+                self.last_shell_bundle_status = error;
+            }
+        }
+        self.sync_loaded_model(cx);
+        self.ui.redraw(cx);
+    }
+}
