@@ -82,6 +82,7 @@ use std::process::ExitCode;
 
 mod hostess_commands;
 mod projected_motion_breath_commands;
+mod release_candidate_commands;
 mod shell_handoff_acceptance_commands;
 mod shell_package_commands;
 
@@ -1240,110 +1241,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::ShellHandoffAcceptanceComparison(args) => {
             shell_handoff_acceptance_commands::comparison(args)
         }
-        Command::ShellReleaseCandidateReview(args) => {
-            let manifest = load_shell_handoff_manifest(&args.manifest)?;
-            let acceptance_baseline_index =
-                load_shell_handoff_acceptance_baseline_index(&args.acceptance_baseline_index)?;
-            let export_package_baseline_index =
-                load_shell_export_package_baseline_index(&args.export_package_baseline_index)?;
-            let report = shell_release_candidate_review_for_manifest(
-                &manifest,
-                Some(&args.manifest),
-                &acceptance_baseline_index,
-                Some(&args.acceptance_baseline_index),
-                args.acceptance_baseline_id.as_deref(),
-                &export_package_baseline_index,
-                Some(&args.export_package_baseline_index),
-                args.export_package_baseline_id.as_deref(),
-            );
-            if let Some(output) = args.output.as_ref() {
-                save_json(output, &report)?;
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
+        Command::ShellReleaseCandidateReview(args) => release_candidate_commands::review(args),
         Command::ShellReleaseCandidateReviewManifest(args) => {
-            let review = load_shell_release_candidate_review_report(&args.review)?;
-            let report = shell_release_candidate_review_manifest_for_report(
-                &review,
-                &args.review,
-                args.candidate_id.as_deref(),
-                args.label.as_deref(),
-            );
-            if let Some(output) = args.output.as_ref() {
-                save_json(output, &report)?;
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
+            release_candidate_commands::manifest(args)
         }
-        Command::ShellReleaseCandidateReviewIndex(args) => {
-            let candidates = args
-                .candidate_manifests
-                .iter()
-                .map(|path| {
-                    load_shell_release_candidate_review_manifest(path)
-                        .map(|candidate| (candidate, Some(path.clone())))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let report = shell_release_candidate_review_index_for_manifests(
-                candidates,
-                args.default_candidate_id.as_deref(),
-            );
-            if let Some(output) = args.output.as_ref() {
-                save_json(output, &report)?;
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
-        }
+        Command::ShellReleaseCandidateReviewIndex(args) => release_candidate_commands::index(args),
         Command::ShellReleaseCandidateReviewIndexAppend(args) => {
-            let index = load_shell_release_candidate_review_index(&args.review_index)?;
-            let candidates = args
-                .candidate_manifests
-                .iter()
-                .map(|path| {
-                    load_shell_release_candidate_review_manifest(path)
-                        .map(|candidate| (candidate, Some(path.clone())))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let report = append_shell_release_candidate_review_index_manifests(
-                &index,
-                candidates,
-                args.default_candidate_id.as_deref(),
-            );
-            if let Some(output) = args.output.as_ref() {
-                save_json(output, &report)?;
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
+            release_candidate_commands::index_append(args)
         }
         Command::ShellReleaseCandidateReviewIndexPromote(args) => {
-            let index = load_shell_release_candidate_review_index(&args.review_index)?;
-            let report =
-                promote_shell_release_candidate_review_index_default(&index, &args.candidate_id)
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "--candidate-id was not found in --review-index",
-                        )
-                    })?;
-            if let Some(output) = args.output.as_ref() {
-                save_json(output, &report)?;
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
+            release_candidate_commands::index_promote(args)
         }
         Command::ShellReleaseCandidateReviewSelection(args) => {
-            let index = load_shell_release_candidate_review_index(&args.review_index)?;
-            let report = summarize_shell_release_candidate_review_index_selection(
-                &index,
-                Some(&args.review_index),
-                args.candidate_id.as_deref(),
-            );
-            if let Some(output) = args.output.as_ref() {
-                save_json(output, &report)?;
-            }
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
+            release_candidate_commands::selection(args)
         }
         Command::ShellHostessHandoffPackage(args) => hostess_commands::handoff_package(args),
         Command::ShellHostessOwnerIntake(args) => hostess_commands::owner_intake(args),
