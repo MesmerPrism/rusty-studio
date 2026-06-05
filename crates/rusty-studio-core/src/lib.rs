@@ -21,6 +21,8 @@ mod shell_hostess_handoff;
 mod shell_hostess_staging_acceptance;
 mod shell_hostess_staging_plan;
 mod shell_release_candidate;
+mod shell_shared;
+mod validation_helpers;
 mod view_model;
 
 pub use error::StudioCoreError;
@@ -112,6 +114,17 @@ pub use shell_release_candidate::{
     shell_release_candidate_review_index_for_manifests,
     shell_release_candidate_review_manifest_for_report,
     summarize_shell_release_candidate_review_index_selection,
+};
+pub(crate) use shell_shared::{
+    count_delta, path_ends_with_shell_templates, runtime_authority_matches, same_unique_strings,
+    shell_handoff_consumer_id, shell_handoff_kind_for_target, shell_target_kind_label,
+    shell_target_kinds, string_set, unique_strings,
+};
+pub(crate) use validation_helpers::{
+    first_failed_check_issue_code, first_failed_issue_code,
+    first_failed_shell_artifact_manifest_issue_code,
+    first_failed_shell_bundle_validation_issue_code, first_failed_shell_template_index_issue_code,
+    first_failed_validation_check_issue_code, push_check, push_contextual_check,
 };
 pub use view_model::*;
 
@@ -318,13 +331,6 @@ fn selected_node_reference_ids(
         .collect()
 }
 
-fn first_failed_validation_check_issue_code(checks: &[StudioValidationCheck]) -> Option<String> {
-    checks
-        .iter()
-        .find(|check| check.status == StudioValidationStatus::Fail)
-        .and_then(|check| check.issue_code.clone())
-}
-
 fn default_shell_release_candidate_review_id(
     review: &StudioShellReleaseCandidateReviewReport,
 ) -> String {
@@ -354,79 +360,6 @@ fn shell_release_candidate_review_status_key(
         StudioShellReleaseCandidateReviewStatus::Ready => "ready",
         StudioShellReleaseCandidateReviewStatus::Blocked => "blocked",
         StudioShellReleaseCandidateReviewStatus::Rejected => "rejected",
-    }
-}
-
-fn count_delta(candidate: usize, baseline: usize) -> isize {
-    candidate as isize - baseline as isize
-}
-
-fn string_set(values: &[String]) -> BTreeSet<String> {
-    values.iter().cloned().collect()
-}
-
-fn runtime_authority_matches(authority: &StudioShellRuntimeAuthority) -> bool {
-    authority.command_session_authority == "rusty.manifold"
-        && authority.install_launch_evidence_authority == "rusty.hostess"
-        && authority.studio_role == "authoring.export_planning"
-}
-
-fn path_ends_with_shell_templates(path: &str) -> bool {
-    !path.trim().is_empty() && path.replace('\\', "/").ends_with("/shell-templates.json")
-}
-
-fn same_unique_strings(actual: &[String], expected: &[String]) -> bool {
-    actual.len() == expected.len()
-        && actual.iter().collect::<BTreeSet<_>>() == expected.iter().collect::<BTreeSet<_>>()
-}
-
-fn unique_strings<I>(values: I) -> Vec<String>
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut seen = BTreeSet::new();
-    let mut unique = Vec::new();
-    for value in values {
-        if seen.insert(value.clone()) {
-            unique.push(value);
-        }
-    }
-    unique
-}
-
-fn shell_target_kinds() -> [StudioShellTargetKind; 4] {
-    [
-        StudioShellTargetKind::Desktop,
-        StudioShellTargetKind::Phone,
-        StudioShellTargetKind::Quest,
-        StudioShellTargetKind::Unknown,
-    ]
-}
-
-fn shell_handoff_kind_for_target(target_kind: StudioShellTargetKind) -> StudioShellHandoffKind {
-    match target_kind {
-        StudioShellTargetKind::Desktop => StudioShellHandoffKind::DesktopShell,
-        StudioShellTargetKind::Phone => StudioShellHandoffKind::PhoneShell,
-        StudioShellTargetKind::Quest => StudioShellHandoffKind::QuestShell,
-        StudioShellTargetKind::Unknown => StudioShellHandoffKind::UnknownShell,
-    }
-}
-
-fn shell_handoff_consumer_id(target_kind: StudioShellTargetKind) -> &'static str {
-    match target_kind {
-        StudioShellTargetKind::Desktop => "rusty-studio-desktop-shell",
-        StudioShellTargetKind::Phone => "rusty-studio-phone-shell",
-        StudioShellTargetKind::Quest => "rusty-studio-quest-shell",
-        StudioShellTargetKind::Unknown => "rusty-studio-operator-shell",
-    }
-}
-
-fn shell_target_kind_label(target_kind: StudioShellTargetKind) -> &'static str {
-    match target_kind {
-        StudioShellTargetKind::Desktop => "desktop",
-        StudioShellTargetKind::Phone => "phone",
-        StudioShellTargetKind::Quest => "quest",
-        StudioShellTargetKind::Unknown => "unknown",
     }
 }
 
@@ -1254,56 +1187,6 @@ fn edge_duplicates(edges: &[StudioEdge]) -> BTreeMap<String, usize> {
     counts
 }
 
-fn push_check(
-    checks: &mut Vec<StudioValidationCheck>,
-    check_id: &str,
-    passed: bool,
-    pass_evidence: &str,
-    fail_evidence: &str,
-    issue_code: &str,
-) {
-    push_contextual_check(
-        checks,
-        check_id,
-        passed,
-        pass_evidence,
-        fail_evidence,
-        issue_code,
-        None,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-    );
-}
-
-fn push_contextual_check(
-    checks: &mut Vec<StudioValidationCheck>,
-    check_id: &str,
-    passed: bool,
-    pass_evidence: &str,
-    fail_evidence: &str,
-    issue_code: &str,
-    graph_id: Option<&str>,
-    node_ids: Vec<String>,
-    edge_ids: Vec<String>,
-    reference_ids: Vec<String>,
-) {
-    checks.push(StudioValidationCheck {
-        check_id: check_id.to_string(),
-        status: if passed {
-            StudioValidationStatus::Pass
-        } else {
-            StudioValidationStatus::Fail
-        },
-        evidence: if passed { pass_evidence } else { fail_evidence }.to_string(),
-        issue_code: (!passed).then(|| issue_code.to_string()),
-        graph_id: graph_id.map(str::to_string),
-        node_ids,
-        edge_ids,
-        reference_ids,
-    });
-}
-
 fn binding_kind_for_edge(edge_kind: StudioEdgeKind) -> Option<StudioBindingKind> {
     match edge_kind {
         StudioEdgeKind::StreamBinding => Some(StudioBindingKind::Stream),
@@ -1341,52 +1224,6 @@ fn binding_endpoint_kind_message(binding_kind: StudioBindingKind) -> &'static st
             "Command bindings must connect an operator_shell node to a module node"
         }
     }
-}
-
-fn first_failed_issue_code(report: &StudioValidationReport) -> Option<String> {
-    report.checks.iter().find_map(|check| {
-        (check.status == StudioValidationStatus::Fail)
-            .then(|| check.issue_code.clone())
-            .flatten()
-    })
-}
-
-fn first_failed_check_issue_code(report: &StudioShellDescriptorValidationReport) -> Option<String> {
-    report.checks.iter().find_map(|check| {
-        (check.status == StudioValidationStatus::Fail)
-            .then(|| check.issue_code.clone())
-            .flatten()
-    })
-}
-
-fn first_failed_shell_artifact_manifest_issue_code(
-    report: &StudioShellArtifactManifestValidationReport,
-) -> Option<String> {
-    report.checks.iter().find_map(|check| {
-        (check.status == StudioValidationStatus::Fail)
-            .then(|| check.issue_code.clone())
-            .flatten()
-    })
-}
-
-fn first_failed_shell_template_index_issue_code(
-    report: &StudioShellTemplateIndexValidationReport,
-) -> Option<String> {
-    report.checks.iter().find_map(|check| {
-        (check.status == StudioValidationStatus::Fail)
-            .then(|| check.issue_code.clone())
-            .flatten()
-    })
-}
-
-fn first_failed_shell_bundle_validation_issue_code(
-    report: &StudioShellBundleValidationReport,
-) -> Option<String> {
-    report.checks.iter().find_map(|check| {
-        (check.status == StudioValidationStatus::Fail)
-            .then(|| check.issue_code.clone())
-            .flatten()
-    })
 }
 
 #[cfg(test)]
