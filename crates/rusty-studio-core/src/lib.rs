@@ -22,6 +22,7 @@ mod shell_handoff;
 mod shell_handoff_acceptance;
 mod shell_hostess_handoff;
 mod shell_hostess_staging_acceptance;
+mod shell_hostess_staging_acceptance_comparison;
 mod shell_hostess_staging_plan;
 mod shell_release_candidate;
 mod shell_shared;
@@ -100,9 +101,6 @@ pub use shell_hostess_handoff::{
 };
 pub use shell_hostess_staging_acceptance::{
     append_shell_hostess_staging_acceptance_index_manifests,
-    compare_shell_hostess_staging_acceptance_against_index_entry,
-    compare_shell_hostess_staging_acceptance_against_manifest,
-    compare_shell_hostess_staging_acceptance_checklists,
     promote_shell_hostess_staging_acceptance_index_default,
     select_shell_hostess_staging_acceptance_index_entry,
     shell_hostess_staging_acceptance_checklist_for_handoff,
@@ -111,6 +109,11 @@ pub use shell_hostess_staging_acceptance::{
     shell_hostess_staging_execution_request_for_acceptance_index_entry,
     shell_hostess_staging_execution_request_for_acceptance_index_entry_with_pmb_review,
     summarize_shell_hostess_staging_acceptance_index_selection,
+};
+pub use shell_hostess_staging_acceptance_comparison::{
+    compare_shell_hostess_staging_acceptance_against_index_entry,
+    compare_shell_hostess_staging_acceptance_against_manifest,
+    compare_shell_hostess_staging_acceptance_checklists,
 };
 pub use shell_hostess_staging_plan::{
     shell_hostess_staging_file_plan_for_preview,
