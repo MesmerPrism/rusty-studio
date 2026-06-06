@@ -31,6 +31,7 @@ mod shell_hostess_staging_handoff;
 mod shell_hostess_staging_plan;
 mod shell_hostess_staging_preview;
 mod shell_release_candidate;
+mod shell_runbook;
 mod shell_shared;
 mod shell_templates;
 mod validation_helpers;
@@ -82,12 +83,10 @@ pub use shell_export_package_comparison::{
     compare_shell_export_packages, compare_shell_export_packages_against_baseline_index_entry,
     compare_shell_export_packages_against_baseline_manifest,
 };
-#[cfg(test)]
-pub(crate) use shell_handoff::empty_shell_host_routes;
 pub use shell_handoff::{
     desktop_shell_handoff_for_bundle, shell_handoff_for_bundle, shell_handoff_intake_for_manifest,
     shell_handoff_manifest_for_project, shell_handoff_readiness_for_project,
-    shell_runbook_for_manifest, shell_runbook_for_project, validate_shell_handoff_manifest,
+    validate_shell_handoff_manifest,
 };
 pub(crate) use shell_handoff_acceptance::shell_handoff_acceptance_prohibited_actions;
 pub use shell_handoff_acceptance::{
@@ -141,6 +140,9 @@ pub use shell_release_candidate::{
     shell_release_candidate_review_manifest_for_report,
     summarize_shell_release_candidate_review_index_selection,
 };
+#[cfg(test)]
+pub(crate) use shell_runbook::empty_shell_host_routes;
+pub use shell_runbook::{shell_runbook_for_manifest, shell_runbook_for_project};
 pub(crate) use shell_shared::{
     count_delta, path_ends_with_shell_templates, runtime_authority_matches, same_unique_strings,
     shell_handoff_consumer_id, shell_handoff_kind_for_target, shell_target_kind_label,
