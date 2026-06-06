@@ -18,6 +18,7 @@ mod shell_artifacts;
 mod shell_contract;
 mod shell_descriptor;
 mod shell_export_package;
+mod shell_export_package_comparison;
 mod shell_handoff;
 mod shell_handoff_acceptance;
 mod shell_hostess_handoff;
@@ -69,14 +70,16 @@ pub use shell_descriptor::{
     shell_descriptor_artifact_path, shell_descriptor_for_graph, validate_shell_descriptor,
 };
 pub use shell_export_package::{
-    append_shell_export_package_baseline_index_manifests, compare_shell_export_packages,
-    compare_shell_export_packages_against_baseline_index_entry,
-    compare_shell_export_packages_against_baseline_manifest,
+    append_shell_export_package_baseline_index_manifests,
     promote_shell_export_package_baseline_index_default,
     select_shell_export_package_baseline_index_entry,
     shell_export_package_baseline_index_for_manifests,
     shell_export_package_baseline_manifest_for_report, shell_export_package_for_manifest,
     shell_export_package_for_project, summarize_shell_export_package_baseline_index_selection,
+};
+pub use shell_export_package_comparison::{
+    compare_shell_export_packages, compare_shell_export_packages_against_baseline_index_entry,
+    compare_shell_export_packages_against_baseline_manifest,
 };
 #[cfg(test)]
 pub(crate) use shell_handoff::empty_shell_host_routes;
