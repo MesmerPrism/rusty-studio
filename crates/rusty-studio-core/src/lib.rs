@@ -25,6 +25,7 @@ mod shell_hostess_staging_acceptance;
 mod shell_hostess_staging_acceptance_comparison;
 mod shell_hostess_staging_acceptance_items;
 mod shell_hostess_staging_execution;
+mod shell_hostess_staging_handoff;
 mod shell_hostess_staging_plan;
 mod shell_hostess_staging_preview;
 mod shell_release_candidate;
@@ -123,10 +124,8 @@ pub use shell_hostess_staging_execution::{
     shell_hostess_staging_execution_request_for_acceptance_index_entry,
     shell_hostess_staging_execution_request_for_acceptance_index_entry_with_pmb_review,
 };
-pub use shell_hostess_staging_plan::{
-    shell_hostess_staging_file_plan_for_preview,
-    shell_hostess_staging_handoff_envelope_for_file_plan,
-};
+pub use shell_hostess_staging_handoff::shell_hostess_staging_handoff_envelope_for_file_plan;
+pub use shell_hostess_staging_plan::shell_hostess_staging_file_plan_for_preview;
 pub use shell_hostess_staging_preview::shell_hostess_staging_preview_for_owner_intake;
 pub use shell_release_candidate::{
     append_shell_release_candidate_review_index_manifests,
