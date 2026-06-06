@@ -26,6 +26,7 @@ mod shell_hostess_staging_acceptance_comparison;
 mod shell_hostess_staging_acceptance_items;
 mod shell_hostess_staging_execution;
 mod shell_hostess_staging_plan;
+mod shell_hostess_staging_preview;
 mod shell_release_candidate;
 mod shell_shared;
 mod shell_templates;
@@ -125,8 +126,8 @@ pub use shell_hostess_staging_execution::{
 pub use shell_hostess_staging_plan::{
     shell_hostess_staging_file_plan_for_preview,
     shell_hostess_staging_handoff_envelope_for_file_plan,
-    shell_hostess_staging_preview_for_owner_intake,
 };
+pub use shell_hostess_staging_preview::shell_hostess_staging_preview_for_owner_intake;
 pub use shell_release_candidate::{
     append_shell_release_candidate_review_index_manifests,
     promote_shell_release_candidate_review_index_default,
