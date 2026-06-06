@@ -21,6 +21,7 @@ mod shell_export_package;
 mod shell_export_package_comparison;
 mod shell_handoff;
 mod shell_handoff_acceptance;
+mod shell_handoff_acceptance_comparison;
 mod shell_hostess_handoff;
 mod shell_hostess_staging_acceptance;
 mod shell_hostess_staging_acceptance_comparison;
@@ -91,9 +92,6 @@ pub use shell_handoff::{
 pub(crate) use shell_handoff_acceptance::shell_handoff_acceptance_prohibited_actions;
 pub use shell_handoff_acceptance::{
     append_shell_handoff_acceptance_baseline_index_manifests,
-    compare_shell_handoff_acceptance_against_baseline_index_entry,
-    compare_shell_handoff_acceptance_against_baseline_manifest,
-    compare_shell_handoff_acceptance_checklists,
     promote_shell_handoff_acceptance_baseline_index_default,
     select_shell_handoff_acceptance_baseline_index_entry,
     shell_handoff_acceptance_baseline_index_for_manifests,
@@ -101,6 +99,11 @@ pub use shell_handoff_acceptance::{
     shell_handoff_acceptance_checklist_for_intake, shell_handoff_acceptance_checklist_for_project,
     summarize_shell_handoff_acceptance_baseline_index_selection,
     summarize_shell_handoff_acceptance_checklist,
+};
+pub use shell_handoff_acceptance_comparison::{
+    compare_shell_handoff_acceptance_against_baseline_index_entry,
+    compare_shell_handoff_acceptance_against_baseline_manifest,
+    compare_shell_handoff_acceptance_checklists,
 };
 pub use shell_hostess_handoff::{
     shell_hostess_handoff_package_for_release_candidate_index,
