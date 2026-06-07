@@ -21,6 +21,8 @@ and generated-shell lane for the clean Rusty stack. It is not runtime authority.
   or Makepad dependencies to `rusty-studio-model` or `rusty-studio-core`.
 - Keep Makepad dependencies isolated to `rusty-studio-makepad` and later
   generated-shell UI crates.
+- Keep Studio core, CLI, descriptors, fixtures, and export planning
+  Makepad-free; Makepad is a UI shell dependency, not Studio authority.
 - Use relative paths in committed fixtures.
 - Keep private/local paths out of examples and docs intended for this repo.
 
