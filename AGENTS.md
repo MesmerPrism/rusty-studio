@@ -8,6 +8,11 @@ the workflow and authoring lane inside that umbrella; it may compose Matter,
 Lattice, Manifold, Optics, GUI, Quest, and Hostess surfaces without becoming
 their runtime authority.
 
+Project-owned source in this repo is licensed `AGPL-3.0-or-later`. Keep
+third-party dependencies, Makepad toolkit code, generated shell outputs,
+package evidence, binary releases, and external tools under their own
+provenance and notice requirements; see `docs/LICENSING.md`.
+
 ## Boundaries
 
 - Manifold owns command/session/lease/runtime authority.
