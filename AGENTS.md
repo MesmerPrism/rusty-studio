@@ -8,6 +8,9 @@ and generated-shell lane for the clean Rusty stack. It is not runtime authority.
 - Manifold owns command/session/lease/runtime authority.
 - Manifold packages own package manifests, fixtures, and processor cores.
 - Hostess owns install, launch, platform acquisition, and evidence collection.
+- Lattice owns situated relation contracts such as spaces, transforms, tracked
+  poses, view sets, spatial input roles, frame-state binding, calibration,
+  validity, confidence, and runtime capabilities.
 - Rusty Studio owns authored project graphs, validation, export planning,
   diagnostics, and generated shell intent.
 - Makepad will render Studio and generated shells, but core model and CLI logic
@@ -23,6 +26,9 @@ and generated-shell lane for the clean Rusty stack. It is not runtime authority.
   generated-shell UI crates.
 - Keep Studio core, CLI, descriptors, fixtures, and export planning
   Makepad-free; Makepad is a UI shell dependency, not Studio authority.
+- Studio may author and validate Lattice descriptors, but it must not become
+  Lattice runtime authority or import OpenXR/Quest/Makepad runtime APIs into
+  model/core.
 - Use relative paths in committed fixtures.
 - Keep private/local paths out of examples and docs intended for this repo.
 
