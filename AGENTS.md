@@ -1,7 +1,12 @@
 # Rusty Studio Agent Notes
 
 Rusty Studio is the authoring, validation, diagnostics, deployment-planning,
-and generated-shell lane for the clean Rusty stack. It is not runtime authority.
+and generated-shell lane for Rusty Morphospace. It is not runtime authority.
+
+Rusty Morphospace is the top-level project/platform umbrella. Studio remains
+the workflow and authoring lane inside that umbrella; it may compose Matter,
+Lattice, Manifold, Optics, GUI, Quest, and Hostess surfaces without becoming
+their runtime authority.
 
 ## Boundaries
 
