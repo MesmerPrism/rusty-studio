@@ -319,8 +319,8 @@ pub fn projected_motion_breath_shell_handoff_review_for_evidence(
         nested_json_bool(evidence, "execution", "downstream_shell_runtime_used").unwrap_or(true);
     let legacy_app_dependency_used =
         nested_json_bool(evidence, "execution", "legacy_app_dependency_used").unwrap_or(true);
-    let legacy_rusty_xr_repo_used =
-        nested_json_bool(evidence, "execution", "legacy_rusty_xr_repo_used").unwrap_or(true);
+    let legacy_reference_repo_used =
+        nested_json_bool(evidence, "execution", "legacy_reference_repo_used").unwrap_or(true);
     let feedback_receipt_exported = exported_stream_ids
         .iter()
         .any(|stream_id| stream_id == "stream.breath.feedback_receipt");
@@ -332,7 +332,7 @@ pub fn projected_motion_breath_shell_handoff_review_for_evidence(
         && !broker_transport_used
         && !downstream_shell_runtime_used
         && !legacy_app_dependency_used
-        && !legacy_rusty_xr_repo_used;
+        && !legacy_reference_repo_used;
 
     let mut checks = Vec::new();
     push_check(

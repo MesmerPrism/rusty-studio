@@ -194,7 +194,7 @@ pub(super) fn projected_motion_shell_handoff_evidence() -> Value {
             "broker_transport_used": false,
             "downstream_shell_runtime_used": false,
             "legacy_app_dependency_used": false,
-            "legacy_rusty_xr_repo_used": false
+            "legacy_reference_repo_used": false
         },
         "shell_handoff": {
             "handoff_id": "shell_handoff.projected_motion_breath.loopback",
