@@ -50,6 +50,12 @@ Use the repo wrapper:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check_all.ps1
 ```
 
+`tools/check_all.ps1` owns the ordered repo validation flow. Large scenario
+families live under `tools/checks/`; currently
+`tools/checks/studio_hostess_staging_check.ps1` owns the request-only
+Hostess staging package, intake, preview, file-plan, handoff, acceptance,
+PMB review, execution-request, and acceptance-index validation chain.
+
 The graph-discoverable target is:
 
 ```powershell

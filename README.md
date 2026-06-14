@@ -4,6 +4,14 @@ Rusty Studio is the schema-first authoring and export-planning app for the
 clean Rusty stack. The core semantics are plain Rust model/core/CLI crates so
 Studio behavior can be validated before and alongside the Makepad graph editor.
 
+## Validation Tools
+
+Use `tools/check_all.ps1` as the ordered repo validation wrapper. Large
+scenario families are split into `tools/checks/` modules so the wrapper stays
+readable; `tools/checks/studio_hostess_staging_check.ps1` owns the Hostess
+staging and execution-request validation chain while preserving Studio's
+request-only boundary.
+
 Current scope:
 
 - model a Studio project graph;
